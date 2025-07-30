@@ -3,8 +3,8 @@ from matplotlib import pyplot as plt
 import torch
 from torchvision import transforms
 from torchvision.utils import make_grid
-import matplotlib
-matplotlib.use('MacOSX')  # Use 'TkAgg' for Linux, 'MacOSX' for macOS, 'Qt5Agg' for Windows
+# import matplotlib
+# matplotlib.use('MacOSX')  # Use 'TkAgg' for Linux, 'MacOSX' for macOS, 'Qt5Agg' for Windows
 import os
 import json
 import time
@@ -35,7 +35,7 @@ config = {
         "y_embed_dim": 40
     },
     "training": {
-        "num_epochs": 500,
+        "num_iterations": 8,
         "batch_size": 250,
         "lr": 1e-3,
         "eta": 0.1
@@ -58,14 +58,30 @@ print(f"Experiment setup. Config saved to {CONFIG_SAVE_PATH}")
 
 # --- Data Loading ---
 data_cfg = config['data']
-temp_sampler = SpectrogramSampler(data_path=data_cfg['data_dir'], mode="all", src_splits=data_cfg['src_splits'])
 
-spec_mean = temp_sampler.spectrograms.mean()
-spec_std = temp_sampler.spectrograms.std()
+# --- Create a temporary sampler for the TRAINING set to get stats ---
+# This ensures we only calculate normalization stats from data the model will be trained on.
+temp_train_sampler = SpectrogramSampler(data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits'])
+spec_mean = temp_train_sampler.spectrograms.mean()
+spec_std = temp_train_sampler.spectrograms.std()
+print(f"\nCalculated Mean: {spec_mean:.4f}, Std: {spec_std:.4f} (from training set)")
 
+# --- NEW: Define the transform object ---
+# This will be passed to all samplers to ensure consistent processing.
+transform = transforms.Compose([
+    # transforms.Resize((16, 16), antialias=True), #this line
+    transforms.Normalize((spec_mean,), (spec_std,)),
+])
+
+# --- Instantiate Final Samplers using the defined transform ---
 spec_train_sampler = SpectrogramSampler(
     data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits'],
-    transform=transforms.Compose([transforms.Normalize((spec_mean,), (spec_std,))])
+    transform=transform
+).to(device)
+
+spec_valid_sampler = SpectrogramSampler(
+    data_path=data_cfg['data_dir'], mode='valid', src_splits=data_cfg['src_splits'],
+    transform=transform
 ).to(device)
 
 sample_spec, _ = spec_train_sampler.sample(1)
@@ -99,20 +115,24 @@ trainer = CFGTrainer(
 )
 
 # --- Training ---
-print(f"--- Starting Training for experiment: {experiment_name} ---")
+print(f"\n--- Starting Training for experiment: {experiment_name} ---")
 trainer.train(
-    num_epochs=training_cfg['num_epochs'],
+    num_iterations=training_cfg['num_iterations'],
     device=device,
     lr=training_cfg['lr'],
-    batch_size=training_cfg['batch_size']
+    batch_size=training_cfg['batch_size'],
+    validation_interval=1,
+    valid_sampler=spec_valid_sampler,  # Pass the validation sampler**
+    save_path=MODEL_SAVE_PATH,         # Pass the save path**
+    config=config                      # Pass the config to be saved**
 )
 
 # --- Save the Model ---
-print(f"Saving model to {MODEL_SAVE_PATH}...")
-torch.save({
-    'model_state_dict': spec_unet.state_dict(),
-    'y_null': trainer.y_null,
-    'config': config # Save config with model for easy reference
-}, MODEL_SAVE_PATH)
-print("Model saved. You can now run inference using the model and config from the experiment directory.")
-print(f"Experiment directory: {experiment_dir}")
+# print(f"Saving model to {MODEL_SAVE_PATH}...")
+# torch.save({
+#     'model_state_dict': spec_unet.state_dict(),
+#     'y_null': trainer.y_null,
+#     'config': config # Save config with model for easy reference
+# }, MODEL_SAVE_PATH)
+# print("Model saved. You can now run inference using the model and config from the experiment directory.")
+# print(f"Experiment directory: {experiment_dir}")

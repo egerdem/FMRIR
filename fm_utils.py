@@ -429,6 +429,7 @@ def model_size_b(model: nn.Module) -> int:
     for buf in model.buffers():
         size += buf.nelement() * buf.element_size()
     return size
+
 class Trainer(ABC):
     def __init__(self, model: nn.Module):
         super().__init__()
@@ -438,10 +439,16 @@ class Trainer(ABC):
     def get_train_loss(self, **kwargs) -> torch.Tensor:
         pass
 
+    # **NEW: Abstract method for validation loss**
+    @torch.no_grad()
+    @abstractmethod
+    def get_valid_loss(self, **kwargs) -> torch.Tensor:
+        pass
+
     def get_optimizer(self, lr: float):
         return torch.optim.Adam(self.model.parameters(), lr=lr)
 
-    def train(self, num_epochs: int, device: torch.device, lr: float = 1e-3, **kwargs) -> torch.Tensor:
+    def train(self, num_iterations: int, device: torch.device, lr: float = 1e-3, valid_sampler: Optional[Sampleable] = None, save_path: str = "model.pt", validation_interval: int = 50, **kwargs) -> torch.Tensor:
         # Report model size
         size_b = model_size_b(self.model)
         print(f'Training model with size: {size_b / MiB:.3f} MiB')
@@ -449,19 +456,57 @@ class Trainer(ABC):
         # Start
         self.model.to(device)
         opt = self.get_optimizer(lr)
-        self.model.train()
 
-        # Train loop
-        pbar = tqdm(enumerate(range(num_epochs)))
-        for idx, epoch in pbar:
+        # **NEW: Logic for tracking best model**
+        best_val_loss = float('inf')
+        best_model_state = None
+
+        batch_size = kwargs.get('batch_size')
+        if batch_size is None:
+            raise ValueError("batch_size must be provided to the train method.")
+
+        # **NEW: Get total dataset size for epoch calculation**
+        dataset_size = len(self.path.p_data.spectrograms)
+
+        pbar = tqdm(range(num_iterations))
+        for iteration in pbar:
+            self.model.train()
             opt.zero_grad()
-            loss = self.get_train_loss(**kwargs)
+
+            loss = self.get_train_loss(batch_size=batch_size)
             loss.backward()
             opt.step()
-            pbar.set_description(f'Epoch {idx}, loss: {loss.item():.3f}')
-            print(f'Epoch {idx}, loss: {loss.item():.3f}')
 
-        # Finish
+            # **MODIFICATION: Calculate and display the current epoch number**
+            current_epoch = (iteration + 1) * batch_size / dataset_size
+
+            # **NEW: Validation loop**
+            if valid_sampler and (iteration + 1) % validation_interval == 0:
+                self.model.eval()
+                val_loss = self.get_valid_loss(valid_sampler=valid_sampler, batch_size=batch_size)
+
+                pbar.set_description(
+                    f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.3f}, Val Loss: {val_loss.item():.3f}')
+
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    print(f"** New best validation loss: {best_val_loss:.3f}. Saving model. **")
+                    # **Save the best model state in memory**
+                    best_model_state = self.model.state_dict()
+            else:
+                pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.3f}')
+
+        # **NEW: Save the best model state to disk after training finishes**
+        if best_model_state:
+            print(f"Saving best model with val loss {best_val_loss:.3f} to {save_path}")
+            # We also need to save the y_null from the trainer
+            torch.save({
+                'model_state_dict': best_model_state,
+                'y_null': self.y_null,  # Assuming y_null is part of the trainer
+                'config': kwargs.get('config', {})
+            }, save_path)
+            print(f"Saving model to {save_path}...")
+
         self.model.eval()
 
 class MNISTSampler(nn.Module, Sampleable):
@@ -587,7 +632,7 @@ class SpectrogramSampler(nn.Module, Sampleable):
             print(f"Saved processed {self.mode} data to {processed_file}")
 
         self.dummy = nn.Buffer(torch.zeros(1))
-        print(f"Loaded {len(self.spectrograms)} spectrograms for {self.mode} set.")
+        print(f"Loaded {len(self.spectrograms)/1331} * {1331} = {len(self.spectrograms)} spectrograms for {self.mode} set.")
         print(f"Spectrogram tensor shape: {self.spectrograms.shape}")
         print(f"Coordinate tensor shape: {self.coords.shape}")
 
@@ -725,6 +770,28 @@ class CFGTrainer(Trainer):
 
         # error = torch.einsum('bchw -> b', torch.square(ut_theta - ut_ref))  # (bs,)
         return mean_loss
+
+    # **NEW: Validation loss implementation**
+    @torch.no_grad()
+    def get_valid_loss(self, valid_sampler: Sampleable, batch_size: int, **kwargs) -> torch.Tensor:
+        # Step 1: Sample z and y from the validation data sampler
+        z, y = valid_sampler.sample(batch_size)
+        y = y.to(z.device)
+
+        # Step 2: For validation, we ONLY use conditional samples. No CFG masking.
+        y_cond = y
+
+        # Step 3: Sample t and x
+        t = torch.rand(batch_size, 1, 1, 1).to(z.device)
+        x = self.path.sample_conditional_path(z, t)
+
+        # Step 4: Calculate loss
+        ut_theta = self.model(x, t, y_cond)
+        ut_ref = self.path.conditional_vector_field(x, z, t)
+        error = torch.square(ut_theta - ut_ref)
+        loss_per_sample = error.view(batch_size, -1).sum(dim=1)
+
+        return loss_per_sample.mean()
 
 # """ Part 3: An Architecture for Spectrograms: Building a U-Net """
 
