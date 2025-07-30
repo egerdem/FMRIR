@@ -9,18 +9,18 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import matplotlib
 matplotlib.use('MacOSX')  # Use 'TKAgg' for Linux or Windows
 
-from utils import dim2cuboid
+from irdata_utils import dim2cuboid
 
 if __name__ == "__main__":
 
     save_figs = False  # Set to False to disable saving figures
-    save_data = True
+    save_data = False
     # Set random seed
     seed = 0
     np.random.seed(seed)
 
     parser = argparse.ArgumentParser(description='Generate impulse responses by image source method')
-    parser.add_argument('--num_src', '-s', type=int, default=5, help='Number of sources')
+    parser.add_argument('--num_src', '-s', type=int, default=1024, help='Number of sources')
     parser.add_argument('--rt60', '-r', type=int, default=200, help='Target RT60 (ms)')
     parser.add_argument('--int_mic', '-i', type=float, default=0.1, help='Microphone interval (m)')
 
@@ -78,7 +78,8 @@ if __name__ == "__main__":
 
     # Save cofniguration
     dir = f"ir_fs{fs}_s{num_src}_m{num_mic}_room{room_dim[0]:.1f}x{room_dim[1]:.1f}x{room_dim[2]:.1f}_rt{int(rt60_tgt*1000)}/"
-    print("Save to directory: ", dir)
+    if save_data:
+        print("Save to directory: ", dir)
     import os
     # Create directory if it doesn't exist
     os.makedirs(dir, exist_ok=True)

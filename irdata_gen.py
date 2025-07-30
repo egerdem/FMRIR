@@ -10,7 +10,7 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 # import matplotlib
 # matplotlib.use('TKAgg')
 
-from utils import dim2cuboid
+from irdata_utils import dim2cuboid
 
 if __name__ == "__main__":
     # Set random seed
