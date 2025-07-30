@@ -8,6 +8,7 @@ from torchvision.utils import make_grid
 import os
 import json
 import time
+import wandb
 
 from fm_utils import (
     SpectrogramSampler, GaussianConditionalProbabilityPath, LinearAlpha,
@@ -59,30 +60,27 @@ print(f"Experiment setup. Config saved to {CONFIG_SAVE_PATH}")
 # --- Data Loading ---
 data_cfg = config['data']
 
-# --- Create a temporary sampler for the TRAINING set to get stats ---
-# This ensures we only calculate normalization stats from data the model will be trained on.
-temp_train_sampler = SpectrogramSampler(data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits'])
-spec_mean = temp_train_sampler.spectrograms.mean()
-spec_std = temp_train_sampler.spectrograms.std()
-print(f"\nCalculated Mean: {spec_mean:.4f}, Std: {spec_std:.4f} (from training set)")
-
-# --- NEW: Define the transform object ---
-# This will be passed to all samplers to ensure consistent processing.
-transform = transforms.Compose([
-    # transforms.Resize((16, 16), antialias=True), #this line
-    transforms.Normalize((spec_mean,), (spec_std,)),
-])
-
-# --- Instantiate Final Samplers using the defined transform ---
+# ensures we only calculate normalization stats from data the model will be trained on.
+# --- Instantiate Samplers for each split (only ONCE) ---
 spec_train_sampler = SpectrogramSampler(
-    data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits'],
-    transform=transform
+    data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits']
 ).to(device)
 
 spec_valid_sampler = SpectrogramSampler(
-    data_path=data_cfg['data_dir'], mode='valid', src_splits=data_cfg['src_splits'],
-    transform=transform
+    data_path=data_cfg['data_dir'], mode='valid', src_splits=data_cfg['src_splits']
 ).to(device)
+
+# --- Calculate stats from the single training sampler instance ---
+spec_mean = spec_train_sampler.spectrograms.mean()
+spec_std = spec_train_sampler.spectrograms.std()
+print(f"\nCalculated Mean: {spec_mean:.4f}, Std: {spec_std:.4f} (from training set)")
+
+# --- Define and apply the transform to the existing samplers ---
+transform = transforms.Compose([
+    transforms.Normalize((spec_mean,), (spec_std,)),
+])
+spec_train_sampler.transform = transform
+spec_valid_sampler.transform = transform
 
 sample_spec, _ = spec_train_sampler.sample(1)
 spec_shape = list(sample_spec.shape[1:])
@@ -136,3 +134,6 @@ trainer.train(
 # }, MODEL_SAVE_PATH)
 # print("Model saved. You can now run inference using the model and config from the experiment directory.")
 # print(f"Experiment directory: {experiment_dir}")
+
+# **NEW: Finish the wandb run**
+wandb.finish()

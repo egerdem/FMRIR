@@ -10,7 +10,7 @@ import torch.nn as nn
 import torch.distributions as D
 from torch.func import vmap, jacrev
 from torchvision import datasets, transforms
-
+import wandb
 
 class OldSampleable(ABC):
     """
@@ -480,6 +480,8 @@ class Trainer(ABC):
             # **MODIFICATION: Calculate and display the current epoch number**
             current_epoch = (iteration + 1) * batch_size / dataset_size
 
+            wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration})
+
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
                 self.model.eval()
@@ -488,9 +490,12 @@ class Trainer(ABC):
                 pbar.set_description(
                     f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.3f}, Val Loss: {val_loss.item():.3f}')
 
+                # **NEW: Log validation loss to wandb**
+                wandb.log({"val_loss": val_loss.item(), "epoch": current_epoch, "iteration": iteration})
+
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
-                    print(f"** New best validation loss: {best_val_loss:.3f}. Saving model. **")
+                    print(f"** [Iter {iteration}] New best val. loss: {best_val_loss:.3f} while train loss: {loss.item():.3f}. Saving model. **")
                     # **Save the best model state in memory**
                     best_model_state = self.model.state_dict()
             else:
