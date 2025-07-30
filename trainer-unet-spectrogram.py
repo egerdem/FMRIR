@@ -3,8 +3,6 @@ from matplotlib import pyplot as plt
 import torch
 from torchvision import transforms
 from torchvision.utils import make_grid
-# import matplotlib
-# matplotlib.use('MacOSX')  # Use 'TkAgg' for Linux, 'MacOSX' for macOS, 'Qt5Agg' for Windows
 import os
 import json
 import time
@@ -16,6 +14,8 @@ from fm_utils import (
 )
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# You can set this path manually or use argparse
+resume_from_checkpoint = None  # Example: "/content/drive/MyDrive/FMRIR/SpecUNet_20250730-112150/checkpoints/ckpt_1000.pt"
 
 # --- Configuration ---
 config = {
@@ -44,13 +44,33 @@ config = {
     "experiments_dir": "experiments"
 }
 
-# --- Experiment Setup ---
-timestamp = time.strftime("%Y%m%d-%H%M%S")
-experiment_name = f"{config['model']['name']}_{timestamp}"
-experiment_dir = os.path.join(config['experiments_dir'], experiment_name)
-os.makedirs(experiment_dir, exist_ok=True)
+start_iteration = 0
+if resume_from_checkpoint and os.path.exists(resume_from_checkpoint):
+    print(f"Resuming training from checkpoint: {resume_from_checkpoint}")
+    checkpoint = torch.load(resume_from_checkpoint, map_location=device)
+    start_iteration = checkpoint['iteration']
+
+    # Update config with loaded config if you want to ensure consistency
+    # config = checkpoint['config']
+
+    # Initialize wandb with the ID of the run you're resuming
+    run_id = checkpoint['wandb_run_id']
+    wandb.init(project="FM-RIR", id=run_id, resume="must", config=config)
+
+else:
+    # --- Experiment Setup ---
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    experiment_name = f"{config['model']['name']}_{timestamp}"
+    experiment_dir = os.path.join(config['experiments_dir'], experiment_name)
+    os.makedirs(experiment_dir, exist_ok=True)
+
+    # Initialize a new wandb run
+    wandb.login(key="ec2cf1718868be26a8055412b556d952681ee0b6")
+    wandb.init(project="FM-RIR", name=experiment_name, config=config)
 
 MODEL_SAVE_PATH = os.path.join(experiment_dir, "model.pt")
+CHECKPOINT_DIR = os.path.join(experiment_dir, "checkpoints")
+os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 CONFIG_SAVE_PATH = os.path.join(experiment_dir, "config.json")
 
 with open(CONFIG_SAVE_PATH, 'w') as f:
@@ -112,6 +132,10 @@ trainer = CFGTrainer(
     y_dim=model_cfg['y_dim'],
 )
 
+if start_iteration > 0:
+    spec_unet.load_state_dict(checkpoint['model_state_dict'])
+    trainer.y_null.data = checkpoint['y_null'].to(device)
+
 # --- Training ---
 print(f"\n--- Starting Training for experiment: {experiment_name} ---")
 trainer.train(
@@ -119,11 +143,24 @@ trainer.train(
     device=device,
     lr=training_cfg['lr'],
     batch_size=training_cfg['batch_size'],
-    validation_interval=1,
-    valid_sampler=spec_valid_sampler,  # Pass the validation sampler**
-    save_path=MODEL_SAVE_PATH,         # Pass the save path**
-    config=config                      # Pass the config to be saved**
+    valid_sampler=spec_valid_sampler,
+    save_path=MODEL_SAVE_PATH,
+    checkpoint_path=CHECKPOINT_DIR,
+    checkpoint_interval=1000,  # Save a checkpoint every 1000 iterations
+    start_iteration=start_iteration, # Start from 0 or the loaded iteration
+    config=config
 )
+
+# --- Finalizing the Run ---
+# Log the best model as a wandb Artifact for easy access later
+if os.path.exists(MODEL_SAVE_PATH):
+    print("Logging best model to W&B Artifacts...")
+    best_model_artifact = wandb.Artifact(f"{wandb.run.name}-best-model", type="model")
+    best_model_artifact.add_file(MODEL_SAVE_PATH)
+    wandb.log_artifact(best_model_artifact)
+
+wandb.finish()
+print("Training complete and wandb run finished.")
 
 # --- Save the Model ---
 # print(f"Saving model to {MODEL_SAVE_PATH}...")
@@ -135,5 +172,3 @@ trainer.train(
 # print("Model saved. You can now run inference using the model and config from the experiment directory.")
 # print(f"Experiment directory: {experiment_dir}")
 
-# **NEW: Finish the wandb run**
-wandb.finish()

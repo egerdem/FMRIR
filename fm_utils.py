@@ -448,7 +448,15 @@ class Trainer(ABC):
     def get_optimizer(self, lr: float):
         return torch.optim.Adam(self.model.parameters(), lr=lr)
 
-    def train(self, num_iterations: int, device: torch.device, lr: float = 1e-3, valid_sampler: Optional[Sampleable] = None, save_path: str = "model.pt", validation_interval: int = 50, **kwargs) -> torch.Tensor:
+    def train(self, num_iterations: int, device: torch.device, lr: float = 1e-3,
+              valid_sampler: Optional[Sampleable] = None,
+              save_path: str = "model.pt",
+              checkpoint_path: str = "checkpoints",
+              validation_interval: int = 50,
+              checkpoint_interval: int = 1000,
+              start_iteration: int = 0,
+              **kwargs):
+
         # Report model size
         size_b = model_size_b(self.model)
         print(f'Training model with size: {size_b / MiB:.3f} MiB')
@@ -461,6 +469,15 @@ class Trainer(ABC):
         best_val_loss = float('inf')
         best_model_state = None
 
+        # Load optimizer state if resuming
+        if start_iteration > 0:
+            ckpt_file = os.path.join(checkpoint_path, f"ckpt_{start_iteration}.pt")
+            if os.path.exists(ckpt_file):
+                checkpoint = torch.load(ckpt_file, map_location=device)
+                opt.load_state_dict(checkpoint['optimizer_state_dict'])
+                best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+                print(f"Resumed optimizer state and best_val_loss from iteration {start_iteration}")
+
         batch_size = kwargs.get('batch_size')
         if batch_size is None:
             raise ValueError("batch_size must be provided to the train method.")
@@ -468,7 +485,7 @@ class Trainer(ABC):
         # **NEW: Get total dataset size for epoch calculation**
         dataset_size = len(self.path.p_data.spectrograms)
 
-        pbar = tqdm(range(num_iterations))
+        pbar = tqdm(range(start_iteration, num_iterations))
         for iteration in pbar:
             self.model.train()
             opt.zero_grad()
@@ -479,17 +496,14 @@ class Trainer(ABC):
 
             # **MODIFICATION: Calculate and display the current epoch number**
             current_epoch = (iteration + 1) * batch_size / dataset_size
-
             wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration})
 
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
                 self.model.eval()
                 val_loss = self.get_valid_loss(valid_sampler=valid_sampler, batch_size=batch_size)
-
                 pbar.set_description(
                     f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.3f}, Val Loss: {val_loss.item():.3f}')
-
                 # **NEW: Log validation loss to wandb**
                 wandb.log({"val_loss": val_loss.item(), "epoch": current_epoch, "iteration": iteration})
 
@@ -498,19 +512,22 @@ class Trainer(ABC):
                     print(f"** [Iter {iteration}] New best val. loss: {best_val_loss:.3f} while train loss: {loss.item():.3f}. Saving model. **")
                     # **Save the best model state in memory**
                     best_model_state = self.model.state_dict()
+                    torch.save({'model_state_dict': best_model_state, 'y_null': getattr(self, 'y_null', None)}, save_path)
+
             else:
                 pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.3f}')
 
-        # **NEW: Save the best model state to disk after training finishes**
-        if best_model_state:
-            print(f"Saving best model with val loss {best_val_loss:.3f} to {save_path}")
-            # We also need to save the y_null from the trainer
-            torch.save({
-                'model_state_dict': best_model_state,
-                'y_null': self.y_null,  # Assuming y_null is part of the trainer
-                'config': kwargs.get('config', {})
-            }, save_path)
-            print(f"Saving model to {save_path}...")
+            # --- Periodic Checkpointing Logic ---
+            if (iteration + 1) % checkpoint_interval == 0:
+                print(f"\n--- Saving checkpoint at iteration {iteration + 1} ---")
+                ckpt_save_path = os.path.join(checkpoint_path, f"ckpt_{iteration + 1}.pt")
+                torch.save({
+                    'iteration': iteration + 1,
+                    'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': opt.state_dict(),
+                    'best_val_loss': best_val_loss,
+                    'y_null': getattr(self, 'y_null', None)
+                }, ckpt_save_path)
 
         self.model.eval()
 
