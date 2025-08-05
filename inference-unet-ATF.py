@@ -30,7 +30,7 @@ config = {
 M = 40  # Number of sparse points to use as input
 
 # --- Data and Model Setup ---
-MODEL_LOAD_PATH = "experiments/ATFUNet_20250805-210109_iter100/checkpoints/ckpt_100.pt" #
+MODEL_LOAD_PATH = "experiments/ATFUNET_wandb_iter5000/model.pt" #
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 
@@ -84,7 +84,7 @@ fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot})", fontsiz
 
 for i in range(num_plots):
     # 1. Get a random ground truth slice and its conditioning vector
-    z_true, y_true = atf_test_sampler.sample(1)
+    z_true, y_true = atf_test_sampler.sample(10)
 
     # 2. --- REPLICATE THE ROBUST MASKING LOGIC ---
     # Get the batch size, height, and width

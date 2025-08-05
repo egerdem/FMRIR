@@ -13,7 +13,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 wandinit = True
 # resume_from_checkpoint = None
 # resume_from_checkpoint = "/Users/ege/Projects/FMRIR/experiments/SpecUNet_20250804-140641/checkpoints/ckpt_10.pt"
-resume_from_checkpoint = "/Users/ege/Projects/FMRIR/experiments/ATFUNet_20250805-210109_iter100/checkpoints/ckpt_40.pt"
+resume_from_checkpoint = "/Users/ege/Projects/FMRIR/experiments/ATFUNET_wandb_iter5000/model.pt"
 
 # --- Configuration ---
 config = {
@@ -52,11 +52,14 @@ if resume_from_checkpoint and os.path.exists(resume_from_checkpoint):
 
     print(f"Resuming training from checkpoint: {resume_from_checkpoint}")
     checkpoint = torch.load(resume_from_checkpoint, map_location=device)
-    start_iteration = checkpoint['iteration']
 
+    checkpoint['iteration'] = 5000
+    start_iteration = checkpoint['iteration']
+    
     # Initialize wandb with the ID of the run you're resuming
     wandb.login(key="ec2cf1718868be26a8055412b556d952681ee0b6")
-    run_id = checkpoint['wandb_run_id']
+    # run_id = checkpoint['wandb_run_id']
+    run_id = "12lzsgj9"
     wandb.init(project="FM-RIR", id=run_id, resume="must", config=config)
 
 else:
