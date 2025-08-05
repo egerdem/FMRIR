@@ -7,11 +7,10 @@ import numpy as np
 from tqdm import tqdm
 import torch
 import torch.nn as nn
-import torch.distributions as D
 from torch.func import vmap, jacrev
 from torchvision import datasets, transforms
 import wandb
-import matplotlib
+# import matplotlib
 # matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
 # import matplotlib.pyplot as plt
 import random
@@ -1096,7 +1095,7 @@ class ATFInpaintingTrainer(Trainer):
         model_input = torch.cat([x_t, mask], dim=1)
 
         ut_theta = self.model(model_input, t, y)  # Use the true label for validation
-        error = torch.mean(torch.square(ut_theta[:, :, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
+        error = torch.mean(torch.square(ut_theta[:, :-1, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
         return error
 
     # def visualize_masking(self, crop, sample_idx: int = 0, freq_idx: int = 5):

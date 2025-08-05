@@ -30,7 +30,7 @@ config = {
 M = 40  # Number of sparse points to use as input
 
 # --- Data and Model Setup ---
-MODEL_LOAD_PATH = "experiments/ATFUNet_20250805-201243_iter20/checkpoints/ckpt_20.pt" #
+MODEL_LOAD_PATH = "experiments/ATFUNet_20250805-210109_iter100/checkpoints/ckpt_100.pt" #
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 

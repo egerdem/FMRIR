@@ -11,8 +11,9 @@ from fm_utils import (ATFSliceSampler, GaussianConditionalProbabilityPath, Linea
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 wandinit = True
-resume_from_checkpoint = None
+# resume_from_checkpoint = None
 # resume_from_checkpoint = "/Users/ege/Projects/FMRIR/experiments/SpecUNet_20250804-140641/checkpoints/ckpt_10.pt"
+resume_from_checkpoint = "/Users/ege/Projects/FMRIR/experiments/ATFUNet_20250805-210109_iter100/checkpoints/ckpt_40.pt"
 
 # --- Configuration ---
 config = {
@@ -33,7 +34,7 @@ config = {
         "y_embed_dim": 40
     },
     "training": {
-        "num_iterations": 20,
+        "num_iterations": 100,
         "batch_size": 250,
         "lr": 1e-3,
         "M": 50,  # Number of observation points / mic recordings
@@ -149,7 +150,7 @@ if start_iteration > 0:
     trainer.y_null.data = checkpoint['y_null'].to(device)
 
 # --- Visualize the masking ---
-trainer.visualize_masking(crop=True, sample_idx=15, freq_idx=20)
+# trainer.visualize_masking(crop=True, sample_idx=15, freq_idx=20)
 
 # --- Training ---
 print(f"\n--- Starting Training for experiment: {experiment_name} ---")
