@@ -1052,7 +1052,9 @@ class ATFInpaintingTrainer(Trainer):
 
         # --- LABEL MASKING for CFG ---
         is_conditional_mask = (torch.rand(y.shape[0], device=y.device) > self.eta).view(-1, 1)
-        y_cond = torch.where(is_conditional_mask, y, self.y_null)
+
+        y_null_on_device = self.y_null.to(y.device)
+        y_cond = torch.where(is_conditional_mask, y, y_null_on_device)
 
         # --- Loss Calculation ---
         ut_theta = self.model(model_input, t, y_cond)
