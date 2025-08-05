@@ -1,21 +1,20 @@
-
-from matplotlib import pyplot as plt
 import torch
 from torchvision import transforms
-from torchvision.utils import make_grid
 import os
 import json
 import time
 import wandb
 
-from fm_utils import (
-    SpectrogramSampler, GaussianConditionalProbabilityPath, LinearAlpha,
-    LinearBeta, CFGTrainer, SpecUNet
-)
+from fm_utils import (SpectrogramSampler, GaussianConditionalProbabilityPath, LinearAlpha,
+                      LinearBeta, CFGTrainer, SpecUNet)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# You can set this path manually or use argparse
-resume_from_checkpoint = None  # Example: "/content/drive/MyDrive/FMRIR/SpecUNet_20250730-112150/checkpoints/ckpt_1000.pt"
+
+# The current logic has a flaw: it uses the new config
+# from your script but doesn't save it, leaving the old config.json in the experiment folder, which is misleading.
+
+# resume_from_checkpoint = None
+resume_from_checkpoint = "/Users/ege/Projects/FMRIR/experiments/SpecUNet_20250804-140641/checkpoints/ckpt_10.pt"
 
 # --- Configuration ---
 config = {
@@ -36,24 +35,27 @@ config = {
         "y_embed_dim": 40
     },
     "training": {
-        "num_iterations": 8,
+        "num_iterations": 17,
         "batch_size": 250,
         "lr": 1e-3,
         "eta": 0.1
     },
-    "experiments_dir": "experiments"
+    "experiments_dir": "experiments",
+    "project_root": "/Users/ege/Projects/FMRIR"
 }
 
 start_iteration = 0
 if resume_from_checkpoint and os.path.exists(resume_from_checkpoint):
+    checkpoint_dir = os.path.dirname(resume_from_checkpoint)
+    experiment_dir = os.path.dirname(checkpoint_dir)
+    experiment_name = os.path.basename(experiment_dir)
+
     print(f"Resuming training from checkpoint: {resume_from_checkpoint}")
     checkpoint = torch.load(resume_from_checkpoint, map_location=device)
     start_iteration = checkpoint['iteration']
 
-    # Update config with loaded config if you want to ensure consistency
-    # config = checkpoint['config']
-
     # Initialize wandb with the ID of the run you're resuming
+    wandb.login(key="ec2cf1718868be26a8055412b556d952681ee0b6")
     run_id = checkpoint['wandb_run_id']
     wandb.init(project="FM-RIR", id=run_id, resume="must", config=config)
 
@@ -66,29 +68,29 @@ else:
 
     # Initialize a new wandb run
     wandb.login(key="ec2cf1718868be26a8055412b556d952681ee0b6")
-    wandb.init(project="FM-RIR", name=experiment_name, config=config)
+    run = wandb.init(project="FM-RIR", name=experiment_name, config=config)
+    config['wandb_run_id'] = run.id
+
+    CONFIG_SAVE_PATH = os.path.join(experiment_dir, "config.json")
+
+    with open(CONFIG_SAVE_PATH, 'w') as f:
+        json.dump(config, f, indent=4)
+    print(f"Experiment setup. Config saved to {CONFIG_SAVE_PATH}")
 
 MODEL_SAVE_PATH = os.path.join(experiment_dir, "model.pt")
 CHECKPOINT_DIR = os.path.join(experiment_dir, "checkpoints")
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
-CONFIG_SAVE_PATH = os.path.join(experiment_dir, "config.json")
-
-with open(CONFIG_SAVE_PATH, 'w') as f:
-    json.dump(config, f, indent=4)
-print(f"Experiment setup. Config saved to {CONFIG_SAVE_PATH}")
 
 # --- Data Loading ---
 data_cfg = config['data']
 
-# ensures we only calculate normalization stats from data the model will be trained on.
+# we calculate normalization stats from data the model will be trained on.
 # --- Instantiate Samplers for each split (only ONCE) ---
 spec_train_sampler = SpectrogramSampler(
-    data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits']
-).to(device)
+    data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits']).to(device)
 
 spec_valid_sampler = SpectrogramSampler(
-    data_path=data_cfg['data_dir'], mode='valid', src_splits=data_cfg['src_splits']
-).to(device)
+    data_path=data_cfg['data_dir'], mode='valid', src_splits=data_cfg['src_splits']).to(device)
 
 # --- Calculate stats from the single training sampler instance ---
 spec_mean = spec_train_sampler.spectrograms.mean()
@@ -106,23 +108,22 @@ sample_spec, _ = spec_train_sampler.sample(1)
 spec_shape = list(sample_spec.shape[1:])
 
 path = GaussianConditionalProbabilityPath(
-    p_data=spec_train_sampler, #was [1, 32, 32], for mnist
-    p_simple_shape=spec_shape,
+    p_data=spec_train_sampler,
+    p_simple_shape=spec_shape,  # was [1, 32, 32], for mnist, [1, 16, 16] for spectrogram
     alpha=LinearAlpha(),
     beta=LinearBeta()
 ).to(device)
-
 
 # --- Model and Trainer Initialization ---
 model_cfg = config['model']
 training_cfg = config['training']
 
 spec_unet = SpecUNet(
-    channels=model_cfg['channels'], # Same as MNIST version
-    num_residual_layers=model_cfg['num_residual_layers'], # Same as MNIST version
-    t_embed_dim=model_cfg['t_embed_dim'], # Same as MNIST version
-    y_dim=model_cfg['y_dim'], # new: 6D coordinates for source and microphone positions
-    y_embed_dim=model_cfg['y_embed_dim'], # Same as MNIST version
+    channels=model_cfg['channels'],  # Same as MNIST version
+    num_residual_layers=model_cfg['num_residual_layers'],  # Same as MNIST version
+    t_embed_dim=model_cfg['t_embed_dim'],  # Same as MNIST version
+    y_dim=model_cfg['y_dim'],  # new: 6D coordinates for source and microphone positions
+    y_embed_dim=model_cfg['y_embed_dim'],  # Same as MNIST version
 ).to(device)
 
 trainer = CFGTrainer(
@@ -146,8 +147,8 @@ trainer.train(
     valid_sampler=spec_valid_sampler,
     save_path=MODEL_SAVE_PATH,
     checkpoint_path=CHECKPOINT_DIR,
-    checkpoint_interval=1000,  # Save a checkpoint every 1000 iterations
-    start_iteration=start_iteration, # Start from 0 or the loaded iteration
+    checkpoint_interval=5,  # Save a checkpoint every 1000 iterations
+    start_iteration=start_iteration,  # Start from 0 or the loaded iteration
     config=config
 )
 
@@ -171,4 +172,3 @@ print("Training complete and wandb run finished.")
 # }, MODEL_SAVE_PATH)
 # print("Model saved. You can now run inference using the model and config from the experiment directory.")
 # print(f"Experiment directory: {experiment_dir}")
-

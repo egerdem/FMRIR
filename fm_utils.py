@@ -11,11 +11,17 @@ import torch.distributions as D
 from torch.func import vmap, jacrev
 from torchvision import datasets, transforms
 import wandb
+import matplotlib
+matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
+import matplotlib.pyplot as plt
+import random
+
 
 class OldSampleable(ABC):
     """
     Distribution which can be sampled from
     """
+
     @abstractmethod
     def sample(self, num_samples: int) -> torch.Tensor:
         """
@@ -26,10 +32,12 @@ class OldSampleable(ABC):
         """
         pass
 
+
 class Sampleable(ABC):
     """
     Distribution which can be sampled from
     """
+
     @abstractmethod
     def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
@@ -41,10 +49,12 @@ class Sampleable(ABC):
         """
         pass
 
+
 class IsotropicGaussian(nn.Module, Sampleable):
     """
     Sampleable wrapper around torch.randn
     """
+
     def __init__(self, shape: List[int], std: float = 1.0):
         """
         shape: shape of sampled data
@@ -52,10 +62,11 @@ class IsotropicGaussian(nn.Module, Sampleable):
         super().__init__()
         self.shape = shape
         self.std = std
-        self.dummy = nn.Buffer(torch.zeros(1)) # Will automatically be moved when self.to(...) is called...
+        self.dummy = nn.Buffer(torch.zeros(1))  # Will automatically be moved when self.to(...) is called...
 
     def sample(self, num_samples) -> Tuple[torch.Tensor, torch.Tensor]:
         return self.std * torch.randn(num_samples, *self.shape).to(self.dummy.device), None
+
 
 class ConditionalProbabilityPath(nn.Module, ABC):
     """
@@ -132,15 +143,16 @@ class ConditionalProbabilityPath(nn.Module, ABC):
         """
         pass
 
+
 class Alpha(ABC):
     def __init__(self):
         # Check alpha_t(0) = 0
         assert torch.allclose(
-            self(torch.zeros(1,1,1,1)), torch.zeros(1,1,1,1)
+            self(torch.zeros(1, 1, 1, 1)), torch.zeros(1, 1, 1, 1)
         )
         # Check alpha_1 = 1
         assert torch.allclose(
-            self(torch.ones(1,1,1,1)), torch.ones(1,1,1,1)
+            self(torch.ones(1, 1, 1, 1)), torch.ones(1, 1, 1, 1)
         )
 
     @abstractmethod
@@ -165,15 +177,17 @@ class Alpha(ABC):
         t = t.unsqueeze(1)
         dt = vmap(jacrev(self))(t)
         return dt.view(-1, 1, 1, 1)
+
+
 class Beta(ABC):
     def __init__(self):
         # Check beta_0 = 1
         assert torch.allclose(
-            self(torch.zeros(1,1,1,1)), torch.ones(1,1,1,1)
+            self(torch.zeros(1, 1, 1, 1)), torch.ones(1, 1, 1, 1)
         )
         # Check beta_1 = 0
         assert torch.allclose(
-            self(torch.ones(1,1,1,1)), torch.zeros(1,1,1,1)
+            self(torch.ones(1, 1, 1, 1)), torch.zeros(1, 1, 1, 1)
         )
 
     @abstractmethod
@@ -198,6 +212,8 @@ class Beta(ABC):
         t = t.unsqueeze(1)
         dt = vmap(jacrev(self))(t)
         return dt.view(-1, 1, 1, 1)
+
+
 class LinearAlpha(Alpha):
     """
     Implements alpha_t = t
@@ -221,10 +237,13 @@ class LinearAlpha(Alpha):
             - d/dt alpha_t (num_samples, 1, 1, 1)
         """
         return torch.ones_like(t)
+
+
 class LinearBeta(Beta):
     """
     Implements beta_t = 1-t
     """
+
     def __call__(self, t: torch.Tensor) -> torch.Tensor:
         """
         Args:
@@ -232,7 +251,7 @@ class LinearBeta(Beta):
         Returns:
             - beta_t (num_samples, 1)
         """
-        return 1-t
+        return 1 - t
 
     def dt(self, t: torch.Tensor) -> torch.Tensor:
         """
@@ -243,9 +262,11 @@ class LinearBeta(Beta):
             - d/dt alpha_t (num_samples, 1, 1, 1)
         """
         return - torch.ones_like(t)
+
+
 class GaussianConditionalProbabilityPath(ConditionalProbabilityPath):
     def __init__(self, p_data: Sampleable, p_simple_shape: List[int], alpha: Alpha, beta: Beta):
-        p_simple = IsotropicGaussian(shape = p_simple_shape, std = 1.0)
+        p_simple = IsotropicGaussian(shape=p_simple_shape, std=1.0)
         super().__init__(p_simple, p_data)
         self.alpha = alpha
         self.beta = beta
@@ -282,10 +303,10 @@ class GaussianConditionalProbabilityPath(ConditionalProbabilityPath):
         Returns:
             - conditional_vector_field: conditional vector field (num_samples, c, h, w)
         """
-        alpha_t = self.alpha(t) # (num_samples, 1, 1, 1)
-        beta_t = self.beta(t) # (num_samples, 1, 1, 1)
-        dt_alpha_t = self.alpha.dt(t) # (num_samples, 1, 1, 1)
-        dt_beta_t = self.beta.dt(t) # (num_samples, 1, 1, 1)
+        alpha_t = self.alpha(t)  # (num_samples, 1, 1, 1)
+        beta_t = self.beta(t)  # (num_samples, 1, 1, 1)
+        dt_alpha_t = self.alpha.dt(t)  # (num_samples, 1, 1, 1)
+        dt_beta_t = self.beta.dt(t)  # (num_samples, 1, 1, 1)
 
         return (dt_alpha_t - dt_beta_t / beta_t * alpha_t) * z + dt_beta_t / beta_t * x
 
@@ -303,6 +324,7 @@ class GaussianConditionalProbabilityPath(ConditionalProbabilityPath):
         beta_t = self.beta(t)
         return (z * alpha_t - x) / beta_t ** 2
 
+
 class ODE(ABC):
     @abstractmethod
     def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -315,6 +337,8 @@ class ODE(ABC):
             - drift_coefficient: shape (bs, c, h, w)
         """
         pass
+
+
 class SDE(ABC):
     @abstractmethod
     def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
@@ -339,6 +363,7 @@ class SDE(ABC):
             - diffusion_coefficient: shape (bs, c, h, w)
         """
         pass
+
 
 class Simulator(ABC):
     @abstractmethod
@@ -384,23 +409,31 @@ class Simulator(ABC):
         xs = [x.clone()]
         nts = ts.shape[1]
         for t_idx in tqdm(range(nts - 1)):
-            t = ts[:,t_idx]
+            t = ts[:, t_idx]
             h = ts[:, t_idx + 1] - ts[:, t_idx]
             x = self.step(x, t, h, **kwargs)
             xs.append(x.clone())
         return torch.stack(xs, dim=1)
+
+
 class EulerSimulator(Simulator):
     def __init__(self, ode: ODE):
         self.ode = ode
 
     def step(self, xt: torch.Tensor, t: torch.Tensor, h: torch.Tensor, **kwargs):
-        return xt + self.ode.drift_coefficient(xt,t, **kwargs) * h
+        return xt + self.ode.drift_coefficient(xt, t, **kwargs) * h
+
+
 class EulerMaruyamaSimulator(Simulator):
     def __init__(self, sde: SDE):
         self.sde = sde
 
     def step(self, xt: torch.Tensor, t: torch.Tensor, h: torch.Tensor, **kwargs):
-        return xt + self.sde.drift_coefficient(xt,t, **kwargs) * h + self.sde.diffusion_coefficient(xt,t, **kwargs) * torch.sqrt(h) * torch.randn_like(xt)
+        return xt + self.sde.drift_coefficient(xt, t, **kwargs) * h + self.sde.diffusion_coefficient(xt, t,
+                                                                                                     **kwargs) * torch.sqrt(
+            h) * torch.randn_like(xt)
+
+
 def record_every(num_timesteps: int, record_every: int) -> torch.Tensor:
     """
     Compute the indices to record in the trajectory given a record_every parameter
@@ -414,7 +447,10 @@ def record_every(num_timesteps: int, record_every: int) -> torch.Tensor:
         ]
     )
 
+
 MiB = 1024 ** 2
+
+
 def model_size_b(model: nn.Module) -> int:
     """
     Returns model size in bytes. Based on https://discuss.pytorch.org/t/finding-model-size/130275/2
@@ -429,6 +465,7 @@ def model_size_b(model: nn.Module) -> int:
     for buf in model.buffers():
         size += buf.nelement() * buf.element_size()
     return size
+
 
 class Trainer(ABC):
     def __init__(self, model: nn.Module):
@@ -455,6 +492,7 @@ class Trainer(ABC):
               validation_interval: int = 50,
               checkpoint_interval: int = 1000,
               start_iteration: int = 0,
+              config: dict = None,
               **kwargs):
 
         # Report model size
@@ -483,7 +521,8 @@ class Trainer(ABC):
             raise ValueError("batch_size must be provided to the train method.")
 
         # **NEW: Get total dataset size for epoch calculation**
-        dataset_size = len(self.path.p_data.spectrograms)
+        # dataset_size = len(self.path.p_data.spectrograms)
+        dataset_size = len(self.path.p_data)
 
         pbar = tqdm(range(start_iteration, num_iterations))
         for iteration in pbar:
@@ -509,10 +548,12 @@ class Trainer(ABC):
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
-                    print(f"** [Iter {iteration}] New best val. loss: {best_val_loss:.3f} while train loss: {loss.item():.3f}. Saving model. **")
+                    print(
+                        f"** [Iter {iteration}] New best val. loss: {best_val_loss:.3f} while train loss: {loss.item():.3f}. Saving model. **")
                     # **Save the best model state in memory**
                     best_model_state = self.model.state_dict()
-                    torch.save({'model_state_dict': best_model_state, 'y_null': getattr(self, 'y_null', None)}, save_path)
+                    torch.save({'model_state_dict': best_model_state, 'y_null': getattr(self, 'y_null', None)},
+                               save_path)
 
             else:
                 pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.3f}')
@@ -526,24 +567,28 @@ class Trainer(ABC):
                     'model_state_dict': self.model.state_dict(),
                     'optimizer_state_dict': opt.state_dict(),
                     'best_val_loss': best_val_loss,
-                    'y_null': getattr(self, 'y_null', None)
+                    'y_null': getattr(self, 'y_null', None),
+                    'config': config,
+                    'wandb_run_id': config.get('wandb_run_id')
                 }, ckpt_save_path)
 
         self.model.eval()
+
 
 class MNISTSampler(nn.Module, Sampleable):
     """
     Sampleable wrapper for the MNIST dataset
     """
+
     def __init__(self):
         super().__init__()
         # Try to handle SSL certificate issues
         import ssl
         import urllib.request
-        
+
         # Create unverified SSL context as a workaround
         ssl._create_default_https_context = ssl._create_unverified_context
-        
+
         try:
             self.dataset = datasets.MNIST(
                 root='./data',
@@ -559,8 +604,8 @@ class MNISTSampler(nn.Module, Sampleable):
             print(f"Error downloading MNIST: {e}")
             print("Please download MNIST manually or check your SSL certificates")
             raise e
-            
-        self.dummy = nn.Buffer(torch.zeros(1)) # Will automatically be moved when self.to(...) is called...
+
+        self.dummy = nn.Buffer(torch.zeros(1))  # Will automatically be moved when self.to(...) is called...
 
     def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
@@ -578,6 +623,7 @@ class MNISTSampler(nn.Module, Sampleable):
         samples = torch.stack(samples).to(self.dummy)
         labels = torch.tensor(labels, dtype=torch.int64).to(self.dummy.device)
         return samples, labels
+
 
 class SpectrogramSampler(nn.Module, Sampleable):
     """
@@ -650,13 +696,18 @@ class SpectrogramSampler(nn.Module, Sampleable):
             self.sample_info = torch.stack(all_sample_info)
 
             # Save the processed tensors for faster loading next time
-            torch.save({'spectrograms': self.spectrograms, 'coords': self.coords, 'sample_info': self.sample_info}, processed_file)
+            torch.save({'spectrograms': self.spectrograms, 'coords': self.coords, 'sample_info': self.sample_info},
+                       processed_file)
             print(f"Saved processed {self.mode} data to {processed_file}")
 
         self.dummy = nn.Buffer(torch.zeros(1))
-        print(f"Loaded {len(self.spectrograms)/1331} * {1331} = {len(self.spectrograms)} spectrograms for {self.mode} set.")
+        print(
+            f"Loaded {len(self.spectrograms) / 1331} * {1331} = {len(self.spectrograms)} spectrograms for {self.mode} set.")
         print(f"Spectrogram tensor shape: {self.spectrograms.shape}")
         print(f"Coordinate tensor shape: {self.coords.shape}")
+
+    def __len__(self):
+        return len(self.spectrograms)
 
     def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
@@ -692,7 +743,8 @@ class SpectrogramSampler(nn.Module, Sampleable):
             # Apply transform to a single sample. We need to add a batch dim and remove it.
             sample = self.transform(sample.unsqueeze(0)).squeeze(0)
 
-        return sample.unsqueeze(0).to(self.dummy.device), label.unsqueeze(0).to(self.dummy.device), info.unsqueeze(0).to(self.dummy.device) if info is not None else None
+        return sample.unsqueeze(0).to(self.dummy.device), label.unsqueeze(0).to(self.dummy.device), info.unsqueeze(
+            0).to(self.dummy.device) if info is not None else None
 
     def find_sample_index(self, src_id: int, mic_id: int):
         """Finds the flat index for a given source and mic ID."""
@@ -702,6 +754,128 @@ class SpectrogramSampler(nn.Module, Sampleable):
         results = (self.sample_info[:, 0] == src_id) & (self.sample_info[:, 1] == mic_id)
         indices = torch.where(results)[0]
         return indices[0].item() if len(indices) > 0 else None
+
+class ATFSliceSampler(torch.nn.Module, Sampleable):
+    """
+    Loads and serves 2D spatial slices of ATF magnitudes.
+
+    Each sample is a tensor of shape (64, 11, 11), representing the
+    64 frequency bins for an 11x11 grid of microphones at a single height.
+    """
+    def __init__(self, data_path: str, mode: str, src_splits: dict, transform: Optional[callable] = None):
+        super().__init__()
+        self.transform = transform
+        self.mode = mode
+        self.src_splits = src_splits
+
+        processed_file = os.path.join(data_path, f'processed_atf_{self.mode}.pt')
+
+        if os.path.exists(processed_file):
+            print(f"Loading pre-processed ATF {self.mode} data from {processed_file}")
+            data = torch.load(processed_file)
+            self.slices = data['slices']
+            self.coords = data['coords']
+        else:
+            print(f"Processing ATF {mode} data from .npz files...")
+            source_indices = range(*src_splits[mode])
+            all_slices = []
+            all_coords = []
+
+            for src_id in tqdm(source_indices, desc=f"Loading {mode} NPZ files"):
+                npz_file = os.path.join(data_path, f"data_s{src_id + 1:04d}.npz")
+                with np.load(npz_file) as data:
+                    atf_mags = data['atf_mag_algn']   # Shape: (1331, 64)
+                    mic_pos = data['posMic']          # Shape: (1331, 3)
+                    source_pos = data['posSrc']       # Shape: (3,)
+
+                    unique_z = np.unique(mic_pos[:, 2])
+
+                    for z_val in unique_z:
+                        slice_indices = np.where(mic_pos[:, 2] == z_val)[0]
+                        mic_pos_slice = mic_pos[slice_indices]
+                        atf_mags_slice = atf_mags[slice_indices]
+
+                        unique_x = sorted(np.unique(mic_pos_slice[:, 0]))
+                        unique_y = sorted(np.unique(mic_pos_slice[:, 1]))
+                        nx, ny = len(unique_x), len(unique_y)
+
+                        if nx * ny != len(mic_pos_slice):
+                            print(f"Warning: Skipping slice for src_id {src_id} at z={z_val} due to irregular grid.")
+                            continue
+
+                        x_map = {val: i for i, val in enumerate(unique_x)}
+                        y_map = {val: i for i, val in enumerate(unique_y)}
+
+                        grid_slice = torch.zeros((64, ny, nx), dtype=torch.float32)
+                        for i in range(len(mic_pos_slice)):
+                            ix, iy = x_map[mic_pos_slice[i, 0]], y_map[mic_pos_slice[i, 1]]
+                            grid_slice[:, iy, ix] = torch.tensor(atf_mags_slice[i])
+
+                        all_slices.append(grid_slice)
+                        coord_vec = np.concatenate([source_pos, [z_val]])
+                        all_coords.append(torch.tensor(coord_vec, dtype=torch.float32))
+
+            self.slices = torch.stack(all_slices)
+            self.coords = torch.stack(all_coords)
+            torch.save({'slices': self.slices, 'coords': self.coords}, processed_file)
+            print(f"Saved processed ATF {self.mode} data to {processed_file}")
+
+        self.dummy = torch.nn.Buffer(torch.zeros(1))
+        print(f"Loaded {len(self.slices)} ATF slices for {self.mode} set.")
+        print(f"Slice tensor shape: {self.slices.shape}")
+        print(f"Coordinate tensor shape: {self.coords.shape}")
+
+
+    def __len__(self):
+        return len(self.slices)
+
+
+    def plot(self, ind: int = 5, sample_idx: int = None):
+        """
+        Plots a 2D spatial slice of ATF magnitudes for a given sample and frequency.
+        'ind' corresponds to the frequency index.
+        """
+        if sample_idx is None:
+            sample_idx = random.randint(0, len(self) - 1)
+
+        # The user used 'ind', which we interpret as frequency index
+        freq_idx = ind
+
+        slice_to_plot = self.slices[sample_idx, freq_idx].cpu().numpy()
+
+        plt.figure(figsize=(8, 6))
+        im = plt.imshow(slice_to_plot, origin='lower', cmap='viridis', aspect='auto')
+        plt.colorbar(im, label="Magnitude")
+        plt.xlabel("X-index")
+        plt.ylabel("Y-index")
+        plt.title(f"ATF Slice - Sample {sample_idx}, Freq Index {freq_idx}")
+        plt.show()
+
+
+    def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """
+        Args:
+            - num_samples: The desired number of samples.
+        Returns:
+            - samples: Tensor of shape (batch_size, 64, H, W).
+            - labels: Tensor of shape (batch_size, 4) for coordinates.
+        """
+        if num_samples > len(self.slices):
+            # Sample with replacement if requesting more samples than available
+            indices = torch.randint(0, len(self.slices), (num_samples,))
+        else:
+            # Sample without replacement for a random, unique batch
+            indices = torch.randperm(len(self.slices))[:num_samples]
+
+        samples = self.slices[indices]
+        labels = self.coords[indices]
+
+        if self.transform:
+            samples = self.transform(samples)
+
+        # The data is already (C, H, W), so we just move it to the correct device
+        return samples.to(self.dummy.device), labels.to(self.dummy.device)
+
 
 # """Part 2: Training for Classifier Free Guidance (CFG) """
 class ConditionalVectorField(nn.Module, ABC):
@@ -720,6 +894,8 @@ class ConditionalVectorField(nn.Module, ABC):
         - u_t^theta(x|y): (bs, c, h, w)
         """
         pass
+
+
 #
 class CFGVectorFieldODE(ODE):
     def __init__(self, net: ConditionalVectorField, guidance_scale: float = 1.0, y_dim: int = 6, y_embed_dim: int = 40):
@@ -740,12 +916,14 @@ class CFGVectorFieldODE(ODE):
 
         # Create a batch of null embeddings for the unguided field
         bs = x.shape[0]
-        unguided_y = self.y_null.repeat(bs, 1) # was: unguided_y = torch.ones_like(y) * 10
+        unguided_y = self.y_null.repeat(bs, 1)  # was: unguided_y = torch.ones_like(y) * 10
         unguided_vector_field = self.net(x, t, unguided_y)
         return (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
 
+
 class CFGTrainer(Trainer):
-    def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, y_dim: int, **kwargs):
+    def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, y_dim: int,
+                 **kwargs):
         assert eta > 0 and eta < 1
         super().__init__(model, **kwargs)
         self.eta = eta
@@ -754,7 +932,8 @@ class CFGTrainer(Trainer):
 
         # A learned embedding for the unconditional (null) case
         self.y_null = nn.Parameter(torch.randn(1, y_dim))
-#
+
+    #
     def get_train_loss(self, batch_size: int) -> torch.Tensor:
         # Step 1: Sample z (spectrograms) and y (coordinates) from p_data#
         z, y = self.path.p_data.sample(batch_size)  # (bs, c, h, w), y:(bs, 6)
@@ -779,7 +958,8 @@ class CFGTrainer(Trainer):
         ut_ref = self.path.conditional_vector_field(x, z, t)
 
         error = torch.square(ut_theta - ut_ref)
-        # Flatten error from (bs, c, h, w) to (bs, -1) and sum over dimensions
+        # Flatten error fr
+        # om (bs, c, h, w) to (bs, -1) and sum over dimensions
         loss_per_sample = error.view(batch_size, -1).sum(dim=1)
 
         # Apply the mask to compute the loss only on conditional samples
@@ -815,12 +995,167 @@ class CFGTrainer(Trainer):
 
         return loss_per_sample.mean()
 
+class ATFInpaintingTrainer(Trainer):
+    def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, M: int, y_dim: int,
+                 **kwargs):
+        super().__init__(model, **kwargs)
+        self.path = path
+        self.eta = eta
+        self.y_null = torch.nn.Parameter(torch.randn(1, y_dim))
+        self.m = M
+
+        # Flag to print shapes only on the first run
+        self.shapes_printed = False
+
+    def get_train_loss(self, batch_size: int, **kwargs) -> torch.Tensor:
+        # 1. Sample a batch of COMPLETE, clean ATF slices 'z' and conditions 'y'
+        z, y = self.path.p_data.sample(batch_size)
+        # Get the padded height and width
+        _, _, H, W = z.shape
+
+        # 2. --- DATA MASKING (Inpainting) ---
+        # Create a mask that is the same size as the padded 12x12 image
+        mask = torch.zeros(batch_size, 1, H, W, device=z.device)
+
+        # Generate random indices ONLY within the original 11x11 area
+
+        for i in range(batch_size):
+            indices = torch.randperm((H-1) * (W-1))[:self.m]
+        # IM changing this to 11x11 since masking the last row and column is not meaningful as we'll discard
+        rows = indices // (W - 1)
+        cols = indices % (W - 1)
+
+        for i in range(batch_size):
+            mask[i, 0, rows[i], cols[i]] = 1
+
+        # Apply the mask to the clean data to create the sparse input
+        z_masked = z * mask
+
+        # 3. Create the noisy sample x_t and the ground truth vector field ut_ref
+        t = torch.rand(z.shape[0], 1, 1, 1, device=z.device)
+        x_t = self.path.sample_conditional_path(z_masked, t)
+        ut_ref = self.path.conditional_vector_field(x_t, z, t)
+
+        # 4. --- LABEL MASKING (CFG) ---
+        is_conditional_mask = (torch.rand(y.shape[0], device=y.device) > self.eta).view(-1, 1)
+        y_cond = torch.where(is_conditional_mask, y, self.y_null)
+
+        # 5. Calculate Loss
+        ut_theta = self.model(x_t, t, y_cond)
+
+        if not self.shapes_printed:
+            print("\\n--- Tensor Shapes (First Training Step) ---")
+            print(f"  Input Slice (z):          {z.shape}")
+            print(f"  Masked Slice (z_masked):    {z_masked.shape}")
+            print(f"  Noisy Sample (x_t):         {x_t.shape}")
+            print(f"  Ground Truth Coords (y):    {y.shape}")
+            print(f"  Null Embedding (y_null):    {self.y_null.shape}")
+            print(f"  Final Condition (y_cond):   {y_cond.shape}")
+            print(f"  Model Output (ut_theta):    {ut_theta.shape}")
+            print(f"  No. of observations (M): {self.m}")
+            print(" cropped loss' shape: ut_theta[:, :, :-1, :-1] ", ut_theta[:, :, :-1, :-1].shape)
+            print("------------------------------------------\\n")
+            self.shapes_printed = True
+
+        # error = torch.mean(torch.square(ut_theta - ut_ref))
+        error = torch.mean(torch.square(ut_theta[:, :, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
+        return error
+
+    @torch.no_grad()
+    def get_valid_loss(self, valid_sampler: Sampleable, batch_size: int, M: int = 5, **kwargs) -> torch.Tensor:
+        # Validation loss should also simulate the inpainting task
+        z, y = valid_sampler.sample(batch_size)
+        _, _, H, W = z.shape
+
+        mask = torch.zeros(batch_size, 1, H, W, device=z.device)
+
+        for i in range(batch_size):
+            indices = torch.randperm(z.shape[2] * z.shape[3])[:M]
+            rows, cols = indices // z.shape[3], indices % z.shape[3]
+            mask[i, 0, rows, cols] = 1
+        z_masked = z * mask
+
+        t = torch.rand(z.shape[0], 1, 1, 1, device=z.device)
+        x_t = self.path.sample_conditional_path(z_masked, t)
+        ut_ref = self.path.conditional_vector_field(x_t, z, t)
+
+        ut_theta = self.model(x_t, t, y)  # Use the true label for validation
+        error = torch.mean(torch.square(ut_theta - ut_ref))
+        return error
+
+    def visualize_masking(self, crop, sample_idx: int = 0, freq_idx: int = 5):
+        """
+        Samples one slice, applies the inpainting mask, and plots the original
+        and masked versions side-by-side for a specific frequency index.
+        """
+        # 1. Sample a single complete, clean ATF slice 'z' and its condition 'y'
+        z, y = self.path.p_data.sample(sample_idx)
+
+        # Get the padded height and width
+        _, _, H, W = z.shape
+
+        # 2. --- DATA MASKING (Inpainting) ---
+        # Create a mask that is the same size as the padded 12x12 image
+        mask = torch.zeros(sample_idx, 1, H, W, device=z.device)
+
+        # Get M random pixel locations to keep
+        indices = torch.randperm((H-1) * (W-1))[:self.m]
+        # IM changing this to 11x11 since masking the last row and column is not meaningful as we'll discard
+        rows = indices // (W - 1)
+        cols = indices % (W - 1)
+        mask[0, 0, rows, cols] = 1
+
+        z_masked = z * mask
+
+        # 3. --- Plotting ---
+        # Detach tensors and move to CPU for numpy/matplotlib
+        original_slice = z[0, freq_idx].cpu().numpy()
+        masked_slice = z_masked[0, freq_idx].cpu().numpy()
+
+        if crop:
+            # Crop to the region of interest if needed
+            original_slice = original_slice[:-1, :-1]
+            masked_slice = masked_slice[:-1, :-1]
+
+        fig, axes = plt.subplots(1, 3, figsize=(12, 6))
+        fig.suptitle(f"Masking Visualization (Frequency Index: {freq_idx})")
+
+        # Plot Original
+        im1 = axes[0].imshow(original_slice, origin='upper', cmap='viridis')
+        axes[0].set_title(f'Original Slice')
+        axes[0].set_xlabel("X-index")
+        axes[0].set_ylabel("Y-index")
+        fig.colorbar(im1, ax=axes[0], label="Magnitude")
+
+        # Plot Masked
+        im2 = axes[1].imshow(masked_slice, origin='upper', cmap='viridis')
+        axes[1].set_title(f'Masked Slice ({self.m} points visible)')
+        axes[1].set_xlabel("X-index")
+        axes[1].set_ylabel("Y-index")
+        fig.colorbar(im2, ax=axes[1], label="Magnitude")
+
+        # Plot Mask
+        mask_slice = mask[0, 0].cpu().numpy()
+        im3 = axes[2].imshow(mask_slice, origin='upper', cmap='gray', vmin=0, vmax=1)
+        axes[2].set_title(f'Mask (1 = Visible, 0 = Hidden)')
+        axes[2].set_xlabel("X-index")
+        axes[2].set_ylabel("Y-index")
+        fig.colorbar(im3, ax=axes[2], label="Mask binary value")
+
+        plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
+        plt.show()
+
+
+
+
+
 # """ Part 3: An Architecture for Spectrograms: Building a U-Net """
 
 class FourierEncoder(nn.Module):
     """
     Based on https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/karras_unet.py#L183
     """
+
     def __init__(self, dim: int):
         super().__init__()
         assert dim % 2 == 0
@@ -834,11 +1169,12 @@ class FourierEncoder(nn.Module):
         Returns:
         - embeddings: (bs, dim)
         """
-        t = t.view(-1, 1) # (bs, 1)
-        freqs = t * self.weights * 2 * math.pi # (bs, half_dim)
-        sin_embed = torch.sin(freqs) # (bs, half_dim)
-        cos_embed = torch.cos(freqs) # (bs, half_dim)
-        return torch.cat([sin_embed, cos_embed], dim=-1) * math.sqrt(2) # (bs, dim)
+        t = t.view(-1, 1)  # (bs, 1)
+        freqs = t * self.weights * 2 * math.pi  # (bs, half_dim)
+        sin_embed = torch.sin(freqs)  # (bs, half_dim)
+        cos_embed = torch.cos(freqs)  # (bs, half_dim)
+        return torch.cat([sin_embed, cos_embed], dim=-1) * math.sqrt(2)  # (bs, dim)
+
 
 class ResidualLayer(nn.Module):
     def __init__(self, channels: int, time_embed_dim: int, y_embed_dim: int):
@@ -873,29 +1209,31 @@ class ResidualLayer(nn.Module):
         - t_embed: (bs, t_embed_dim)
         - y_embed: (bs, y_embed_dim)
         """
-        res = x.clone() # (bs, c, h, w)
+        res = x.clone()  # (bs, c, h, w)
 
         # Initial conv block
-        x = self.block1(x) # (bs, c, h, w)
+        x = self.block1(x)  # (bs, c, h, w)
 
         # Add time embedding
-        t_embed = self.time_adapter(t_embed).unsqueeze(-1).unsqueeze(-1) # (bs, c, 1, 1)
+        t_embed = self.time_adapter(t_embed).unsqueeze(-1).unsqueeze(-1)  # (bs, c, 1, 1)
         x = x + t_embed
 
         # Add y embedding (conditional embedding)
-        y_embed = self.y_adapter(y_embed).unsqueeze(-1).unsqueeze(-1) # (bs, c, 1, 1)
+        y_embed = self.y_adapter(y_embed).unsqueeze(-1).unsqueeze(-1)  # (bs, c, 1, 1)
         x = x + y_embed
 
         # Second conv block
-        x = self.block2(x) # (bs, c, h, w)
+        x = self.block2(x)  # (bs, c, h, w)
 
         # Add back residual
-        x = x + res # (bs, c, h, w)
+        x = x + res  # (bs, c, h, w)
 
         return x
 
+
 class Encoder(nn.Module):
-    def __init__(self, channels_in: int, channels_out: int, num_residual_layers: int, t_embed_dim: int, y_embed_dim: int):
+    def __init__(self, channels_in: int, channels_out: int, num_residual_layers: int, t_embed_dim: int,
+                 y_embed_dim: int):
         super().__init__()
         self.res_blocks = nn.ModuleList([
             ResidualLayer(channels_in, t_embed_dim, y_embed_dim) for _ in range(num_residual_layers)
@@ -918,6 +1256,7 @@ class Encoder(nn.Module):
 
         return x
 
+
 class Midcoder(nn.Module):
     def __init__(self, channels: int, num_residual_layers: int, t_embed_dim: int, y_embed_dim: int):
         super().__init__()
@@ -938,10 +1277,13 @@ class Midcoder(nn.Module):
 
         return x
 
+
 class Decoder(nn.Module):
-    def __init__(self, channels_in: int, channels_out: int, num_residual_layers: int, t_embed_dim: int, y_embed_dim: int):
+    def __init__(self, channels_in: int, channels_out: int, num_residual_layers: int, t_embed_dim: int,
+                 y_embed_dim: int):
         super().__init__()
-        self.upsample = nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear'), nn.Conv2d(channels_in, channels_out, kernel_size=3, padding=1))
+        self.upsample = nn.Sequential(nn.Upsample(scale_factor=2, mode='bilinear'),
+                                      nn.Conv2d(channels_in, channels_out, kernel_size=3, padding=1))
         self.res_blocks = nn.ModuleList([
             ResidualLayer(channels_out, t_embed_dim, y_embed_dim) for _ in range(num_residual_layers)
         ])
@@ -961,12 +1303,15 @@ class Decoder(nn.Module):
             x = block(x, t_embed, y_embed)
 
         return x
+
+
 #
 class SpecUNet(ConditionalVectorField):
     def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int):
         super().__init__()
         # Initial convolution: (bs, 1, freq, time) -> (bs, c_0, freq, time)
-        self.init_conv = nn.Sequential(nn.Conv2d(1, channels[0], kernel_size=3, padding=1), nn.BatchNorm2d(channels[0]), nn.SiLU())
+        self.init_conv = nn.Sequential(nn.Conv2d(1, channels[0], kernel_size=3, padding=1), nn.BatchNorm2d(channels[0]),
+                                       nn.SiLU())
 
         # Initialize time embedder
         self.time_embedder = FourierEncoder(t_embed_dim)
@@ -1009,7 +1354,7 @@ class SpecUNet(ConditionalVectorField):
         y_embed = self.y_embedder(y)
 
         # Initial convolution
-        x = self.init_conv(x) # (bs, c_0, freq_bins, time_bins)
+        x = self.init_conv(x)  # (bs, c_0, freq_bins, time_bins)
 
         residuals = []
 
@@ -1028,6 +1373,83 @@ class SpecUNet(ConditionalVectorField):
             x = decoder(x, t_embed, y_embed)
 
         # Final convolution
-        x = self.final_conv(x) # (bs, 1, freq_bins, time_bins)
+        x = self.final_conv(x)  # (bs, 1, freq_bins, time_bins)
+
+        return x
+
+class ATFUNet(ConditionalVectorField):
+    def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int):
+        super().__init__()
+
+        # --- MODIFICATION 1: Change input channels ---
+        # The U-Net now accepts an "image" with 64 channels (one for each frequency bin).
+        self.init_conv = nn.Sequential(
+            nn.Conv2d(64, channels[0], kernel_size=3, padding=1),
+            nn.BatchNorm2d(channels[0]),
+            nn.SiLU()
+        )
+
+        # Initialize time embedder
+        self.time_embedder = FourierEncoder(t_embed_dim)
+
+        # --- MODIFICATION 2: Adjust y_embedder for 4D conditioning ---
+        # The MLP now takes the 4D coordinate vector [xs, ys, zs, zm] as input.
+        self.y_embedder = nn.Sequential(
+            nn.Linear(y_dim, y_embed_dim),
+            nn.SiLU(),
+            nn.Linear(y_embed_dim, y_embed_dim)
+        )
+
+        # Encoders, Midcoders, and Decoders
+        encoders = []
+        decoders = []
+        for (curr_c, next_c) in zip(channels[:-1], channels[1:]):
+            encoders.append(Encoder(curr_c, next_c, num_residual_layers, t_embed_dim, y_embed_dim))
+            decoders.append(Decoder(next_c, curr_c, num_residual_layers, t_embed_dim, y_embed_dim))
+        self.encoders = nn.ModuleList(encoders)
+        self.decoders = nn.ModuleList(reversed(decoders))
+
+        self.midcoder = Midcoder(channels[-1], num_residual_layers, t_embed_dim, y_embed_dim)
+
+        # --- MODIFICATION 3: Change output channels ---
+        # The final layer must also output 64 channels. # it was 1 before (not 64)
+        self.final_conv = nn.Conv2d(channels[0], 64, kernel_size=3, padding=1)
+
+    def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
+        """
+        Args:
+        - x: (bs, 64, 11, 11) <- New input shape BEFORE: x: (bs, 1, freq_bins, time_bins)
+        - t: (bs, 1, 1, 1) # same
+        - y: (bs, 4) <- New conditioning shape, was (bs, 6), and BEFORE was y: (bs,) for mnist
+        Returns:
+        - u_t^theta(x|y): (bs, 64, 11, 11) <- New output shape BEFORE: (bs, 1, freq_bins, time_bins)
+        """
+        # Embed t and y
+        t_embed = self.time_embedder(t)
+
+        # **MODIFICATION: The y_embedder is now an MLP**
+        y_embed = self.y_embedder(y)
+
+        # Initial convolution
+        x = self.init_conv(x)
+
+        residuals = []
+
+        # Encoders
+        for encoder in self.encoders:
+            x = encoder(x, t_embed, y_embed)
+            residuals.append(x.clone())
+
+        # Midcoder
+        x = self.midcoder(x, t_embed, y_embed)
+
+        # Decoders
+        for decoder in self.decoders:
+            res = residuals.pop()
+            x = x + res
+            x = decoder(x, t_embed, y_embed)
+
+        # Final convolution
+        x = self.final_conv(x)
 
         return x
