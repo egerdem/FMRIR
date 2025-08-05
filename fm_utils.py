@@ -12,8 +12,8 @@ from torch.func import vmap, jacrev
 from torchvision import datasets, transforms
 import wandb
 import matplotlib
-matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
-import matplotlib.pyplot as plt
+# matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
+# import matplotlib.pyplot as plt
 import random
 
 
@@ -843,13 +843,13 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
 
         slice_to_plot = self.slices[sample_idx, freq_idx].cpu().numpy()
 
-        plt.figure(figsize=(8, 6))
-        im = plt.imshow(slice_to_plot, origin='lower', cmap='viridis', aspect='auto')
-        plt.colorbar(im, label="Magnitude")
-        plt.xlabel("X-index")
-        plt.ylabel("Y-index")
-        plt.title(f"ATF Slice - Sample {sample_idx}, Freq Index {freq_idx}")
-        plt.show()
+        # plt.figure(figsize=(8, 6))
+        # im = plt.imshow(slice_to_plot, origin='lower', cmap='viridis', aspect='auto')
+        # plt.colorbar(im, label="Magnitude")
+        # plt.xlabel("X-index")
+        # plt.ylabel("Y-index")
+        # plt.title(f"ATF Slice - Sample {sample_idx}, Freq Index {freq_idx}")
+        # plt.show()
 
 
     def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
@@ -1097,67 +1097,67 @@ class ATFInpaintingTrainer(Trainer):
         error = torch.mean(torch.square(ut_theta[:, :, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
         return error
 
-    def visualize_masking(self, crop, sample_idx: int = 0, freq_idx: int = 5):
-        """
-        Samples one slice, applies the inpainting mask, and plots the original
-        and masked versions side-by-side for a specific frequency index.
-        """
-        # 1. Sample a single complete, clean ATF slice 'z' and its condition 'y'
-        z, y = self.path.p_data.sample(sample_idx)
-
-        # Get the padded height and width
-        _, _, H, W = z.shape
-
-        # 2. --- DATA MASKING (Inpainting) ---
-        # Create a mask that is the same size as the padded 12x12 image
-        mask = torch.zeros(sample_idx, 1, H, W, device=z.device)
-
-        # Get M random pixel locations to keep
-        indices = torch.randperm((H-1) * (W-1))[:self.m]
-        # IM changing this to 11x11 since masking the last row and column is not meaningful as we'll discard
-        rows = indices // (W - 1)
-        cols = indices % (W - 1)
-        mask[0, 0, rows, cols] = 1
-
-        z_masked = z * mask
-
-        # 3. --- Plotting ---
-        # Detach tensors and move to CPU for numpy/matplotlib
-        original_slice = z[0, freq_idx].cpu().numpy()
-        masked_slice = z_masked[0, freq_idx].cpu().numpy()
-
-        if crop:
-            # Crop to the region of interest if needed
-            original_slice = original_slice[:-1, :-1]
-            masked_slice = masked_slice[:-1, :-1]
-
-        fig, axes = plt.subplots(1, 3, figsize=(12, 6))
-        fig.suptitle(f"Masking Visualization (Frequency Index: {freq_idx})")
-
-        # Plot Original
-        im1 = axes[0].imshow(original_slice, origin='upper', cmap='viridis')
-        axes[0].set_title(f'Original Slice')
-        axes[0].set_xlabel("X-index")
-        axes[0].set_ylabel("Y-index")
-        fig.colorbar(im1, ax=axes[0], label="Magnitude")
-
-        # Plot Masked
-        im2 = axes[1].imshow(masked_slice, origin='upper', cmap='viridis')
-        axes[1].set_title(f'Masked Slice ({self.m} points visible)')
-        axes[1].set_xlabel("X-index")
-        axes[1].set_ylabel("Y-index")
-        fig.colorbar(im2, ax=axes[1], label="Magnitude")
-
-        # Plot Mask
-        mask_slice = mask[0, 0].cpu().numpy()
-        im3 = axes[2].imshow(mask_slice, origin='upper', cmap='gray', vmin=0, vmax=1)
-        axes[2].set_title(f'Mask (1 = Visible, 0 = Hidden)')
-        axes[2].set_xlabel("X-index")
-        axes[2].set_ylabel("Y-index")
-        fig.colorbar(im3, ax=axes[2], label="Mask binary value")
-
-        plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
-        plt.show()
+    # def visualize_masking(self, crop, sample_idx: int = 0, freq_idx: int = 5):
+    #     """
+    #     Samples one slice, applies the inpainting mask, and plots the original
+    #     and masked versions side-by-side for a specific frequency index.
+    #     """
+    #     # 1. Sample a single complete, clean ATF slice 'z' and its condition 'y'
+    #     z, y = self.path.p_data.sample(sample_idx)
+    #
+    #     # Get the padded height and width
+    #     _, _, H, W = z.shape
+    #
+    #     # 2. --- DATA MASKING (Inpainting) ---
+    #     # Create a mask that is the same size as the padded 12x12 image
+    #     mask = torch.zeros(sample_idx, 1, H, W, device=z.device)
+    #
+    #     # Get M random pixel locations to keep
+    #     indices = torch.randperm((H-1) * (W-1))[:self.m]
+    #     # IM changing this to 11x11 since masking the last row and column is not meaningful as we'll discard
+    #     rows = indices // (W - 1)
+    #     cols = indices % (W - 1)
+    #     mask[0, 0, rows, cols] = 1
+    #
+    #     z_masked = z * mask
+    #
+    #     # 3. --- Plotting ---
+    #     # Detach tensors and move to CPU for numpy/matplotlib
+    #     original_slice = z[0, freq_idx].cpu().numpy()
+    #     masked_slice = z_masked[0, freq_idx].cpu().numpy()
+    #
+    #     if crop:
+    #         # Crop to the region of interest if needed
+    #         original_slice = original_slice[:-1, :-1]
+    #         masked_slice = masked_slice[:-1, :-1]
+    #
+    #     fig, axes = plt.subplots(1, 3, figsize=(12, 6))
+    #     fig.suptitle(f"Masking Visualization (Frequency Index: {freq_idx})")
+    #
+    #     # Plot Original
+    #     im1 = axes[0].imshow(original_slice, origin='upper', cmap='viridis')
+    #     axes[0].set_title(f'Original Slice')
+    #     axes[0].set_xlabel("X-index")
+    #     axes[0].set_ylabel("Y-index")
+    #     fig.colorbar(im1, ax=axes[0], label="Magnitude")
+    #
+    #     # Plot Masked
+    #     im2 = axes[1].imshow(masked_slice, origin='upper', cmap='viridis')
+    #     axes[1].set_title(f'Masked Slice ({self.m} points visible)')
+    #     axes[1].set_xlabel("X-index")
+    #     axes[1].set_ylabel("Y-index")
+    #     fig.colorbar(im2, ax=axes[1], label="Magnitude")
+    #
+    #     # Plot Mask
+    #     mask_slice = mask[0, 0].cpu().numpy()
+    #     im3 = axes[2].imshow(mask_slice, origin='upper', cmap='gray', vmin=0, vmax=1)
+    #     axes[2].set_title(f'Mask (1 = Visible, 0 = Hidden)')
+    #     axes[2].set_xlabel("X-index")
+    #     axes[2].set_ylabel("Y-index")
+    #     fig.colorbar(im3, ax=axes[2], label="Mask binary value")
+    #
+    #     plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
+    #     plt.show()
 
 
 
