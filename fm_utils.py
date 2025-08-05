@@ -485,7 +485,7 @@ class Trainer(ABC):
     def get_optimizer(self, lr: float):
         return torch.optim.Adam(self.model.parameters(), lr=lr)
 
-    def train(self, num_iterations: int, device: torch.device, lr: float = 1e-3,
+    def train(self, num_iterations: int, device: torch.device, lr: float, m: int,
               valid_sampler: Optional[Sampleable] = None,
               save_path: str = "model.pt",
               checkpoint_path: str = "checkpoints",
@@ -529,7 +529,7 @@ class Trainer(ABC):
             self.model.train()
             opt.zero_grad()
 
-            loss = self.get_train_loss(batch_size=batch_size)
+            loss = self.get_train_loss(M=m, batch_size=batch_size)
             loss.backward()
             opt.step()
 
@@ -1007,41 +1007,55 @@ class ATFInpaintingTrainer(Trainer):
         # Flag to print shapes only on the first run
         self.shapes_printed = False
 
-    def get_train_loss(self, batch_size: int, **kwargs) -> torch.Tensor:
-        # 1. Sample a batch of COMPLETE, clean ATF slices 'z' and conditions 'y'
-        z, y = self.path.p_data.sample(batch_size)
-        # Get the padded height and width
-        _, _, H, W = z.shape
-
-        # 2. --- DATA MASKING (Inpainting) ---
-        # Create a mask that is the same size as the padded 12x12 image
+    def _create_sparse_mask(self, z: torch.Tensor) -> torch.Tensor:
+        """Helper function to create a sparse mask for a batch of slices."""
+        batch_size, _, H, W = z.shape
         mask = torch.zeros(batch_size, 1, H, W, device=z.device)
 
-        # Generate random indices ONLY within the original 11x11 area
+        # --- EFFICIENT BATCHED MASKING ---
+        # Generate random indices for each sample in the batch without a loop
+        num_pixels = (H - 1) * (W - 1)
+        # We use multinomial to sample M indices for each of the batch_size samples
+        indices = torch.multinomial(torch.ones(batch_size, num_pixels), self.m, replacement=False).to(z.device)
 
-        for i in range(batch_size):
-            indices = torch.randperm((H-1) * (W-1))[:self.m]
-        # IM changing this to 11x11 since masking the last row and column is not meaningful as we'll discard
         rows = indices // (W - 1)
         cols = indices % (W - 1)
 
-        for i in range(batch_size):
-            mask[i, 0, rows[i], cols[i]] = 1
+        # Use advanced indexing to set the mask values for the entire batch at once
+        batch_indices = torch.arange(batch_size, device=z.device).view(-1, 1)
+        mask[batch_indices, 0, rows, cols] = 1
 
-        # Apply the mask to the clean data to create the sparse input
+        return mask
+
+    def get_train_loss(self, batch_size: int, M: int, **kwargs) -> torch.Tensor:
+        # 1. Sample a batch of COMPLETE, clean ATF slices 'z'
+        z, y = self.path.p_data.sample(batch_size)
+
+        # 2. Create the sparse mask efficiently
+        mask = self._create_sparse_mask(z)
         z_masked = z * mask
 
-        # 3. Create the noisy sample x_t and the ground truth vector field ut_ref
-        t = torch.rand(z.shape[0], 1, 1, 1, device=z.device)
-        x_t = self.path.sample_conditional_path(z_masked, t)
-        ut_ref = self.path.conditional_vector_field(x_t, z, t)
+        # 3. --- CORRECT INPAINTING PATH ---
+        # The path is a straight line from the masked image to the full image, with optional noise.
+        t = torch.rand(batch_size, 1, 1, 1, device=z.device)
+        sigma = 0.0  # Small noise for robustness
+        noise = torch.randn_like(z) * sigma
 
-        # 4. --- LABEL MASKING (CFG) ---
+        # Create the noisy sample on the path between masked and full data
+        x_t = (1 - t) * z_masked + t * z + noise # was  x_t = self.path.sample_conditional_path(z_masked, t)
+
+        # The target vector field is the difference vector
+        ut_ref = z - z_masked  # The target velocity is the difference vector
+
+        # --- Concatenate mask as 65th channel for the MODEL INPUT ---
+        model_input = torch.cat([x_t, mask], dim=1)  # Shape becomes (bs, 65, 12, 12)
+
+        # --- LABEL MASKING for CFG ---
         is_conditional_mask = (torch.rand(y.shape[0], device=y.device) > self.eta).view(-1, 1)
         y_cond = torch.where(is_conditional_mask, y, self.y_null)
 
-        # 5. Calculate Loss
-        ut_theta = self.model(x_t, t, y_cond)
+        # --- Loss Calculation ---
+        ut_theta = self.model(model_input, t, y_cond)
 
         if not self.shapes_printed:
             print("\\n--- Tensor Shapes (First Training Step) ---")
@@ -1057,30 +1071,30 @@ class ATFInpaintingTrainer(Trainer):
             print("------------------------------------------\\n")
             self.shapes_printed = True
 
-        # error = torch.mean(torch.square(ut_theta - ut_ref))
-        error = torch.mean(torch.square(ut_theta[:, :, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
+        # Crop output and reference to 11x11 before comparing
+        error = torch.mean(torch.square(ut_theta[:, :-1, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
         return error
 
     @torch.no_grad()
     def get_valid_loss(self, valid_sampler: Sampleable, batch_size: int, M: int = 5, **kwargs) -> torch.Tensor:
         # Validation loss should also simulate the inpainting task
         z, y = valid_sampler.sample(batch_size)
-        _, _, H, W = z.shape
 
-        mask = torch.zeros(batch_size, 1, H, W, device=z.device)
-
-        for i in range(batch_size):
-            indices = torch.randperm(z.shape[2] * z.shape[3])[:M]
-            rows, cols = indices // z.shape[3], indices % z.shape[3]
-            mask[i, 0, rows, cols] = 1
+        # Use the same efficient masking and path logic for validation
+        mask = self._create_sparse_mask(z)
         z_masked = z * mask
 
-        t = torch.rand(z.shape[0], 1, 1, 1, device=z.device)
-        x_t = self.path.sample_conditional_path(z_masked, t)
-        ut_ref = self.path.conditional_vector_field(x_t, z, t)
+        t = torch.rand(batch_size, 1, 1, 1, device=z.device)
+        sigma = 0.01
+        noise = torch.randn_like(z) * sigma
 
-        ut_theta = self.model(x_t, t, y)  # Use the true label for validation
-        error = torch.mean(torch.square(ut_theta - ut_ref))
+        x_t = (1 - t) * z_masked + t * z + noise #x_t = self.path.sample_conditional_path(z_masked, t)
+        ut_ref = z - z_masked #ut_ref = self.path.conditional_vector_field(x_t, z, t)
+
+        model_input = torch.cat([x_t, mask], dim=1)
+
+        ut_theta = self.model(model_input, t, y)  # Use the true label for validation
+        error = torch.mean(torch.square(ut_theta[:, :, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
         return error
 
     def visualize_masking(self, crop, sample_idx: int = 0, freq_idx: int = 5):
@@ -1384,7 +1398,7 @@ class ATFUNet(ConditionalVectorField):
         # --- MODIFICATION 1: Change input channels ---
         # The U-Net now accepts an "image" with 64 channels (one for each frequency bin).
         self.init_conv = nn.Sequential(
-            nn.Conv2d(64, channels[0], kernel_size=3, padding=1),
+            nn.Conv2d(65, channels[0], kernel_size=3, padding=1),
             nn.BatchNorm2d(channels[0]),
             nn.SiLU()
         )
@@ -1413,16 +1427,16 @@ class ATFUNet(ConditionalVectorField):
 
         # --- MODIFICATION 3: Change output channels ---
         # The final layer must also output 64 channels. # it was 1 before (not 64)
-        self.final_conv = nn.Conv2d(channels[0], 64, kernel_size=3, padding=1)
+        self.final_conv = nn.Conv2d(channels[0], 65, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
         """
         Args:
-        - x: (bs, 64, 11, 11) <- New input shape BEFORE: x: (bs, 1, freq_bins, time_bins)
+        - x: (bs, 65, 11, 11) <- New input shape BEFORE: x: (bs, 1, freq_bins, time_bins)
         - t: (bs, 1, 1, 1) # same
         - y: (bs, 4) <- New conditioning shape, was (bs, 6), and BEFORE was y: (bs,) for mnist
         Returns:
-        - u_t^theta(x|y): (bs, 64, 11, 11) <- New output shape BEFORE: (bs, 1, freq_bins, time_bins)
+        - u_t^theta(x|y): (bs, 64, 12, 12) <- New output shape BEFORE: (bs, 1, freq_bins, time_bins)
         """
         # Embed t and y
         t_embed = self.time_embedder(t)

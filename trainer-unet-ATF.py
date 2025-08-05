@@ -10,7 +10,7 @@ from fm_utils import (ATFSliceSampler, GaussianConditionalProbabilityPath, Linea
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-wandinit = False
+wandinit = True
 resume_from_checkpoint = None
 # resume_from_checkpoint = "/Users/ege/Projects/FMRIR/experiments/SpecUNet_20250804-140641/checkpoints/ckpt_10.pt"
 
@@ -33,9 +33,10 @@ config = {
         "y_embed_dim": 40
     },
     "training": {
-        "num_iterations": 1000,
+        "num_iterations": 20,
         "batch_size": 250,
         "lr": 1e-3,
+        "M": 50,  # Number of observation points / mic recordings
         "eta": 0.1
     },
     "experiments_dir": "experiments",
@@ -98,11 +99,6 @@ spec_std = atf_train_sampler.slices.std()
 print(f"\nCalculated Mean: {spec_mean:.4f}, Std: {spec_std:.4f} (from training set)")
 
 # --- Define and apply the transform to the existing samplers ---
-# transform = transforms.Compose([
-#     transforms.Normalize((spec_mean,), (spec_std,)),
-# ])
-
-# --- Define and apply the transform to the existing samplers ---
 # We pad the 11x11 grid to 12x12 according to the torch documentation order:  left, top, right and bottom
 padding = (0, 0, 1, 1) # right col and bottom row padded!
 
@@ -156,27 +152,28 @@ if start_iteration > 0:
 trainer.visualize_masking(crop=True, sample_idx=15, freq_idx=20)
 
 # --- Training ---
-# print(f"\n--- Starting Training for experiment: {experiment_name} ---")
-# trainer.train(
-#     num_iterations=training_cfg['num_iterations'],
-#     device=device,
-#     lr=training_cfg['lr'],
-#     batch_size=training_cfg['batch_size'],
-#     valid_sampler=atf_valid_sampler,
-#     save_path=MODEL_SAVE_PATH,
-#     checkpoint_path=CHECKPOINT_DIR,
-#     checkpoint_interval=5,  # Save a checkpoint every 1000 iterations
-#     start_iteration=start_iteration,  # Start from 0 or the loaded iteration
-#     config=config
-# )
-#
-# # --- Finalizing the Run ---
-# # Log the best model as a wandb Artifact for easy access later
-# if os.path.exists(MODEL_SAVE_PATH):
-#     print("Logging best model to W&B Artifacts...")
-#     best_model_artifact = wandb.Artifact(f"{wandb.run.name}-best-model", type="model")
-#     best_model_artifact.add_file(MODEL_SAVE_PATH)
-#     wandb.log_artifact(best_model_artifact)
-#
-# wandb.finish()
-# print("Training complete and wandb run finished.")
+print(f"\n--- Starting Training for experiment: {experiment_name} ---")
+trainer.train(
+    num_iterations=training_cfg['num_iterations'],
+    device=device,
+    lr=training_cfg['lr'],
+    batch_size=training_cfg['batch_size'],
+    valid_sampler=atf_valid_sampler,
+    save_path=MODEL_SAVE_PATH,
+    checkpoint_path=CHECKPOINT_DIR,
+    checkpoint_interval=20,  # Save a checkpoint every 1000 iterations
+    m=training_cfg['M'],  # Number of observation points / mic recordings
+    start_iteration=start_iteration,  # Start from 0 or the loaded iteration
+    config=config
+)
+
+# --- Finalizing the Run ---
+# Log the best model as a wandb Artifact for easy access later
+if os.path.exists(MODEL_SAVE_PATH):
+    print("Logging best model to W&B Artifacts...")
+    best_model_artifact = wandb.Artifact(f"{wandb.run.name}-best-model", type="model")
+    best_model_artifact.add_file(MODEL_SAVE_PATH)
+    wandb.log_artifact(best_model_artifact)
+
+wandb.finish()
+print("Training complete and wandb run finished.")
