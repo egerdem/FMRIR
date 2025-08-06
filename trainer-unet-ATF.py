@@ -18,7 +18,8 @@ resume_from_checkpoint = None
 # --- Configuration ---
 config = {
     "data": {
-        "data_dir": "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/",
+        # "data_dir": "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/",
+        "data_dir": "/Users/ege/Projects/DATASET",
         "src_splits": {
             "train": [0, 820],
             "valid": [820, 922],
