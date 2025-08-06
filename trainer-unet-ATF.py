@@ -11,9 +11,9 @@ from fm_utils import (ATFSliceSampler, GaussianConditionalProbabilityPath, Linea
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 wandinit = True
-# resume_from_checkpoint = None
+resume_from_checkpoint = None
 # resume_from_checkpoint = "/Users/ege/Projects/FMRIR/experiments/SpecUNet_20250804-140641/checkpoints/ckpt_10.pt"
-resume_from_checkpoint = "/Users/ege/Projects/FMRIR/experiments/ATFUNET_wandb_iter5000/model.pt"
+# resume_from_checkpoint = "/Users/ege/Projects/FMRIR/experiments/ATFUNET_wandb_iter5000/model.pt"
 
 # --- Configuration ---
 config = {

@@ -1037,11 +1037,12 @@ class ATFInpaintingTrainer(Trainer):
         # 3. --- CORRECT INPAINTING PATH ---
         # The path is a straight line from the masked image to the full image, with optional noise.
         t = torch.rand(batch_size, 1, 1, 1, device=z.device)
-        sigma = 0.0  # Small noise for robustness
+        sigma = 0.1  # Small noise for robustness
         noise = torch.randn_like(z) * sigma
 
         # Create the noisy sample on the path between masked and full data
-        x_t = (1 - t) * z_masked + t * z + noise # was  x_t = self.path.sample_conditional_path(z_masked, t)
+        x_t = (1 - t) * z_masked + t * z + noise #
+        # x_t = self.path.sample_conditional_path(z_masked, t) # original version
 
         # The target vector field is the difference vector
         ut_ref = z - z_masked  # The target velocity is the difference vector

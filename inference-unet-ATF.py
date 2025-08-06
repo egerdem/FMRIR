@@ -27,10 +27,10 @@ config = {
         "t_embed_dim": 40, "y_dim": 4, "y_embed_dim": 40
     }
 }
-M = 40  # Number of sparse points to use as input
+M = 50  # Number of sparse points to use as input
 
 # --- Data and Model Setup ---
-MODEL_LOAD_PATH = "experiments/ATFUNET_wandb_iter5000/model.pt" #
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_20250805-161558_iter5000-best-model:v0/model_7699.pt" #
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 
@@ -73,8 +73,8 @@ simulator = EulerSimulator(ode_inference)
 # --- Visualization Parameters ---
 num_plots = 5
 num_timesteps = 100
-guidance_scales = [1.0, 2.0, 3.0]
-freq_idx_to_plot = 10  # Which frequency channel to visualize
+guidance_scales = [1.0, 3., 5.]
+freq_idx_to_plot = 2  # Which frequency channel to visualize
 
 # --- Generate and Plot ---
 # We have 2 fixed columns (True, Sparse) + one for each guidance scale
