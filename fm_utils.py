@@ -484,12 +484,12 @@ class Trainer(ABC):
     def get_optimizer(self, lr: float):
         return torch.optim.Adam(self.model.parameters(), lr=lr)
 
-    def train(self, num_iterations: int, device: torch.device, lr: float, m: int,
+    def train(self, num_iterations: int, device: torch.device, lr: float,
               valid_sampler: Optional[Sampleable] = None,
               save_path: str = "model.pt",
               checkpoint_path: str = "checkpoints",
-              validation_interval: int = 50,
-              checkpoint_interval: int = 1000,
+              validation_interval: Optional[int] = None,
+              checkpoint_interval: Optional[int] = None,
               start_iteration: int = 0,
               config: dict = None,
               **kwargs):
@@ -528,7 +528,7 @@ class Trainer(ABC):
             self.model.train()
             opt.zero_grad()
 
-            loss = self.get_train_loss(M=m, batch_size=batch_size)
+            loss = self.get_train_loss(**kwargs)
             loss.backward()
             opt.step()
 
@@ -537,9 +537,9 @@ class Trainer(ABC):
             wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration})
 
             # **NEW: Validation loop**
-            if valid_sampler and (iteration + 1) % validation_interval == 0:
+            if valid_sampler and validation_interval is not None and (iteration + 1) % validation_interval == 0:
                 self.model.eval()
-                val_loss = self.get_valid_loss(valid_sampler=valid_sampler, batch_size=batch_size)
+                val_loss = self.get_valid_loss(valid_sampler=valid_sampler, **kwargs)
                 pbar.set_description(
                     f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.3f}, Val Loss: {val_loss.item():.3f}')
                 # **NEW: Log validation loss to wandb**
@@ -995,13 +995,14 @@ class CFGTrainer(Trainer):
         return loss_per_sample.mean()
 
 class ATFInpaintingTrainer(Trainer):
-    def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, M: int, y_dim: int,
+    def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, M: int, y_dim: int, sigma: float,
                  **kwargs):
         super().__init__(model, **kwargs)
         self.path = path
         self.eta = eta
         self.y_null = torch.nn.Parameter(torch.randn(1, y_dim))
         self.m = M
+        self.sigma = sigma
 
         # Flag to print shapes only on the first run
         self.shapes_printed = False
@@ -1026,8 +1027,9 @@ class ATFInpaintingTrainer(Trainer):
 
         return mask
 
-    def get_train_loss(self, batch_size: int, M: int, **kwargs) -> torch.Tensor:
+    def get_train_loss(self, **kwargs) -> torch.Tensor:
         # 1. Sample a batch of COMPLETE, clean ATF slices 'z'
+        batch_size = kwargs.get('batch_size')
         z, y = self.path.p_data.sample(batch_size)
 
         # 2. Create the sparse mask efficiently
@@ -1037,8 +1039,7 @@ class ATFInpaintingTrainer(Trainer):
         # 3. --- CORRECT INPAINTING PATH ---
         # The path is a straight line from the masked image to the full image, with optional noise.
         t = torch.rand(batch_size, 1, 1, 1, device=z.device)
-        sigma = 0.1  # Small noise for robustness
-        noise = torch.randn_like(z) * sigma
+        noise = torch.randn_like(z) * self.sigma
 
         # Create the noisy sample on the path between masked and full data
         x_t = (1 - t) * z_masked + t * z + noise #
@@ -1078,8 +1079,9 @@ class ATFInpaintingTrainer(Trainer):
         return error
 
     @torch.no_grad()
-    def get_valid_loss(self, valid_sampler: Sampleable, batch_size: int, M: int = 5, **kwargs) -> torch.Tensor:
+    def get_valid_loss(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         # Validation loss should also simulate the inpainting task
+        batch_size = kwargs.get('batch_size')
         z, y = valid_sampler.sample(batch_size)
 
         # Use the same efficient masking and path logic for validation
@@ -1087,8 +1089,7 @@ class ATFInpaintingTrainer(Trainer):
         z_masked = z * mask
 
         t = torch.rand(batch_size, 1, 1, 1, device=z.device)
-        sigma = 0.01
-        noise = torch.randn_like(z) * sigma
+        noise = torch.randn_like(z) * self.sigma
 
         x_t = (1 - t) * z_masked + t * z + noise #x_t = self.path.sample_conditional_path(z_masked, t)
         ut_ref = z - z_masked #ut_ref = self.path.conditional_vector_field(x_t, z, t)

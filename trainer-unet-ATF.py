@@ -38,7 +38,9 @@ config = {
         "batch_size": 250,
         "lr": 1e-3,
         "M": 50,  # Number of observation points / mic recordings
-        "eta": 0.1
+        "eta": 0.1,
+        "sigma": 0.1, # noise level
+        "validation_interval": 1
     },
     "experiments_dir": "experiments",
     "project_root": "/Users/ege/Projects/FMRIR"
@@ -144,8 +146,9 @@ trainer = ATFInpaintingTrainer(
     path=path,
     model=atf_unet,
     eta=training_cfg['eta'],
-    M = 5, #Number of observation points / mic recordings
+    M=training_cfg['M'], #Number of observation points / mic recordings
     y_dim=model_cfg['y_dim'],
+    sigma=training_cfg['sigma']
 )
 
 if start_iteration > 0:
@@ -166,7 +169,7 @@ trainer.train(
     save_path=MODEL_SAVE_PATH,
     checkpoint_path=CHECKPOINT_DIR,
     checkpoint_interval=20,  # Save a checkpoint every 1000 iterations
-    m=training_cfg['M'],  # Number of observation points / mic recordings
+    validation_interval=training_cfg['validation_interval'],
     start_iteration=start_iteration,  # Start from 0 or the loaded iteration
     config=config
 )
