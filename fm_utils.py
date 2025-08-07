@@ -513,6 +513,7 @@ class Trainer(ABC):
               checkpoint_interval: Optional[int] = None,
               start_iteration: int = 0,
               config: dict = None,
+              early_stopping_patience: int = 1000,
               **kwargs):
 
         # Report model size
@@ -523,9 +524,7 @@ class Trainer(ABC):
         self.model.to(device)
         opt = self.get_optimizer(lr)
 
-        # **NEW: Logic for tracking best model**
         best_val_loss = float('inf')
-        best_model_state = None
 
         # Load optimizer state if resuming
         if start_iteration > 0:

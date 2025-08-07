@@ -186,7 +186,7 @@ if __name__ == '__main__':
 
     # --- reprendre la formation ---
     parser.add_argument('--resume_from_checkpoint', type=str, default=None, help='Path to a checkpoint to resume training from.')
-    parser.add_argument('--resume_from_iteration', type=int, default=0, help='Iteration to resume from if not in checkpoint.')
+    parser.add_argument('--resume_from_iteration', type=int, help='Iteration to resume from if not in checkpoint.')
     parser.add_argument('--resume_run_id', type=str, default=None, help='WandB run ID to resume if not in checkpoint.')
 
     # --- WandB ---

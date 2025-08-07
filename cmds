@@ -1,7 +1,7 @@
 
 
 
-python trainer-unet-ATF-CMD.py --data_dir /home/eerdem/DATA —resume_from_iteration /home/eerdem/FMRIR/artifacts/artifacts/ATFUNet_20250806-185407_iter20000-best-model:v0/model.pt --resume_from_iteration 20000
+python trainer-unet-ATF-CMD.py --data_dir /home/eerdem/DATA --resume_from_checkpoint /home/eerdem/DATA/artifacts/ATFUNet_20250806-185407_iter20000-best-model:v0/model.pt --resume_from_iteration 20000
 --resume_run_id j30tdj4w  --sigma 0.0 --batch_size 250 --M 50 --validation_interval 20 --eta 0.1 --lr 1e-3 --num_iterations 40000 --checkpoint_interval 1000
 
 

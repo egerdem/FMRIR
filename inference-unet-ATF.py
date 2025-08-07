@@ -35,7 +35,7 @@ config = {
 M = 50  # Number of sparse points to use as input
 
 # --- Data and Model Setup ---
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/experiments/ATFUNet_20250806-185407_iter20000-best-model/model.pt" #
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/experiments/ATFUNet_20250806-185407_iter20000-best-model/modelv2.pt" #
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 
@@ -83,7 +83,7 @@ simulator = EulerSimulator(ode_inference)
 guidance_scale = 1.0  # Fixed guidance for this visualization
 timesteps_to_visualize = [x*10 for x in range(10)] # Fibonacci sequence for more detail early on
 num_plots = 5 # How many different random examples to show
-freq_idx_to_plot = 2  # Which frequency channel to visualize
+freq_idx_to_plot = 10  # Which frequency channel to visualize
 
 # --- Generate and Plot ---
 # We have 2 fixed columns (True, Sparse) + one for each timestep we visualize
