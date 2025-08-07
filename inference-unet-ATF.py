@@ -4,13 +4,18 @@ from matplotlib import pyplot as plt
 import torch
 from torchvision import datasets, transforms
 import os
-
+import numpy as np
+import random
 from fm_utils import (ATFSliceSampler, CFGVectorFieldODE, EulerSimulator,
                       ATFUNet)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
+SEED = 42  # You can use any integer you like
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED) # for GPU
+np.random.seed(SEED)
+random.seed(SEED)
 
 # --- Configuration (should match your ATF training script) ---
 config = {
@@ -30,7 +35,7 @@ config = {
 M = 50  # Number of sparse points to use as input
 
 # --- Data and Model Setup ---
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_20250805-161558_iter5000-best-model:v0/model_7699.pt" #
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/experiments/ATFUNet_20250806-185407_iter20000-best-model/model.pt" #
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 
@@ -71,21 +76,25 @@ ode_inference.y_null.data = checkpoint['y_null'].to(device)
 simulator = EulerSimulator(ode_inference)
 
 # --- Visualization Parameters ---
-num_plots = 5
-num_timesteps = 100
-guidance_scales = [1.0, 3., 5.]
+# num_timesteps = 10
+# guidance_scales = [1.0, 0.5, 1.5]
+# num_plots = len(guidance_scales) + 2
+
+guidance_scale = 1.0  # Fixed guidance for this visualization
+timesteps_to_visualize = [x*10 for x in range(10)] # Fibonacci sequence for more detail early on
+num_plots = 5 # How many different random examples to show
 freq_idx_to_plot = 2  # Which frequency channel to visualize
 
 # --- Generate and Plot ---
-# We have 2 fixed columns (True, Sparse) + one for each guidance scale
-num_cols = 2 + len(guidance_scales)
+# We have 2 fixed columns (True, Sparse) + one for each timestep we visualize
+num_cols = 2 + len(timesteps_to_visualize)
 fig, axes = plt.subplots(num_plots, num_cols, figsize=(4 * num_cols, 4 * num_plots), squeeze=False)
-fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot})", fontsize=16)
+fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot}, Guidance={guidance_scale})", fontsize=16)
 
 for i in range(num_plots):
     # 1. Get a random ground truth slice and its conditioning vector
-    z_true, y_true = atf_test_sampler.sample(10)
-
+    z_true, y_true = atf_test_sampler.sample(1)
+    print(f"freq ind: {freq_idx_to_plot}, Conditioning Vector: {y_true}")
     # 2. --- REPLICATE THE ROBUST MASKING LOGIC ---
     # Get the batch size, height, and width
     B, _, H, W = z_true.shape
@@ -121,15 +130,17 @@ for i in range(num_plots):
     axes[i, 1].imshow(x0_plot, origin='lower', cmap='viridis')
     axes[i, 1].set_title(f"Sparse Input (M={M})")
 
-    # 5. Loop through guidance scales to generate and plot reconstructions
-    ts = torch.linspace(0, 1, num_timesteps).view(1, -1, 1, 1, 1).expand(1, -1, 1, 1, 1).to(device)
+    # 5. Loop through timesteps to generate and plot reconstructions
+    simulator.ode.guidance_scale = guidance_scale
+    
+    # Simulate the full trajectory up to the maximum required timestep
+    max_steps = max(timesteps_to_visualize)
+    trajectory = simulator.simulate_trajectory(x0_model_input, max_timesteps=max_steps, y=y_true)
 
-    for j, w in enumerate(guidance_scales):
-        # Update the guidance scale in the simulator
-        simulator.ode.guidance_scale = w
-
-        # Simulate the ODE to generate the reconstruction
-        x1_recon = simulator.simulate(x0_model_input, ts, y=y_true)
+    for j, step in enumerate(timesteps_to_visualize):
+        # Get the reconstructed image from the specified step in the trajectory
+        # The trajectory includes the initial state at index 0, so we access step `step`
+        x1_recon = trajectory[step]
 
         # De-normalize and crop for visualization
         x1_recon_denorm = (x1_recon * spec_std + spec_mean)
@@ -137,7 +148,8 @@ for i in range(num_plots):
 
         # Plot the reconstruction in the correct column
         axes[i, j + 2].imshow(x1_plot, origin='lower', cmap='viridis')
-        axes[i, j + 2].set_title(f"Recon (w={w:.1f})")
+        axes[i, j + 2].set_title(f"Timestep {step}")
+
 
     # Turn off axis for all plots in the row
     for ax in axes[i]:

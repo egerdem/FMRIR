@@ -422,6 +422,27 @@ class EulerSimulator(Simulator):
     def step(self, xt: torch.Tensor, t: torch.Tensor, h: torch.Tensor, **kwargs):
         return xt + self.ode.drift_coefficient(xt, t, **kwargs) * h
 
+    @torch.no_grad()
+    def simulate_trajectory(self, x: torch.Tensor, max_timesteps: int, y: torch.Tensor):
+        """
+        Simulates the ODE and returns the state at each timestep.
+        """
+        ts = torch.linspace(0, 1, max_timesteps + 1).to(x.device)
+        trajectory = [x.clone()]
+        
+        for i in range(max_timesteps):
+            t_current = ts[i]
+            t_next = ts[i+1]
+            h = t_next - t_current
+            
+            # Reshape t for drift_coefficient
+            t_reshaped = t_current.view(1, 1, 1, 1).expand(x.shape[0], -1, -1, -1)
+
+            x = self.step(x, t_reshaped, h, y=y)
+            trajectory.append(x.clone())
+            
+        return torch.stack(trajectory)
+
 
 class EulerMaruyamaSimulator(Simulator):
     def __init__(self, sde: SDE):

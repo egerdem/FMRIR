@@ -1,0 +1,47 @@
+{
+    "data": {
+        "data_dir": "/Users/ege/Projects/DATASET",
+        "src_splits": {
+            "train": [
+                0,
+                820
+            ],
+            "valid": [
+                820,
+                922
+            ],
+            "test": [
+                922,
+                1024
+            ],
+            "all": [
+                0,
+                1024
+            ]
+        }
+    },
+    "model": {
+        "name": "ATFUNet",
+        "channels": [
+            32,
+            64,
+            128
+        ],
+        "num_residual_layers": 2,
+        "t_embed_dim": 40,
+        "y_dim": 4,
+        "y_embed_dim": 40
+    },
+    "training": {
+        "num_iterations": 100,
+        "batch_size": 250,
+        "lr": 0.001,
+        "M": 50,
+        "eta": 0.1,
+        "sigma": 0.1,
+        "validation_interval": 1
+    },
+    "experiments_dir": "experiments",
+    "project_root": "/Users/ege/Projects/FMRIR",
+    "wandb_run_id": "0mwo2a7h"
+}

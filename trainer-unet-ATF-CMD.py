@@ -52,13 +52,24 @@ def main(args):
         print(f"Resuming training from checkpoint: {args.resume_from_checkpoint}")
         checkpoint = torch.load(args.resume_from_checkpoint, map_location=device)
 
-        start_iteration = checkpoint.get('iteration', 0) # Use .get for safety
+        start_iteration = checkpoint.get('iteration') # Use .get for safety
+        if start_iteration is None:
+            start_iteration = args.resume_from_iteration
+            print(f"Warning: 'iteration' not found in checkpoint. Resuming from iteration {start_iteration}.")
+
 
         # Initialize wandb with the ID of the run you're resuming
         if args.wandb:
             wandb.login(key=args.wandb_key)
-            run_id = checkpoint['wandb_run_id']
-            wandb.init(project="FM-RIR", id=run_id, resume="must", config=config)
+            run_id = checkpoint.get('wandb_run_id')
+            if run_id is None:
+                run_id = args.resume_run_id
+                print(f"Warning: 'wandb_run_id' not found in checkpoint. Resuming with run_id {run_id}.")
+
+            if run_id:
+                wandb.init(project="FM-RIR", id=run_id, resume="must", config=config)
+            else:
+                print("Warning: No wandb run ID found or provided. Cannot resume wandb run.")
 
     else:
         # --- Experiment Setup ---
@@ -175,6 +186,8 @@ if __name__ == '__main__':
 
     # --- reprendre la formation ---
     parser.add_argument('--resume_from_checkpoint', type=str, default=None, help='Path to a checkpoint to resume training from.')
+    parser.add_argument('--resume_from_iteration', type=int, default=0, help='Iteration to resume from if not in checkpoint.')
+    parser.add_argument('--resume_run_id', type=str, default=None, help='WandB run ID to resume if not in checkpoint.')
 
     # --- WandB ---
     parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=True, help='Enable or disable wandb logging.')
