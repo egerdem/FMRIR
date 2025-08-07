@@ -33,16 +33,18 @@ class EarlyStopping(object):
             self.is_better = lambda a, b: True
 
     def step(self, metrics):
+
+        metrics_val = metrics.cpu().item()
         if self.best is None:
-            self.best = metrics
+            self.best = metrics_val
             return False
 
-        if np.isnan(metrics):
+        if np.isnan(metrics_val):
             return True
 
-        if self.is_better(metrics, self.best):
+        if self.is_better(metrics_val, self.best):
             self.num_bad_epochs = 0
-            self.best = metrics
+            self.best = metrics_val
         else:
             self.num_bad_epochs += 1
 
