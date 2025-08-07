@@ -35,7 +35,7 @@ config = {
         "y_embed_dim": 40
     },
     "training": {
-        "num_iterations": 100,
+        "num_iterations": 1,
         "batch_size": 250,
         "lr": 1e-3,
         "M": 50,  # Number of observation points / mic recordings
@@ -56,13 +56,14 @@ if resume_from_checkpoint and os.path.exists(resume_from_checkpoint):
     print(f"Resuming training from checkpoint: {resume_from_checkpoint}")
     checkpoint = torch.load(resume_from_checkpoint, map_location=device)
 
-    checkpoint['iteration'] = 5000
+
+    checkpoint['iteration'] = None
     start_iteration = checkpoint['iteration']
     
     # Initialize wandb with the ID of the run you're resuming
     wandb.login(key="ec2cf1718868be26a8055412b556d952681ee0b6")
     # run_id = checkpoint['wandb_run_id']
-    run_id = "12lzsgj9"
+    run_id = None
     wandb.init(project="FM-RIR", id=run_id, resume="must", config=config)
 
 else:

@@ -15,6 +15,49 @@ import wandb
 # import matplotlib.pyplot as plt
 import random
 
+# early stopping taken from: https://github.com/sigsep/open-unmix-pytorch/blob/master/openunmix/utils.py#L72
+
+class EarlyStopping(object):
+    """Early Stopping Monitor"""
+
+    def __init__(self, mode="min", min_delta=0, patience=10):
+        self.mode = mode
+        self.min_delta = min_delta
+        self.patience = patience
+        self.best = None
+        self.num_bad_epochs = 0
+        self.is_better = None
+        self._init_is_better(mode, min_delta)
+
+        if patience == 0:
+            self.is_better = lambda a, b: True
+
+    def step(self, metrics):
+        if self.best is None:
+            self.best = metrics
+            return False
+
+        if np.isnan(metrics):
+            return True
+
+        if self.is_better(metrics, self.best):
+            self.num_bad_epochs = 0
+            self.best = metrics
+        else:
+            self.num_bad_epochs += 1
+
+        if self.num_bad_epochs >= self.patience:
+            return True
+
+        return False
+
+    def _init_is_better(self, mode, min_delta):
+        if mode not in {"min", "max"}:
+            raise ValueError("mode " + mode + " is unknown!")
+        if mode == "min":
+            self.is_better = lambda a, best: a < best - min_delta
+        if mode == "max":
+            self.is_better = lambda a, best: a > best + min_delta
 
 class OldSampleable(ABC):
     """
@@ -524,7 +567,12 @@ class Trainer(ABC):
         self.model.to(device)
         opt = self.get_optimizer(lr)
 
-        best_val_loss = float('inf')
+        # --- State Tracking ---
+        best_val_loss = float("inf")
+        best_iteration = start_iteration
+
+        # NEW: Initialize the EarlyStopping monitor
+        early_stopper = EarlyStopping(patience=early_stopping_patience)
 
         # Load optimizer state if resuming
         if start_iteration > 0:
@@ -533,11 +581,10 @@ class Trainer(ABC):
                 checkpoint = torch.load(ckpt_file, map_location=device)
                 opt.load_state_dict(checkpoint['optimizer_state_dict'])
                 best_val_loss = checkpoint.get('best_val_loss', float('inf'))
-                print(f"Resumed optimizer state and best_val_loss from iteration {start_iteration}")
+                best_iteration = checkpoint.get("best_iteration", start_iteration)
+                print(f"Resumed optimizer. Best validation loss so far: {best_val_loss:.4f} at iter {best_iteration}")
 
         batch_size = kwargs.get('batch_size')
-        if batch_size is None:
-            raise ValueError("batch_size must be provided to the train method.")
 
         # **NEW: Get total dataset size for epoch calculation**
         # dataset_size = len(self.path.p_data.spectrograms)
@@ -557,7 +604,7 @@ class Trainer(ABC):
             wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration})
 
             # **NEW: Validation loop**
-            if valid_sampler and validation_interval is not None and (iteration + 1) % validation_interval == 0:
+            if valid_sampler and (iteration + 1) % validation_interval == 0:
                 self.model.eval()
                 val_loss = self.get_valid_loss(valid_sampler=valid_sampler, **kwargs)
                 pbar.set_description(
@@ -568,11 +615,21 @@ class Trainer(ABC):
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     print(
-                        f"** [Iter {iteration}] New best val. loss: {best_val_loss:.3f} while train loss: {loss.item():.3f}. Saving model. **")
+                        f"** [Iter {iteration}] New best val. loss found for: train loss: {loss.item():.3f} and val loss: {best_val_loss:.3f}. Saving model. **")
                     # **Save the best model state in memory**
                     best_model_state = self.model.state_dict()
-                    torch.save({'model_state_dict': best_model_state, 'y_null': getattr(self, 'y_null', None)},
+                    torch.save({'model_state_dict': best_model_state,
+                                'y_null': getattr(self, 'y_null', None),
+                               "best_val_loss": best_val_loss,
+                                "best_iteration": best_iteration,
+                                "config": config,
+                                },
                                save_path)
+
+                # NEW: Check for early stopping
+                if early_stopper.step(val_loss):
+                    print(f"--- Early stopping triggered at iteration {iteration} ---")
+                    break  # Exit the training loop
 
             else:
                 pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.3f}')
@@ -586,12 +643,14 @@ class Trainer(ABC):
                     'model_state_dict': self.model.state_dict(),
                     'optimizer_state_dict': opt.state_dict(),
                     'best_val_loss': best_val_loss,
+                    "best_iteration": best_iteration,
                     'y_null': getattr(self, 'y_null', None),
                     'config': config,
                     'wandb_run_id': config.get('wandb_run_id')
                 }, ckpt_save_path)
 
         self.model.eval()
+        print(f"--- Training finished. Best validation loss was {best_val_loss:.4f} at iteration {best_iteration}. ---")
 
 
 class MNISTSampler(nn.Module, Sampleable):
