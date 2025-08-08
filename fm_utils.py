@@ -1130,12 +1130,20 @@ class ATFInpaintingTrainer(Trainer):
         t = torch.rand(batch_size, 1, 1, 1, device=z.device)
         noise = torch.randn_like(z) * self.sigma
 
+        if True:
+            z0 = z_masked + (1 - mask) * noise
+
         # Create the noisy sample on the path between masked and full data
-        x_t = (1 - t) * z_masked + t * z + noise #
+        if True:
+            x_t = (1 - t) * z0 + t * z
+            ut_ref = z - z0
+        else:
+            x_t = (1 - t) * z_masked + t * z + noise #
+            # The target vector field is the difference vector
+            ut_ref = z - z_masked  # The target velocity is the difference vector
+
         # x_t = self.path.sample_conditional_path(z_masked, t) # original version
 
-        # The target vector field is the difference vector
-        ut_ref = z - z_masked  # The target velocity is the difference vector
 
         # --- Concatenate mask as 65th channel for the MODEL INPUT ---
         model_input = torch.cat([x_t, mask], dim=1)  # Shape becomes (bs, 65, 12, 12)
@@ -1180,8 +1188,17 @@ class ATFInpaintingTrainer(Trainer):
         t = torch.rand(batch_size, 1, 1, 1, device=z.device)
         noise = torch.randn_like(z) * self.sigma
 
-        x_t = (1 - t) * z_masked + t * z + noise #x_t = self.path.sample_conditional_path(z_masked, t)
-        ut_ref = z - z_masked #ut_ref = self.path.conditional_vector_field(x_t, z, t)
+        if True:
+            z0 = z_masked + (1 - mask) * noise
+
+        # Create the noisy sample on the path between masked and full data
+        if True:
+            x_t = (1 - t) * z0 + t * z
+            ut_ref = z - z0
+        else:
+            x_t = (1 - t) * z_masked + t * z + noise  #
+            # The target vector field is the difference vector
+            ut_ref = z - z_masked  # The target velocity is the difference vector
 
         model_input = torch.cat([x_t, mask], dim=1)
 

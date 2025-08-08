@@ -31,13 +31,13 @@ config = {
         "channels": [32, 64, 128], "num_residual_layers": 2,
         "t_embed_dim": 40, "y_dim": 4, "y_embed_dim": 40,
         # Optional: if set, use only the first N frequency channels
-        "freq_ind_up_to": None
+        "freq_ind_up_to": 20
     }
 }
-M = 50  # Number of sparse points to use as input
 
 # --- Data and Model Setup ---
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_20250806-185407_iter20000-best-model/model60k.pt" #
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_20250806-185407_iter20000-best-model/model60k.pt" #
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_ATFUNet_20250808-174928_iter60k/model60k.pt" #
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 
@@ -77,7 +77,11 @@ input_channels = freq_channels + 1
 output_channels = freq_channels + 1
 
 model_kwargs = {
-    **config['model'],
+    'channels': config['model']['channels'],
+    'num_residual_layers': config['model']['num_residual_layers'],
+    't_embed_dim': config['model']['t_embed_dim'],
+    'y_dim': config['model']['y_dim'],
+    'y_embed_dim': config['model']['y_embed_dim'],
     'input_channels': input_channels,
     'output_channels': output_channels,
 }
@@ -94,13 +98,17 @@ simulator = EulerSimulator(ode_inference)
 
 # --- Visualization Parameters ---
 # num_timesteps = 10
-# guidance_scales = [1.0, 0.5, 1.5]
+# guidance_scale = [1.0, 1.5, 2]
 # num_plots = len(guidance_scales) + 2
 
-guidance_scale = 1.0  # Fixed guidance for this visualization
-timesteps_to_visualize = [x*10 for x in range(10)] # Fibonacci sequence for more detail early on
+guidance_scale = 3.0  # Fixed guidance for this visualization
+timesteps_to_visualize = [x*10 for x in range(1,10)]
+# timesteps_to_visualize = [10, 30, 50, 70, 90, 150, 200, 300]
+# timesteps_to_visualize = [10, 200, 500, 1000, 2000]
+
 num_plots = 5 # How many different random examples to show
-freq_idx_to_plot = 10  # Which frequency channel to visualize
+M = 50  # Number of sparse points to use as input
+freq_idx_to_plot = 5  # Which frequency channel to visualize
 
 # --- Generate and Plot ---
 # We have 2 fixed columns (True, Sparse) + one for each timestep we visualize
@@ -150,14 +158,21 @@ for i in range(num_plots):
     # 5. Loop through timesteps to generate and plot reconstructions
     simulator.ode.guidance_scale = guidance_scale
     
-    # Simulate the full trajectory up to the maximum required timestep
+    # Efficient single-pass stepping: compute once up to max step and capture selected frames
+    steps_set = set(timesteps_to_visualize)
     max_steps = max(timesteps_to_visualize)
-    trajectory = simulator.simulate_trajectory(x0_model_input, max_timesteps=max_steps, y=y_true)
+    ts_lin = torch.linspace(0, 1, max_steps + 1, device=x0_model_input.device)
+    frames = {}
+    x_state = x0_model_input.clone()
+    for step_idx in range(1, max_steps + 1):
+        t_current = ts_lin[step_idx - 1].view(1, 1, 1, 1).expand(x_state.shape[0], -1, -1, -1)
+        h = ts_lin[step_idx] - ts_lin[step_idx - 1]
+        x_state = simulator.step(x_state, t_current, h, y=y_true)
+        if step_idx in steps_set:
+            frames[step_idx] = x_state.clone()
 
     for j, step in enumerate(timesteps_to_visualize):
-        # Get the reconstructed image from the specified step in the trajectory
-        # The trajectory includes the initial state at index 0, so we access step `step`
-        x1_recon = trajectory[step]
+        x1_recon = frames[step]
 
         # De-normalize and crop for visualization
         x1_recon_denorm = (x1_recon * spec_std + spec_mean)
