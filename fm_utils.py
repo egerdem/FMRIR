@@ -842,11 +842,13 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
     Each sample is a tensor of shape (64, 11, 11), representing the
     64 frequency bins for an 11x11 grid of microphones at a single height.
     """
-    def __init__(self, data_path: str, mode: str, src_splits: dict, transform: Optional[callable] = None):
+    def __init__(self, data_path: str, mode: str, src_splits: dict, transform: Optional[callable] = None,
+                 freq_ind_up_to: Optional[int] = None):
         super().__init__()
         self.transform = transform
         self.mode = mode
         self.src_splits = src_splits
+        self.freq_ind_up_to = freq_ind_up_to
 
         processed_file = os.path.join(data_path, f'processed_atf_{self.mode}.pt')
 
@@ -856,12 +858,12 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
             self.slices = data['slices']
             self.coords = data['coords']
         else:
-            print(f"Processing ATF {mode} data from .npz files...")
-            source_indices = range(*src_splits[mode])
+            print(f"Processing ATF {self.mode} data from .npz files...")
+            source_indices = range(*src_splits[self.mode])
             all_slices = []
             all_coords = []
 
-            for src_id in tqdm(source_indices, desc=f"Loading {mode} NPZ files"):
+            for src_id in tqdm(source_indices, desc=f"Loading {self.mode} NPZ files"):
                 npz_file = os.path.join(data_path, f"data_s{src_id + 1:04d}.npz")
                 with np.load(npz_file) as data:
                     atf_mags = data['atf_mag_algn']   # Shape: (1331, 64)
@@ -886,6 +888,7 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
                         x_map = {val: i for i, val in enumerate(unique_x)}
                         y_map = {val: i for i, val in enumerate(unique_y)}
 
+                        # Pre-allocate for full frequency dimension; we'll crop later if requested
                         grid_slice = torch.zeros((64, ny, nx), dtype=torch.float32)
                         for i in range(len(mic_pos_slice)):
                             ix, iy = x_map[mic_pos_slice[i, 0]], y_map[mic_pos_slice[i, 1]]
@@ -901,6 +904,11 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
             print(f"Saved processed ATF {self.mode} data to {processed_file}")
 
         self.dummy = torch.nn.Buffer(torch.zeros(1))
+        # Optionally crop frequency channels after loading/processing
+        if self.freq_ind_up_to is not None:
+            if self.freq_ind_up_to < self.slices.shape[1]:
+                self.slices = self.slices[:, :self.freq_ind_up_to, :, :]
+
         print(f"Loaded {len(self.slices)} ATF slices for {self.mode} set.")
         print(f"Slice tensor shape: {self.slices.shape}")
         print(f"Coordinate tensor shape: {self.coords.shape}")
@@ -1476,13 +1484,14 @@ class SpecUNet(ConditionalVectorField):
         return x
 
 class ATFUNet(ConditionalVectorField):
-    def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int):
+    def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int,
+                 input_channels: int = 65, output_channels: int = 65):
         super().__init__()
 
         # --- MODIFICATION 1: Change input channels ---
-        # The U-Net now accepts an "image" with 64 channels (one for each frequency bin).
+        # The U-Net accepts an image with [freq_channels + 1] channels (freq bins + mask)
         self.init_conv = nn.Sequential(
-            nn.Conv2d(65, channels[0], kernel_size=3, padding=1),
+            nn.Conv2d(input_channels, channels[0], kernel_size=3, padding=1),
             nn.BatchNorm2d(channels[0]),
             nn.SiLU()
         )
@@ -1510,17 +1519,17 @@ class ATFUNet(ConditionalVectorField):
         self.midcoder = Midcoder(channels[-1], num_residual_layers, t_embed_dim, y_embed_dim)
 
         # --- MODIFICATION 3: Change output channels ---
-        # The final layer must also output 64 channels. # it was 1 before (not 64)
-        self.final_conv = nn.Conv2d(channels[0], 65, kernel_size=3, padding=1)
+        # The final layer outputs [freq_channels + 1] channels (freq bins + optional mask channel)
+        self.final_conv = nn.Conv2d(channels[0], output_channels, kernel_size=3, padding=1)
 
     def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
         """
         Args:
-        - x: (bs, 65, 11, 11) <- New input shape BEFORE: x: (bs, 1, freq_bins, time_bins)
+        - x: (bs, C_in, H, W) where C_in = freq_channels + 1 (freq bins + mask)
         - t: (bs, 1, 1, 1) # same
         - y: (bs, 4) <- New conditioning shape, was (bs, 6), and BEFORE was y: (bs,) for mnist
         Returns:
-        - u_t^theta(x|y): (bs, 64, 12, 12) <- New output shape BEFORE: (bs, 1, freq_bins, time_bins)
+        - u_t^theta(x|y): (bs, C_out, H, W) where C_out = freq_channels + 1
         """
         # Embed t and y
         t_embed = self.time_embedder(t)

@@ -28,7 +28,8 @@ def main(args):
             "num_residual_layers": args.num_residual_layers,
             "t_embed_dim": args.t_embed_dim,
             "y_dim": args.y_dim,
-            "y_embed_dim": args.y_embed_dim
+            "y_embed_dim": args.y_embed_dim,
+            "freq_ind_up_to": args.freq_ind_up_to
         },
         "training": {
             "num_iterations": args.num_iterations,
@@ -98,10 +99,14 @@ def main(args):
     data_cfg = config['data']
 
     atf_train_sampler = ATFSliceSampler(
-        data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits']).to(device)
+        data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits'],
+        freq_ind_up_to=args.freq_ind_up_to
+    ).to(device)
 
     atf_valid_sampler = ATFSliceSampler(
-        data_path=data_cfg['data_dir'], mode='valid', src_splits=data_cfg['src_splits']).to(device)
+        data_path=data_cfg['data_dir'], mode='valid', src_splits=data_cfg['src_splits'],
+        freq_ind_up_to=args.freq_ind_up_to
+    ).to(device)
 
     spec_mean = atf_train_sampler.slices.mean()
     spec_std = atf_train_sampler.slices.std()
@@ -122,6 +127,9 @@ def main(args):
     sample_spec, _ = atf_train_sampler.sample(1)
     atf_shape = list(sample_spec.shape[1:])
     print(f"ATF Slice shape for Path: {atf_shape}")
+    freq_channels = atf_shape[0]
+    input_channels = freq_channels + 1  # +1 for mask channel
+    output_channels = freq_channels + 1  # predict per-frequency plus mask output channel
 
     path = GaussianConditionalProbabilityPath(
         p_data = atf_train_sampler,
@@ -140,6 +148,8 @@ def main(args):
         t_embed_dim=model_cfg['t_embed_dim'],
         y_dim=model_cfg['y_dim'],
         y_embed_dim=model_cfg['y_embed_dim'],
+        input_channels=input_channels,
+        output_channels=output_channels,
     ).to(device)
 
     trainer = ATFInpaintingTrainer(
@@ -203,6 +213,7 @@ if __name__ == '__main__':
     parser.add_argument('--t_embed_dim', type=int, default=40, help='t embedding dimension.')
     parser.add_argument('--y_dim', type=int, default=4, help='y dimension.')
     parser.add_argument('--y_embed_dim', type=int, default=40, help='y embedding dimension.')
+    parser.add_argument('--freq_ind_up_to', type=int, default=None, help='Use only the first N frequency channels; model uses N+1 channels with mask.')
 
     # --- Training ---
     parser.add_argument('--num_iterations', type=int, default=100, help='Number of training iterations.')
@@ -220,3 +231,4 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     main(args)
+

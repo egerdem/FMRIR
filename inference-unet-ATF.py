@@ -29,18 +29,23 @@ config = {
     },
     "model": {
         "channels": [32, 64, 128], "num_residual_layers": 2,
-        "t_embed_dim": 40, "y_dim": 4, "y_embed_dim": 40
+        "t_embed_dim": 40, "y_dim": 4, "y_embed_dim": 40,
+        # Optional: if set, use only the first N frequency channels
+        "freq_ind_up_to": None
     }
 }
 M = 50  # Number of sparse points to use as input
 
 # --- Data and Model Setup ---
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/experiments/ATFUNet_20250806-185407_iter20000-best-model/modelv2.pt" #
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_20250806-185407_iter20000-best-model/model60k.pt" #
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 
 # Calculate stats from the training set to correctly de-normalize
-temp_train_sampler = ATFSliceSampler(data_path=data_dir, mode='train', src_splits=src_split)
+temp_train_sampler = ATFSliceSampler(
+    data_path=data_dir, mode='train', src_splits=src_split,
+    freq_ind_up_to=config['model'].get('freq_ind_up_to')
+)
 spec_mean = temp_train_sampler.slices.mean()
 spec_std = temp_train_sampler.slices.std()
 print(f"Loaded Stats from Training Set: Mean={spec_mean:.4f}, Std={spec_std:.4f}")
@@ -56,7 +61,8 @@ transform = transforms.Compose([
 atf_test_sampler = ATFSliceSampler(
     data_path=data_dir, mode='test',
     src_splits=src_split,
-    transform=transform
+    transform=transform,
+    freq_ind_up_to=config['model'].get('freq_ind_up_to')
 ).to(device)
 
 # --- Model Loading ---
@@ -64,7 +70,18 @@ if not os.path.exists(MODEL_LOAD_PATH):
     print(f"Model file not found at {MODEL_LOAD_PATH}.")
     exit()
 
-atf_unet = ATFUNet(**config['model']).to(device)
+# Dynamically compute input/output channels based on data
+sample_spec, _ = temp_train_sampler.sample(1)
+freq_channels = sample_spec.shape[1]
+input_channels = freq_channels + 1
+output_channels = freq_channels + 1
+
+model_kwargs = {
+    **config['model'],
+    'input_channels': input_channels,
+    'output_channels': output_channels,
+}
+atf_unet = ATFUNet(**model_kwargs).to(device)
 checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
 atf_unet.load_state_dict(checkpoint['model_state_dict'])
 atf_unet.eval()
