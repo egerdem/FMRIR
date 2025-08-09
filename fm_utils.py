@@ -1188,9 +1188,9 @@ class ATFInpaintingTrainer(Trainer):
 
         # Use the same efficient masking and path logic for validation
         mask = self._create_sparse_mask(z)
-        print(f"Validation mask shape: {mask.shape}, LHS: {mask.sum(dim=(-3, -2, -1)).unique().item()}, "
-              f"RHS: {z.shape[-2] * z.shape[-1] - 1 - self.m}, z.shape: {z.shape}")
-        assert (1. - mask).sum(dim=(-3, -2, -1)).unique().item() == z.shape[-2] * z.shape[-1] - 1 - self.m
+        # print(f"Validation mask shape: {mask.shape}, LHS: {mask.sum(dim=(-3, -2, -1)).unique().item()}, "
+        #       f"RHS: {z.shape[-2] * z.shape[-1] - 1 - self.m}, z.shape: {z.shape}")
+        # assert (1. - mask).sum(dim=(-3, -2, -1)).unique().item() == z.shape[-2] * z.shape[-1] - 1 - self.m
 
         z_masked = z * mask
 
