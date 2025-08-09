@@ -1009,79 +1009,79 @@ class CFGVectorFieldODE(ODE):
         return (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
 
 
-class CFGTrainer(Trainer):
-    def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, y_dim: int,
-                 **kwargs):
-        assert eta > 0 and eta < 1
-        super().__init__(model, **kwargs)
-        self.eta = eta
-        self.path = path
-        self.y_dim = y_dim
-
-        # A learned embedding for the unconditional (null) case
-        self.y_null = nn.Parameter(torch.randn(1, y_dim))
-
-    #
-    def get_train_loss(self, batch_size: int) -> torch.Tensor:
-        # Step 1: Sample z (spectrograms) and y (coordinates) from p_data#
-        z, y = self.path.p_data.sample(batch_size)  # (bs, c, h, w), y:(bs, 6)
-        # Ensure y is on the correct device
-        y = y.to(z.device)
-        self.y_null = self.y_null.to(z.device)
-
-        # Step 2: With probability eta, replace the coordinate vector with the null embedding
-        is_conditional_mask = (torch.rand(y.shape[0], device=y.device) > self.eta)
-        # Reshape for broadcasting: (bs,) -> (bs, 1)
-        is_conditional_mask = is_conditional_mask.view(-1, 1)
-
-        # Create the final conditioning tensor for the batch
-        y_cond = torch.where(is_conditional_mask, y, self.y_null)
-
-        # Step 3: Sample t (time) and x (noisy spectrogram)
-        t = torch.rand(batch_size, 1, 1, 1).to(z.device)
-        x = self.path.sample_conditional_path(z, t)
-
-        # Step 4: Regress the model's output against the ground truth vector field
-        ut_theta = self.model(x, t, y_cond)
-        ut_ref = self.path.conditional_vector_field(x, z, t)
-
-        error = torch.square(ut_theta - ut_ref)
-        # Flatten error fr
-        # om (bs, c, h, w) to (bs, -1) and sum over dimensions
-        loss_per_sample = error.view(batch_size, -1).sum(dim=1)
-
-        # Apply the mask to compute the loss only on conditional samples
-        masked_loss = loss_per_sample * is_conditional_mask.squeeze()
-
-        # Average the loss over the number of conditional samples
-        # Add a small epsilon to avoid division by zero if no samples are conditional
-        num_conditional_samples = is_conditional_mask.sum()
-        mean_loss = masked_loss.sum() / (num_conditional_samples + 1e-8)
-
-        # error = torch.einsum('bchw -> b', torch.square(ut_theta - ut_ref))  # (bs,)
-        return mean_loss
-
-    # **NEW: Validation loss implementation**
-    @torch.no_grad()
-    def get_valid_loss(self, valid_sampler: Sampleable, batch_size: int, **kwargs) -> torch.Tensor:
-        # Step 1: Sample z and y from the validation data sampler
-        z, y = valid_sampler.sample(batch_size)
-        y = y.to(z.device)
-
-        # Step 2: For validation, we ONLY use conditional samples. No CFG masking.
-        y_cond = y
-
-        # Step 3: Sample t and x
-        t = torch.rand(batch_size, 1, 1, 1).to(z.device)
-        x = self.path.sample_conditional_path(z, t)
-
-        # Step 4: Calculate loss
-        ut_theta = self.model(x, t, y_cond)
-        ut_ref = self.path.conditional_vector_field(x, z, t)
-        error = torch.square(ut_theta - ut_ref)
-        loss_per_sample = error.view(batch_size, -1).sum(dim=1)
-
-        return loss_per_sample.mean()
+# class CFGTrainer(Trainer):
+#     def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, y_dim: int,
+#                  **kwargs):
+#         assert eta > 0 and eta < 1
+#         super().__init__(model, **kwargs)
+#         self.eta = eta
+#         self.path = path
+#         self.y_dim = y_dim
+#
+#         # A learned embedding for the unconditional (null) case
+#         self.y_null = nn.Parameter(torch.randn(1, y_dim))
+#
+#     #
+#     def get_train_loss(self, batch_size: int) -> torch.Tensor:
+#         # Step 1: Sample z (spectrograms) and y (coordinates) from p_data#
+#         z, y = self.path.p_data.sample(batch_size)  # (bs, c, h, w), y:(bs, 6)
+#         # Ensure y is on the correct device
+#         y = y.to(z.device)
+#         self.y_null = self.y_null.to(z.device)
+#
+#         # Step 2: With probability eta, replace the coordinate vector with the null embedding
+#         is_conditional_mask = (torch.rand(y.shape[0], device=y.device) > self.eta)
+#         # Reshape for broadcasting: (bs,) -> (bs, 1)
+#         is_conditional_mask = is_conditional_mask.view(-1, 1)
+#
+#         # Create the final conditioning tensor for the batch
+#         y_cond = torch.where(is_conditional_mask, y, self.y_null)
+#
+#         # Step 3: Sample t (time) and x (noisy spectrogram)
+#         t = torch.rand(batch_size, 1, 1, 1).to(z.device)
+#         x = self.path.sample_conditional_path(z, t)
+#
+#         # Step 4: Regress the model's output against the ground truth vector field
+#         ut_theta = self.model(x, t, y_cond)
+#         ut_ref = self.path.conditional_vector_field(x, z, t)
+#
+#         error = torch.square(ut_theta - ut_ref)
+#         # Flatten error fr
+#         # om (bs, c, h, w) to (bs, -1) and sum over dimensions
+#         loss_per_sample = error.view(batch_size, -1).sum(dim=1)
+#
+#         # Apply the mask to compute the loss only on conditional samples
+#         masked_loss = loss_per_sample * is_conditional_mask.squeeze()
+#
+#         # Average the loss over the number of conditional samples
+#         # Add a small epsilon to avoid division by zero if no samples are conditional
+#         num_conditional_samples = is_conditional_mask.sum()
+#         mean_loss = masked_loss.sum() / (num_conditional_samples + 1e-8)
+#
+#         # error = torch.einsum('bchw -> b', torch.square(ut_theta - ut_ref))  # (bs,)
+#         return mean_loss
+#
+#     # **NEW: Validation loss implementation**
+#     @torch.no_grad()
+#     def get_valid_loss(self, valid_sampler: Sampleable, batch_size: int, **kwargs) -> torch.Tensor:
+#         # Step 1: Sample z and y from the validation data sampler
+#         z, y = valid_sampler.sample(batch_size)
+#         y = y.to(z.device)
+#
+#         # Step 2: For validation, we ONLY use conditional samples. No CFG masking.
+#         y_cond = y
+#
+#         # Step 3: Sample t and x
+#         t = torch.rand(batch_size, 1, 1, 1).to(z.device)
+#         x = self.path.sample_conditional_path(z, t)
+#
+#         # Step 4: Calculate loss
+#         ut_theta = self.model(x, t, y_cond)
+#         ut_ref = self.path.conditional_vector_field(x, z, t)
+#         error = torch.square(ut_theta - ut_ref)
+#         loss_per_sample = error.view(batch_size, -1).sum(dim=1)
+#
+#         return loss_per_sample.mean()
 
 class ATFInpaintingTrainer(Trainer):
     def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, M: int, y_dim: int, sigma: float,
@@ -1092,6 +1092,7 @@ class ATFInpaintingTrainer(Trainer):
         self.y_null = torch.nn.Parameter(torch.randn(1, y_dim))
         self.m = M
         self.sigma = sigma
+        self.FLAG_GAUSSIAN_MASK = kwargs.get('FLAG_GAUSSIAN_MASK', True)
 
         # Flag to print shapes only on the first run
         self.shapes_printed = False
@@ -1130,11 +1131,9 @@ class ATFInpaintingTrainer(Trainer):
         t = torch.rand(batch_size, 1, 1, 1, device=z.device)
         noise = torch.randn_like(z) * self.sigma
 
-        if True:
+        if self.FLAG_GAUSSIAN_MASK:
             z0 = z_masked + (1 - mask) * noise
-
         # Create the noisy sample on the path between masked and full data
-        if True:
             x_t = (1 - t) * z0 + t * z
             ut_ref = z - z0
         else:
@@ -1172,7 +1171,13 @@ class ATFInpaintingTrainer(Trainer):
             self.shapes_printed = True
 
         # Crop output and reference to 11x11 before comparing
-        error = torch.mean(torch.square(ut_theta[:, :-1, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
+        ut_theta_crop = ut_theta[:, :-1, :-1, :-1]
+        ut_ref_crop = ut_ref[:, :, :-1, :-1]
+
+        region_crop = (1.0 - mask)[:, :, :-1, :-1]
+        squared_err = torch.square(ut_theta_crop - ut_ref_crop)*region_crop
+        error = squared_err.sum() / region_crop.sum()
+        # error = torch.mean()
         return error
 
     @torch.no_grad()
@@ -1183,16 +1188,15 @@ class ATFInpaintingTrainer(Trainer):
 
         # Use the same efficient masking and path logic for validation
         mask = self._create_sparse_mask(z)
+        assert (1. - mask).sum(dim=(-3, -2, -1)).unique().item() == z.shape[-2] * z.shape[-1] - 1 - self.m
+
         z_masked = z * mask
 
         t = torch.rand(batch_size, 1, 1, 1, device=z.device)
         noise = torch.randn_like(z) * self.sigma
 
-        if True:
+        if self.FLAG_GAUSSIAN_MASK:
             z0 = z_masked + (1 - mask) * noise
-
-        # Create the noisy sample on the path between masked and full data
-        if True:
             x_t = (1 - t) * z0 + t * z
             ut_ref = z - z0
         else:
@@ -1203,7 +1207,16 @@ class ATFInpaintingTrainer(Trainer):
         model_input = torch.cat([x_t, mask], dim=1)
 
         ut_theta = self.model(model_input, t, y)  # Use the true label for validation
-        error = torch.mean(torch.square(ut_theta[:, :-1, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
+        # error = torch.mean(torch.square(ut_theta[:, :-1, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
+
+        # Crop output and reference to 11x11 before comparing
+        ut_theta_crop = ut_theta[:, :-1, :-1, :-1]
+        ut_ref_crop = ut_ref[:, :, :-1, :-1]
+
+        region_crop = (1.0 - mask)[:, :, :-1, :-1]
+        squared_err = torch.square(ut_theta_crop - ut_ref_crop) * region_crop
+        error = squared_err.sum() / region_crop.sum()
+
         return error
 
     # def visualize_masking(self, crop, sample_idx: int = 0, freq_idx: int = 5):
@@ -1267,9 +1280,6 @@ class ATFInpaintingTrainer(Trainer):
     #
     #     plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
     #     plt.show()
-
-
-
 
 
 # """ Part 3: An Architecture for Spectrograms: Building a U-Net """

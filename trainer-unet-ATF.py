@@ -41,7 +41,8 @@ config = {
         "M": 50,  # Number of observation points / mic recordings
         "eta": 0.1,
         "sigma": 0.1, # noise level
-        "validation_interval": 1
+        "validation_interval": 1,
+        "FLAG_GAUSSIAN_MASK": False,  # Use Gaussian mask
     },
     "experiments_dir": "experiments",
     "project_root": "/Users/ege/Projects/FMRIR"
@@ -150,7 +151,8 @@ trainer = ATFInpaintingTrainer(
     eta=training_cfg['eta'],
     M=training_cfg['M'], #Number of observation points / mic recordings
     y_dim=model_cfg['y_dim'],
-    sigma=training_cfg['sigma']
+    sigma=training_cfg['sigma'],
+    FLAG_GAUSSIAN_MASK = training_cfg['FLAG_GAUSSIAN_MASK'],  # Use Gaussian mask
 )
 
 if start_iteration > 0:

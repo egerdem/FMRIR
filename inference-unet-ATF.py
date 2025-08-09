@@ -38,6 +38,7 @@ config = {
 # --- Data and Model Setup ---
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_20250806-185407_iter20000-best-model/model60k.pt" #
 MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_ATFUNet_20250808-174928_iter60k/model60k.pt" #
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_noisegauss_ATFUNet_20250808-202859_iter20000-best-model/model.pt" #
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 
@@ -64,11 +65,6 @@ atf_test_sampler = ATFSliceSampler(
     transform=transform,
     freq_ind_up_to=config['model'].get('freq_ind_up_to')
 ).to(device)
-
-# --- Model Loading ---
-if not os.path.exists(MODEL_LOAD_PATH):
-    print(f"Model file not found at {MODEL_LOAD_PATH}.")
-    exit()
 
 # Dynamically compute input/output channels based on data
 sample_spec, _ = temp_train_sampler.sample(1)
@@ -97,31 +93,27 @@ ode_inference.y_null.data = checkpoint['y_null'].to(device)
 simulator = EulerSimulator(ode_inference)
 
 # --- Visualization Parameters ---
-# num_timesteps = 10
-# guidance_scale = [1.0, 1.5, 2]
-# num_plots = len(guidance_scales) + 2
+guidance_scales = [1.0, 3, 5]  # explore different guidance strengths
+# Fixed total number of integration steps for accuracy/stability
+num_timesteps = 100
 
-guidance_scale = 3.0  # Fixed guidance for this visualization
-timesteps_to_visualize = [x*10 for x in range(1,10)]
-# timesteps_to_visualize = [10, 30, 50, 70, 90, 150, 200, 300]
-# timesteps_to_visualize = [10, 200, 500, 1000, 2000]
-
-num_plots = 5 # How many different random examples to show
-M = 50  # Number of sparse points to use as input
-freq_idx_to_plot = 5  # Which frequency channel to visualize
+# Layout: 5 examples (rows) x (2 + len(guidance_scales)) columns
+num_examples = 5  # different random samples to show
+num_cols = 2 + len(guidance_scales)  # GT, Input, then one per guidance scale
+M = 10  # Number of sparse points to use as input
+freq_idx_to_plot = 10  # Which frequency channel to visualize
+FLAG_GAUSSIAN_MASK = False  # If True, use Gaussian noise to fill the holes
 
 # --- Generate and Plot ---
-# We have 2 fixed columns (True, Sparse) + one for each timestep we visualize
-num_cols = 2 + len(timesteps_to_visualize)
-fig, axes = plt.subplots(num_plots, num_cols, figsize=(4 * num_cols, 4 * num_plots), squeeze=False)
-fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot}, Guidance={guidance_scale})", fontsize=16)
+fig, axes = plt.subplots(num_examples, num_cols, figsize=(4 * num_cols, 4 * num_examples), squeeze=False)
+fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot})", fontsize=16)
 
-for i in range(num_plots):
+for row in range(num_examples):
     # 1. Get a random ground truth slice and its conditioning vector
     z_true, y_true = atf_test_sampler.sample(1)
     print(f"freq ind: {freq_idx_to_plot}, Conditioning Vector: {y_true}")
-    # 2. --- REPLICATE THE ROBUST MASKING LOGIC ---
-    # Get the batch size, height, and width
+    
+    # 2. Create the sparse input
     B, _, H, W = z_true.shape
     mask = torch.zeros(B, 1, H, W, device=z_true.device)
 
@@ -139,53 +131,53 @@ for i in range(num_plots):
     # Create the sparse input by broadcasting the mask
     x0_sparse = z_true * mask
 
-    # 3. Prepare the input for the model (data + mask channel)
-    x0_model_input = torch.cat([x0_sparse, mask], dim=1)
+    if FLAG_GAUSSIAN_MASK:
+        sigma = 0.1
+        noise = torch.randn_like(z_true) * sigma  # Gaussian prior
+        x0_full = x0_sparse + (1 - mask) * noise  # fill the holes
+        x0_model_input = torch.cat([x0_full, mask], dim=1)
 
-    # 4. De-normalize and plot the Ground Truth and Sparse Input once per row
+    else:  # 3. Prepare the input for the model (data + mask channel)
+        x0_model_input = torch.cat([x0_sparse, mask], dim=1)
+
+    # 3. De-normalize for visualization
     z_true_denorm = (z_true * spec_std + spec_mean)
     x0_sparse_denorm = (x0_sparse * spec_std + spec_mean)
+    z_plot = z_true_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
+    x0_plot = x0_sparse_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
 
-    z_plot = z_true_denorm[0, freq_idx_to_plot, :-1, :-1].cpu().numpy()
-    x0_plot = x0_sparse_denorm[0, freq_idx_to_plot, :-1, :-1].cpu().numpy()
+    # Per-row normalization based on ground-truth slice
+    vmin = float(np.min(z_plot))
+    vmax = float(np.max(z_plot))
 
-    axes[i, 0].imshow(z_plot, origin='lower', cmap='viridis')
-    axes[i, 0].set_title("Ground Truth")
+    # 4. Plot ground truth and sparse input
+    im_gt = axes[row, 0].imshow(z_plot, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
+    axes[row, 0].set_title("Ground Truth" if row == 0 else "")
+    axes[row, 0].axis('off')
 
-    axes[i, 1].imshow(x0_plot, origin='lower', cmap='viridis')
-    axes[i, 1].set_title(f"Sparse Input (M={M})")
+    axes[row, 1].imshow(x0_plot, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
+    axes[row, 1].set_title(f"Sparse Input (M={M})" if row == 0 else "")
+    axes[row, 1].axis('off')
 
-    # 5. Loop through timesteps to generate and plot reconstructions
-    simulator.ode.guidance_scale = guidance_scale
-    
-    # Efficient single-pass stepping: compute once up to max step and capture selected frames
-    steps_set = set(timesteps_to_visualize)
-    max_steps = max(timesteps_to_visualize)
-    ts_lin = torch.linspace(0, 1, max_steps + 1, device=x0_model_input.device)
-    frames = {}
-    x_state = x0_model_input.clone()
-    for step_idx in range(1, max_steps + 1):
-        t_current = ts_lin[step_idx - 1].view(1, 1, 1, 1).expand(x_state.shape[0], -1, -1, -1)
-        h = ts_lin[step_idx] - ts_lin[step_idx - 1]
-        x_state = simulator.step(x_state, t_current, h, y=y_true)
-        if step_idx in steps_set:
-            frames[step_idx] = x_state.clone()
+    # 5. For each guidance scale, simulate and plot
+    for g_idx, guidance_scale in enumerate(guidance_scales):
+        simulator.ode.guidance_scale = guidance_scale
+        ts = torch.linspace(0, 1, num_timesteps + 1, device=x0_model_input.device)
+        ts = ts.view(1, -1, 1, 1, 1).expand(x0_model_input.shape[0], -1, -1, -1, -1)
+        x1_recon = simulator.simulate(x0_model_input.clone(), ts, y=y_true)
 
-    for j, step in enumerate(timesteps_to_visualize):
-        x1_recon = frames[step]
-
-        # De-normalize and crop for visualization
         x1_recon_denorm = (x1_recon * spec_std + spec_mean)
-        x1_plot = x1_recon_denorm[0, freq_idx_to_plot, :-1, :-1].cpu().numpy()
+        x1_plot = x1_recon_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
 
-        # Plot the reconstruction in the correct column
-        axes[i, j + 2].imshow(x1_plot, origin='lower', cmap='viridis')
-        axes[i, j + 2].set_title(f"Timestep {step}")
+        col_idx = g_idx + 2  # +2 for GT and Input columns
+        im = axes[row, col_idx].imshow(x1_plot, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
+        axes[row, col_idx].set_title(f"w={guidance_scale}" if row == 0 else "")
+        axes[row, col_idx].axis('off')
 
-
-    # Turn off axis for all plots in the row
-    for ax in axes[i]:
-        ax.axis('off')
+    # Add colorbar for this row
+    cbar = fig.colorbar(im_gt, ax=axes[row, :], location='right', fraction=0.02, pad=0.02)
+    cbar.ax.tick_params(labelsize=8)
+    cbar.set_label("Magnitude", fontsize=9)
 
 plt.tight_layout(rect=[0, 0.03, 1, 0.95])
 plt.show()
