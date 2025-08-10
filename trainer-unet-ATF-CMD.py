@@ -222,7 +222,7 @@ if __name__ == '__main__':
     parser.add_argument('--M', type=int, default=50, help='Number of observation points.')
     parser.add_argument('--eta', type=float, default=0.1, help='Eta for inpainting.')
     parser.add_argument('--sigma', type=float, default=0.1, help='Sigma for noise.')
-    parser.add_argument('--checkpoint_interval', type=int, default=1000, help='Save a checkpoint every N iterations.')
+    parser.add_argument('--checkpoint_interval', type=int, default=5000, help='Save a checkpoint every N iterations.')
     parser.add_argument('--validation_interval', type=int, default=20, help='Save a checkpoint every N iterations.')
 
     # --- Paths ---

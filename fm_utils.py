@@ -583,7 +583,7 @@ class Trainer(ABC):
                 checkpoint = torch.load(ckpt_file, map_location=device)
                 opt.load_state_dict(checkpoint['optimizer_state_dict'])
                 best_val_loss = checkpoint.get('best_val_loss', float('inf'))
-                best_iteration = checkpoint.get("best_iteration", start_iteration)
+                best_iteration = checkpoint.get("best_iteration", None)
                 print(f"Resumed optimizer. Best validation loss so far: {best_val_loss:.4f} at iter {best_iteration}")
 
         batch_size = kwargs.get('batch_size')
@@ -618,19 +618,21 @@ class Trainer(ABC):
                     best_val_loss = val_loss
                     print(
                         f"** [Iter {iteration}] New best val. loss found for: train loss: {loss.item():.3f} and val loss: {best_val_loss:.3f}. Saving model. **")
-                    # **Save the best model state in memory**
-                    best_model_state = self.model.state_dict()
-                    torch.save({'model_state_dict': best_model_state,
-                                'y_null': getattr(self, 'y_null', None),
-                               "best_val_loss": best_val_loss,
-                                "best_iteration": best_iteration,
-                                "config": config,
-                                },
-                               save_path)
+                    # Save best model state for inference
+                    best_model_state = {
+                        'model_state_dict': self.model.state_dict(),
+                        'y_null': getattr(self, 'y_null', None),
+                        'best_val_loss': best_val_loss,
+                        'best_iteration': iteration,
+                        'config': config,
+                        'is_best': True  # Flag to indicate this is best model
+                    }
+                    torch.save(best_model_state, save_path)
+                    best_iteration = iteration  # Update global tracking
 
                 # NEW: Check for early stopping
                 if early_stopper.step(val_loss):
-                    print(f"--- Early stopping triggered at iteration {iteration} ---")
+                    print(f"--- Early stopping triggered at iteration {iteration} with val_loss: {val_loss}---")
                     break  # Exit the training loop
 
             else:
@@ -640,16 +642,38 @@ class Trainer(ABC):
             if (iteration + 1) % checkpoint_interval == 0:
                 print(f"\n--- Saving checkpoint at iteration {iteration + 1} ---")
                 ckpt_save_path = os.path.join(checkpoint_path, f"ckpt_{iteration + 1}.pt")
-                torch.save({
+                # Save checkpoint for resuming training (latest state)
+                checkpoint_state = {
                     'iteration': iteration + 1,
                     'model_state_dict': self.model.state_dict(),
                     'optimizer_state_dict': opt.state_dict(),
                     'best_val_loss': best_val_loss,
-                    "best_iteration": best_iteration,
+                    'best_iteration': best_iteration,
                     'y_null': getattr(self, 'y_null', None),
                     'config': config,
-                    'wandb_run_id': config.get('wandb_run_id')
-                }, ckpt_save_path)
+                    'wandb_run_id': config.get('wandb_run_id'),
+                    'is_best': False  # Flag to indicate this is latest checkpoint
+                }
+                torch.save(checkpoint_state, ckpt_save_path)
+
+        # --- Save final checkpoint ---
+        final_iteration = iteration + 1
+        if final_iteration == num_iterations:
+            print(f"\n--- Saving final checkpoint at iteration {final_iteration} ---")
+            final_ckpt_path = os.path.join(checkpoint_path, f"model_{final_iteration}.pt")
+            final_checkpoint_state = {
+                'iteration': final_iteration,
+                'model_state_dict': self.model.state_dict(),
+                'optimizer_state_dict': opt.state_dict(),
+                'best_val_loss': best_val_loss,
+                'best_iteration': best_iteration,
+                'y_null': getattr(self, 'y_null', None),
+                'config': config,
+                'wandb_run_id': config.get('wandb_run_id'),
+                'is_best': False,
+                'is_final': True  # Flag to indicate this is the final state
+            }
+            torch.save(final_checkpoint_state, final_ckpt_path)
 
         self.model.eval()
         print(f"--- Training finished. Best validation loss was {best_val_loss:.4f} at iteration {best_iteration}. ---")

@@ -39,6 +39,7 @@ config = {
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_20250806-185407_iter20000-best-model/model60k.pt" #
 MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_ATFUNet_20250808-174928_iter60k/model60k.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_noisegauss_ATFUNet_20250808-202859_iter20000-best-model/model.pt" #
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_newlossonlyholes_ATFUNet_20250809-192847_/model60k.pt" #
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 
@@ -83,6 +84,16 @@ model_kwargs = {
 }
 atf_unet = ATFUNet(**model_kwargs).to(device)
 checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+
+# Print checkpoint info
+is_best = checkpoint.get('is_best', False)
+iter_info = f"iteration {checkpoint.get('iteration', '?')}"
+if is_best:
+    print(f"Loading BEST model state (from {iter_info})")
+else:
+    print(f"Loading latest checkpoint state (from {iter_info})")
+print(f"Validation loss: {checkpoint.get('best_val_loss', '?'):.4f}")
+
 atf_unet.load_state_dict(checkpoint['model_state_dict'])
 atf_unet.eval()
 print(f"--- Loaded model from {MODEL_LOAD_PATH} for inference ---")
@@ -100,7 +111,7 @@ num_timesteps = 100
 # Layout: 5 examples (rows) x (2 + len(guidance_scales)) columns
 num_examples = 5  # different random samples to show
 num_cols = 2 + len(guidance_scales)  # GT, Input, then one per guidance scale
-M = 10  # Number of sparse points to use as input
+M = 50  # Number of sparse points to use as input
 freq_idx_to_plot = 10  # Which frequency channel to visualize
 FLAG_GAUSSIAN_MASK = False  # If True, use Gaussian noise to fill the holes
 
