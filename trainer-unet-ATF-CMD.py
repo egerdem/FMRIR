@@ -38,6 +38,7 @@ def main(args):
             "M": args.M,
             "eta": args.eta,
             "sigma": args.sigma,
+            "flag_gaussian_mask": args.flag_gaussian_mask,
             "validation_interval": args.validation_interval
         },
         "experiments_dir": args.experiments_dir,
@@ -158,7 +159,8 @@ def main(args):
         eta=training_cfg['eta'],
         M=training_cfg['M'],
         y_dim=model_cfg['y_dim'],
-        sigma=training_cfg['sigma']
+        sigma=training_cfg['sigma'],
+        flag_gaussian_mask=args.flag_gaussian_mask
     )
 
     if start_iteration > 0:
@@ -207,7 +209,8 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/", help='Directory of the data.')
 
     # --- Model ---
-    parser.add_argument('--model_name', type=str, default="ATFUNet", help='Name of the model.')
+    parser.add_argument('--model_name', type=str, default="ATFUNet_M30_holeloss", help='Name of the model.')
+
     parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128], help='List of channels for the model, comma-separated.')
     parser.add_argument('--num_residual_layers', type=int, default=2, help='Number of residual layers.')
     parser.add_argument('--t_embed_dim', type=int, default=40, help='t embedding dimension.')
@@ -216,11 +219,12 @@ if __name__ == '__main__':
     parser.add_argument('--freq_ind_up_to', type=int, default=None, help='Use only the first N frequency channels; model uses N+1 channels with mask.')
 
     # --- Training ---
-    parser.add_argument('--num_iterations', type=int, default=100, help='Number of training iterations.')
+    parser.add_argument('--num_iterations', type=int, default=100000, help='Number of training iterations.')
     parser.add_argument('--batch_size', type=int, default=250, help='Batch size.')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate.')
-    parser.add_argument('--M', type=int, default=50, help='Number of observation points.')
+    parser.add_argument('--M', type=int, default=30, help='Number of observation points.')
     parser.add_argument('--eta', type=float, default=0.1, help='Eta for inpainting.')
+    parser.add_argument('--flag_gaussian_mask', type=bool, default=True)
     parser.add_argument('--sigma', type=float, default=0.1, help='Sigma for noise.')
     parser.add_argument('--checkpoint_interval', type=int, default=5000, help='Save a checkpoint every N iterations.')
     parser.add_argument('--validation_interval', type=int, default=20, help='Save a checkpoint every N iterations.')

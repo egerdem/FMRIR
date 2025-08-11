@@ -1108,7 +1108,8 @@ class CFGVectorFieldODE(ODE):
 #         return loss_per_sample.mean()
 
 class ATFInpaintingTrainer(Trainer):
-    def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, M: int, y_dim: int, sigma: float,
+    def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField,
+                 eta: float, M: int, y_dim: int, sigma: float, flag_gaussian_mask: bool,
                  **kwargs):
         super().__init__(model, **kwargs)
         self.path = path
@@ -1116,7 +1117,7 @@ class ATFInpaintingTrainer(Trainer):
         self.y_null = torch.nn.Parameter(torch.randn(1, y_dim))
         self.m = M
         self.sigma = sigma
-        self.FLAG_GAUSSIAN_MASK = kwargs.get('FLAG_GAUSSIAN_MASK', True)
+        self.FLAG_GAUSSIAN_MASK = flag_gaussian_mask
 
         # Flag to print shapes only on the first run
         self.shapes_printed = False

@@ -37,9 +37,11 @@ config = {
 
 # --- Data and Model Setup ---
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_20250806-185407_iter20000-best-model/model60k.pt" #
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_ATFUNet_20250808-174928_iter60k/model60k.pt" #
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_ATFUNet_20250808-174928_iter60k/model60k.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_noisegauss_ATFUNet_20250808-202859_iter20000-best-model/model.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_newlossonlyholes_ATFUNet_20250809-192847_/model60k.pt" #
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_newlossonlyholes_ATFUNet_20250809-192847_/model_best_for100k.pt" #
+
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 
