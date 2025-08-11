@@ -54,7 +54,7 @@ def main(args):
         print(f"Resuming training from checkpoint: {args.resume_from_checkpoint}")
         checkpoint = torch.load(args.resume_from_checkpoint, map_location=device)
 
-        start_iteration = checkpoint.get('iteration') # Use .get for safety
+        start_iteration = checkpoint["config"]["training"].get("num_iterations")+1 # Use .get for safety
         if start_iteration is None:
             start_iteration = args.resume_from_iteration
             print(f"Warning: 'iteration' not found in checkpoint. Resuming from iteration {start_iteration}.")
@@ -63,7 +63,7 @@ def main(args):
         # Initialize wandb with the ID of the run you're resuming
         if args.wandb:
             wandb.login(key=args.wandb_key)
-            run_id = checkpoint.get('wandb_run_id')
+            run_id = checkpoint["config"].get('wandb_run_id')
             if run_id is None:
                 run_id = args.resume_run_id
                 print(f"Warning: 'wandb_run_id' not found in checkpoint. Resuming with run_id {run_id}.")
@@ -197,9 +197,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="U-Net ATF Trainer CMD")
 
     # --- reprendre la formation ---
-    parser.add_argument('--resume_from_checkpoint', type=str, default=None, help='Path to a checkpoint to resume training from.')
+    parser.add_argument('--resume_from_checkpoint', type=str, default="/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt", help='Path to a checkpoint to resume training from.')
     parser.add_argument('--resume_from_iteration', type=int, help='Iteration to resume from if not in checkpoint.')
-    parser.add_argument('--resume_run_id', type=str, default=None, help='WandB run ID to resume if not in checkpoint.')
+    parser.add_argument('--resume_run_id', type=str, default="7zl69nzd", help='WandB run ID to resume if not in checkpoint.')
 
     # --- WandB ---
     parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=True, help='Enable or disable wandb logging.')
@@ -207,7 +207,6 @@ if __name__ == '__main__':
 
     # --- Data ---
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/", help='Directory of the data.')
-
     # --- Model ---
     parser.add_argument('--model_name', type=str, default="ATFUNet_M30_holeloss", help='Name of the model.')
 
@@ -216,7 +215,7 @@ if __name__ == '__main__':
     parser.add_argument('--t_embed_dim', type=int, default=40, help='t embedding dimension.')
     parser.add_argument('--y_dim', type=int, default=4, help='y dimension.')
     parser.add_argument('--y_embed_dim', type=int, default=40, help='y embedding dimension.')
-    parser.add_argument('--freq_ind_up_to', type=int, default=None, help='Use only the first N frequency channels; model uses N+1 channels with mask.')
+    parser.add_argument('--freq_ind_up_to', type=int, default=20, help='Use only the first N frequency channels; model uses N+1 channels with mask.')
 
     # --- Training ---
     parser.add_argument('--num_iterations', type=int, default=100000, help='Number of training iterations.')
@@ -226,7 +225,7 @@ if __name__ == '__main__':
     parser.add_argument('--eta', type=float, default=0.1, help='Eta for inpainting.')
     parser.add_argument('--flag_gaussian_mask', type=bool, default=True)
     parser.add_argument('--sigma', type=float, default=0.1, help='Sigma for noise.')
-    parser.add_argument('--checkpoint_interval', type=int, default=5000, help='Save a checkpoint every N iterations.')
+    parser.add_argument('--checkpoint_interval', type=int, default=10000, help='Save a checkpoint every N iterations.')
     parser.add_argument('--validation_interval', type=int, default=20, help='Save a checkpoint every N iterations.')
 
     # --- Paths ---
