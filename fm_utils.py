@@ -578,7 +578,7 @@ class Trainer(ABC):
 
         # Load optimizer state if resuming
         if start_iteration > 0:
-            ckpt_file = os.path.join(checkpoint_path, f"ckpt_{start_iteration}.pt")
+            ckpt_file = os.path.join(checkpoint_path)
             if os.path.exists(ckpt_file):
                 checkpoint = torch.load(ckpt_file, map_location=device)
                 opt.load_state_dict(checkpoint['optimizer_state_dict'])

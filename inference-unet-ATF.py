@@ -41,8 +41,11 @@ config = {
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_noisegauss_ATFUNet_20250808-202859_iter20000-best-model/model.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/checkpoints/model_100000.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_holeloss_ATFUNet_20250809-192847_100kish/model_best_for100k.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5/modelv0.pt"
+
+
 
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
@@ -126,9 +129,9 @@ guidance_scales = [1.0, 5]  # explore different guidance strengths
 num_timesteps = 100
 
 # Layout: 5 examples (rows) x (2 + len(guidance_scales)) columns
-num_examples = 1  # different random samples to show
+num_examples = 5  # different random samples to show
 num_cols = 2 + len(guidance_scales)  # GT, Input, then one per guidance scale
-M = 50  # Number of sparse points to use as input
+M = 30  # Number of sparse points to use as input
 freq_idx_to_plot = 15  # Which frequency channel to visualize
 FLAG_GAUSSIAN_MASK = False  # If True, use Gaussian noise to fill the holes
 
