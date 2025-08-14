@@ -197,9 +197,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="U-Net ATF Trainer CMD")
 
     # --- reprendre la formation ---
-    parser.add_argument('--resume_from_checkpoint', type=str, default="/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt", help='Path to a checkpoint to resume training from.')
+    parser.add_argument('--resume_from_checkpoint', type=str, help='Path to a checkpoint to resume training from.')
     parser.add_argument('--resume_from_iteration', type=int, help='Iteration to resume from if not in checkpoint.')
-    parser.add_argument('--resume_run_id', type=str, default="7zl69nzd", help='WandB run ID to resume if not in checkpoint.')
+    parser.add_argument('--resume_run_id', type=str, help='WandB run ID to resume if not in checkpoint.')
 
     # --- WandB ---
     parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=True, help='Enable or disable wandb logging.')
