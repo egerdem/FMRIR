@@ -10,3 +10,8 @@ ir_fs2000_s1_m1331_room4.0x6.0x3.0_rt200/
 ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/
 /wandb
 /experiments
+artifacts/find20_holeloss_ATFUNet_20250809-192847_100kish/
+artifacts/ATFUNet_M20_holeloss_20250811-200617_iter100000/
+artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/
+find64_holeloss_ATFUNet_M20_20250811-102034_iter60000/
+

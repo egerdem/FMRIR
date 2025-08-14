@@ -29,18 +29,18 @@ config = {
     "model": {
         "name": "ATFUNet",
         "channels": [32, 64, 128],
-        "num_residual_layers": 2,
-        "t_embed_dim": 40,
-        "y_dim": 4,
-        "y_embed_dim": 40
+        "num_residual_layers": 2,  # Number of residual layers in each block
+        "t_embed_dim": 40,  # Time embedding dimension
+        "y_dim": 4,  # 4D coordinates for source and microphone positions
+        "y_embed_dim": 40  # Embedding dimension for the conditioning vector
     },
     "training": {
-        "num_iterations": 1,
+        "num_iterations": 100000,  # Total number of training iterations
         "batch_size": 250,
-        "lr": 1e-3,
+        "lr": 1e-3,  # Learning rate
         "M": 50,  # Number of observation points / mic recordings
-        "eta": 0.1,
-        "sigma": 0.1, # noise level
+        "eta": 0.1,  # conditioning vector is removed with this probability
+        "sigma": 0.1,  # noise level
         "validation_interval": 1,
         "FLAG_GAUSSIAN_MASK": False,  # Use Gaussian mask
     },
@@ -57,10 +57,9 @@ if resume_from_checkpoint and os.path.exists(resume_from_checkpoint):
     print(f"Resuming training from checkpoint: {resume_from_checkpoint}")
     checkpoint = torch.load(resume_from_checkpoint, map_location=device)
 
-
     checkpoint['iteration'] = None
     start_iteration = checkpoint['iteration']
-    
+
     # Initialize wandb with the ID of the run you're resuming
     wandb.login(key="ec2cf1718868be26a8055412b556d952681ee0b6")
     # run_id = checkpoint['wandb_run_id']
@@ -109,7 +108,7 @@ print(f"\nCalculated Mean: {spec_mean:.4f}, Std: {spec_std:.4f} (from training s
 
 # --- Define and apply the transform to the existing samplers ---
 # We pad the 11x11 grid to 12x12 according to the torch documentation order:  left, top, right and bottom
-padding = (0, 0, 1, 1) # right col and bottom row padded!
+padding = (0, 0, 1, 1)  # right col and bottom row padded!
 
 transform = transforms.Compose([
     transforms.Pad(padding, padding_mode='reflect'),
@@ -121,16 +120,16 @@ atf_valid_sampler.transform = transform
 
 atf_valid_sampler.plot()
 
-sample_spec, _ = atf_train_sampler.sample(1) # The sample_spec will now have shape (1, 64, 11, 11)
+sample_spec, _ = atf_train_sampler.sample(1)  # The sample_spec will now have shape (1, 64, 11, 11)
 # The shape for the path object should be [C, H, W]
-atf_shape = list(sample_spec.shape[1:]) # This will be [64, 11, 11]
+atf_shape = list(sample_spec.shape[1:])  # This will be [64, 11, 11]
 print(f"ATF Slice shape for Path: {atf_shape}")
 
 path = GaussianConditionalProbabilityPath(
-    p_data = atf_train_sampler,
-    p_simple_shape = atf_shape,
-    alpha = LinearAlpha(),
-    beta = LinearBeta()
+    p_data=atf_train_sampler,
+    p_simple_shape=atf_shape,
+    alpha=LinearAlpha(),
+    beta=LinearBeta()
 ).to(device)
 
 # --- Model and Trainer Initialization ---
@@ -149,10 +148,10 @@ trainer = ATFInpaintingTrainer(
     path=path,
     model=atf_unet,
     eta=training_cfg['eta'],
-    M=training_cfg['M'], #Number of observation points / mic recordings
+    M=training_cfg['M'],  # Number of observation points / mic recordings
     y_dim=model_cfg['y_dim'],
     sigma=training_cfg['sigma'],
-    FLAG_GAUSSIAN_MASK = training_cfg['FLAG_GAUSSIAN_MASK'],  # Use Gaussian mask
+    FLAG_GAUSSIAN_MASK=training_cfg['FLAG_GAUSSIAN_MASK'],  # Use Gaussian mask
 )
 
 if start_iteration > 0:

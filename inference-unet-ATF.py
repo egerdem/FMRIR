@@ -39,10 +39,10 @@ config = {
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_20250806-185407_iter20000-best-model/model60k.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_ATFUNet_20250808-174928_iter60k/model60k.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_noisegauss_ATFUNet_20250808-202859_iter20000-best-model/model.pt" #
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_newlossonlyholes_ATFUNet_20250809-192847_/model60k.pt" #
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_newlossonlyholes_ATFUNet_20250809-192847_/model_best_for100k.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt" #
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/ATFUNet_M20_holeloss_20250811-102034_iter60000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/checkpoints/model_100000.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_holeloss_ATFUNet_20250809-192847_100kish/model_best_for100k.pt"
 
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
@@ -70,6 +70,19 @@ atf_test_sampler = ATFSliceSampler(
     transform=transform,
     freq_ind_up_to=config['model'].get('freq_ind_up_to')
 ).to(device)
+
+print("\n--- Debugging Test Sampler ---")
+if hasattr(atf_test_sampler, 'sample_info') and atf_test_sampler.sample_info is not None:
+    # Get unique source IDs from the first column of sample_info
+    unique_sources = torch.unique(atf_test_sampler.sample_info[:, 0])
+    print(f"Available Source IDs in test set: {unique_sources.long().tolist()}")
+
+    # Get unique z-heights from the second column of sample_info
+    unique_z_heights = torch.unique(atf_test_sampler.sample_info[:, 1])
+    print(f"Available Z-Heights in test set: {unique_z_heights.tolist()}")
+    print("----------------------------\n")
+else:
+    print("Could not find 'sample_info' in the sampler to debug.")
 
 # Dynamically compute input/output channels based on data
 sample_spec, _ = temp_train_sampler.sample(1)
@@ -108,15 +121,15 @@ ode_inference.y_null.data = checkpoint['y_null'].to(device)
 simulator = EulerSimulator(ode_inference)
 
 # --- Visualization Parameters ---
-guidance_scales = [1.0, 3, 5]  # explore different guidance strengths
+guidance_scales = [1.0, 5]  # explore different guidance strengths
 # Fixed total number of integration steps for accuracy/stability
 num_timesteps = 100
 
 # Layout: 5 examples (rows) x (2 + len(guidance_scales)) columns
-num_examples = 5  # different random samples to show
+num_examples = 1  # different random samples to show
 num_cols = 2 + len(guidance_scales)  # GT, Input, then one per guidance scale
-M = 20  # Number of sparse points to use as input
-freq_idx_to_plot = 10  # Which frequency channel to visualize
+M = 50  # Number of sparse points to use as input
+freq_idx_to_plot = 15  # Which frequency channel to visualize
 FLAG_GAUSSIAN_MASK = False  # If True, use Gaussian noise to fill the holes
 
 # --- Generate and Plot ---
@@ -125,7 +138,8 @@ fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot})", fontsiz
 
 for row in range(num_examples):
     # 1. Get a random ground truth slice and its conditioning vector
-    z_true, y_true = atf_test_sampler.sample(1)
+    # z_true, y_true = atf_test_sampler.sample(1)
+    z_true, y_true = atf_test_sampler.get_slice_by_id(src_id=930, z_height=0.0)
     print(f"freq ind: {freq_idx_to_plot}, Conditioning Vector: {y_true}")
     
     # 2. Create the sparse input
@@ -159,7 +173,12 @@ for row in range(num_examples):
     z_true_denorm = (z_true * spec_std + spec_mean)
     x0_sparse_denorm = (x0_sparse * spec_std + spec_mean)
     z_plot = z_true_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
-    x0_plot = x0_sparse_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
+    x0_plot_raw = x0_sparse_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
+    
+    # Create proper sparse visualization: use NaN for missing values (where mask=0)
+    mask_2d = mask[0, 0, :-1, :-1].detach().cpu().numpy()  # 2D mask for this frequency
+    x0_plot = x0_plot_raw.copy()
+    x0_plot[mask_2d == 0] = np.nan  # Missing values become NaN (transparent in imshow)
 
     # Per-row normalization based on ground-truth slice
     vmin = float(np.min(z_plot))
@@ -170,27 +189,47 @@ for row in range(num_examples):
     axes[row, 0].set_title("Ground Truth" if row == 0 else "")
     axes[row, 0].axis('off')
 
-    axes[row, 1].imshow(x0_plot, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
+    # For sparse input, use a colormap that shows NaN as white/transparent
+    cmap_sparse = plt.cm.viridis.copy()
+    cmap_sparse.set_bad('white', alpha=0.3)  # NaN values appear as semi-transparent white
+    
+    im_sparse = axes[row, 1].imshow(x0_plot, origin='lower', cmap=cmap_sparse, vmin=vmin, vmax=vmax)
     axes[row, 1].set_title(f"Sparse Input (M={M})" if row == 0 else "")
     axes[row, 1].axis('off')
 
+    # Store the last image for consistent colorbar reference
+    last_im = im_sparse
+    
     # 5. For each guidance scale, simulate and plot
     for g_idx, guidance_scale in enumerate(guidance_scales):
         simulator.ode.guidance_scale = guidance_scale
         ts = torch.linspace(0, 1, num_timesteps + 1, device=x0_model_input.device)
         ts = ts.view(1, -1, 1, 1, 1).expand(x0_model_input.shape[0], -1, -1, -1, -1)
+        
         x1_recon = simulator.simulate(x0_model_input.clone(), ts, y=y_true)
+        
+        # Enforce constraint: restore known values from the original sparse input
+        # Extract the non-mask channels from both tensors
+        x1_recon_data = x1_recon[:, :-1]  # Remove mask channel
+        x0_sparse_data = x0_sparse  # Original sparse data
+        recon_mask = mask  # The mask indicating known locations
+        
+        # Keep known values fixed: use sparse input where mask=1, reconstruction elsewhere
+        x1_recon_data = x0_sparse_data * recon_mask + x1_recon_data * (1 - recon_mask)
+        
+        # Reconstruct the full tensor with mask channel for consistency
+        x1_recon = torch.cat([x1_recon_data, recon_mask], dim=1)
 
         x1_recon_denorm = (x1_recon * spec_std + spec_mean)
         x1_plot = x1_recon_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
 
         col_idx = g_idx + 2  # +2 for GT and Input columns
-        im = axes[row, col_idx].imshow(x1_plot, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
+        last_im = axes[row, col_idx].imshow(x1_plot, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
         axes[row, col_idx].set_title(f"w={guidance_scale}" if row == 0 else "")
         axes[row, col_idx].axis('off')
 
-    # Add colorbar for this row
-    cbar = fig.colorbar(im_gt, ax=axes[row, :], location='right', fraction=0.02, pad=0.02)
+    # Add colorbar for this row using the last plotted image (all have same vmin/vmax)
+    cbar = fig.colorbar(last_im, ax=axes[row, :], location='right', fraction=0.02, pad=0.02)
     cbar.ax.tick_params(labelsize=8)
     cbar.set_label("Magnitude", fontsize=9)
 

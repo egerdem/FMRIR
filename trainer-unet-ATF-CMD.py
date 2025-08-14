@@ -53,7 +53,7 @@ def main(args):
 
         print(f"Resuming training from checkpoint: {args.resume_from_checkpoint}")
         checkpoint = torch.load(args.resume_from_checkpoint, map_location=device)
-
+        print(f"best validation loss was: {checkpoint['best_val_loss']:.4f} at iteration: {checkpoint['best_iteration']}")
         start_iteration = checkpoint["config"]["training"].get("num_iterations")+1 # Use .get for safety
         if start_iteration is None:
             start_iteration = args.resume_from_iteration

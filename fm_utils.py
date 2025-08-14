@@ -881,11 +881,14 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
             data = torch.load(processed_file)
             self.slices = data['slices']
             self.coords = data['coords']
+            self.sample_info = data.get('sample_info')
         else:
             print(f"Processing ATF {self.mode} data from .npz files...")
             source_indices = range(*src_splits[self.mode])
             all_slices = []
             all_coords = []
+            # **NEW: Create a list to store metadata**
+            all_sample_info = []
 
             for src_id in tqdm(source_indices, desc=f"Loading {self.mode} NPZ files"):
                 npz_file = os.path.join(data_path, f"data_s{src_id + 1:04d}.npz")
@@ -921,10 +924,15 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
                         all_slices.append(grid_slice)
                         coord_vec = np.concatenate([source_pos, [z_val]])
                         all_coords.append(torch.tensor(coord_vec, dtype=torch.float32))
+                        all_sample_info.append(torch.tensor([src_id, z_val], dtype=torch.float32))
 
             self.slices = torch.stack(all_slices)
             self.coords = torch.stack(all_coords)
-            torch.save({'slices': self.slices, 'coords': self.coords}, processed_file)
+            self.sample_info = torch.stack(all_sample_info)
+            torch.save({'slices': self.slices,
+                        'coords': self.coords,
+                       'sample_info': self.sample_info
+                        }, processed_file)
             print(f"Saved processed ATF {self.mode} data to {processed_file}")
 
         self.dummy = torch.nn.Buffer(torch.zeros(1))
@@ -987,6 +995,37 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
 
         # The data is already (C, H, W), so we just move it to the correct device
         return samples.to(self.dummy.device), labels.to(self.dummy.device)
+
+    def get_slice_by_id(self, src_id: int, z_height: float):
+        """Finds and returns a specific slice by source ID and z-height."""
+        if self.sample_info is None:
+            raise RuntimeError("Sampler was not initialized with sample_info. Please re-process the data.")
+
+        # Find all entries matching the source ID
+        src_matches = self.sample_info[:, 0] == src_id
+        # Find all entries matching the z-height (with a small tolerance for float comparison)
+        z_matches = torch.isclose(self.sample_info[:, 1], torch.tensor(z_height))
+
+        # Find the index where both conditions are true
+        combined_matches = src_matches & z_matches
+        indices = torch.where(combined_matches)[0]
+
+        if len(indices) == 0:
+            print(f"Warning: No slice found for Source ID {src_id} and Z-Height {z_height}.")
+            return None, None
+
+        # Get the first matching index
+        item_idx = indices[0].item()
+
+        # Retrieve the data
+        sample = self.slices[item_idx]
+        label = self.coords[item_idx]
+
+        if self.transform:
+            sample = self.transform(sample.unsqueeze(0)).squeeze(0)
+
+        # Return with a batch dimension of 1
+        return sample.unsqueeze(0).to(self.dummy.device), label.unsqueeze(0).to(self.dummy.device)
 
 
 # """Part 2: Training for Classifier Free Guidance (CFG) """

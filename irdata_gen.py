@@ -7,8 +7,8 @@ from scipy.fftpack import fft
 from scipy.signal import windows
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-# import matplotlib
-# matplotlib.use('TKAgg')
+import matplotlib
+matplotlib.use('TKAgg')
 
 from irdata_utils import dim2cuboid
 
@@ -159,5 +159,5 @@ if __name__ == "__main__":
     ax.set_ylabel('y (m)')
     ax.set_zlabel('z (m)')
     ax.set_aspect('equal')
-    # plt.savefig(dir+"geometry.pdf")
-    # plt.show()
+    plt.savefig(dir+"geometry.pdf")
+    plt.show()

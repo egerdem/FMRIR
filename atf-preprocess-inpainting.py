@@ -44,9 +44,6 @@ for src_id in tqdm(source_indices, desc=f"Loading test NPZ files"):
 f_test_ind = 10
 atf_mags_algn_for_test_freq = atf_mag_algn[:, f_test_ind] #1331
 
-mic_pos #1331x3
-
-
 # Extract coordinates and values
 x_coords = mic_pos[:, 0]
 y_coords = mic_pos[:, 1]
