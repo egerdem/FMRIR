@@ -655,6 +655,7 @@ class Trainer(ABC):
                         'best_val_loss': best_val_loss,
                         'best_iteration': iteration,
                         'config': config,
+                        'wandb_run_id': config.get('wandb_run_id'),
                         'is_best': True  # Flag to indicate this is best model
                     }
                     # Stable pointer to current best (guard against interruptions)
