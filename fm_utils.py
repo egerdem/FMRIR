@@ -559,6 +559,8 @@ class Trainer(ABC):
               start_iteration: int = 0,
               config: dict = None,
               early_stopping_patience: int = 1000,
+              resume_checkpoint_path: Optional[str] = None,
+              resume_checkpoint_state: Optional[dict] = None,
               **kwargs):
 
         # Report model size
@@ -576,16 +578,40 @@ class Trainer(ABC):
         # NEW: Initialize the EarlyStopping monitor
         early_stopper = EarlyStopping(patience=early_stopping_patience)
 
-        # Load optimizer state if resuming
-        if start_iteration > 0:
-            ckpt_file = os.path.join(checkpoint_path, f"ckpt_{start_iteration}.pt")
-            print(f"Loading checkpoint from {ckpt_file}")
-            if os.path.exists(ckpt_file):
-                checkpoint = torch.load(ckpt_file, map_location=device)
+        # Unified resume logic: load from an explicit checkpoint path/state if provided
+        checkpoint = None
+        if resume_checkpoint_state is not None:
+            checkpoint = resume_checkpoint_state
+            print("Resuming from provided in-memory checkpoint state")
+        elif resume_checkpoint_path is not None and os.path.exists(resume_checkpoint_path):
+            print(f"Loading checkpoint from {resume_checkpoint_path}")
+            checkpoint = torch.load(resume_checkpoint_path, map_location=device)
+
+        if checkpoint is not None:
+            # Restore model weights if present
+            model_state = checkpoint.get('model_state_dict')
+            if model_state is not None:
+                self.model.load_state_dict(model_state)
+
+            # Restore trainer-specific state if present (e.g., y_null)
+            if hasattr(self, 'y_null') and checkpoint.get('y_null') is not None:
+                self.y_null.data = checkpoint['y_null'].to(device)
+
+            # Restore optimizer if present
+            if checkpoint.get('optimizer_state_dict') is not None:
                 opt.load_state_dict(checkpoint['optimizer_state_dict'])
-                best_val_loss = checkpoint.get('best_val_loss', float('inf'))
-                best_iteration = checkpoint.get("best_iteration", None)
-                print(f"Resumed optimizer. Best validation loss so far: {best_val_loss:.4f} at iter {best_iteration}")
+
+            # Adopt iteration and best metrics if available
+            iter_value = checkpoint.get('iteration', None)
+            if isinstance(iter_value, (int, float)):
+                start_iteration = int(iter_value)
+            else:
+                # Best-model artifacts typically lack an 'iteration' counter;
+                # treat this as a warm start and continue from 0.
+                start_iteration = start_iteration or 0
+            best_val_loss = checkpoint.get('best_val_loss', best_val_loss)
+            best_iteration = checkpoint.get('best_iteration', best_iteration)
+            print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss}, best_iteration={best_iteration}")
 
         batch_size = kwargs.get('batch_size')
 
@@ -628,6 +654,7 @@ class Trainer(ABC):
                         'config': config,
                         'is_best': True  # Flag to indicate this is best model
                     }
+                    # Stable pointer to current best (guard against interruptions)
                     torch.save(best_model_state, save_path)
                     best_iteration = iteration  # Update global tracking
 
@@ -660,8 +687,9 @@ class Trainer(ABC):
         # --- Save final checkpoint ---
         final_iteration = iteration + 1
         if final_iteration == num_iterations:
-            print(f"\n--- Saving final checkpoint at iteration {final_iteration} ---")
-            final_ckpt_path = os.path.join(checkpoint_path, f"model_{final_iteration}.pt")
+
+            final_ckpt_path = os.path.join(checkpoint_path, f"ckpt_final_{final_iteration}.pt")
+            print(f"\n--- Saving final checkpoint at iteration {final_iteration} to {final_ckpt_path} ---")
             final_checkpoint_state = {
                 'iteration': final_iteration,
                 'model_state_dict': self.model.state_dict(),
@@ -675,6 +703,14 @@ class Trainer(ABC):
                 'is_final': True  # Flag to indicate this is the final state
             }
             torch.save(final_checkpoint_state, final_ckpt_path)
+
+            # Additionally, save a "last" checkpoint alias for easy resume
+            # ckpt_last_versioned = os.path.join(checkpoint_path, f"ckpt_last_{final_iteration}.pt")
+            # ckpt_last_alias = os.path.join(checkpoint_path, "ckpt_last.pt")
+            # torch.save(final_checkpoint_state, ckpt_last_versioned)
+            # torch.save(final_checkpoint_state, ckpt_last_alias)
+
+            # Leave only model.pt as the stable best artifact (no versioned copy)
 
         self.model.eval()
         print(f"--- Training finished. Best validation loss was {best_val_loss:.4f} at iteration {best_iteration}. ---")

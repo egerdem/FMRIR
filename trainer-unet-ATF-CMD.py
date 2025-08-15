@@ -46,39 +46,43 @@ def main(args):
     }
 
     start_iteration = 0
-    if args.resume_from_checkpoint and os.path.exists(args.resume_from_checkpoint):
-        checkpoint_dir = os.path.dirname(args.resume_from_checkpoint)
-        experiment_dir = os.path.dirname(checkpoint_dir)
-        experiment_name = os.path.basename(experiment_dir)
+    resume_checkpoint_state = None
+    experiment_dir = None
+    if args.resume_from_checkpoint:
+        print(f"RESUMING training from: {args.resume_from_checkpoint}")
+        if os.path.exists(args.resume_from_checkpoint):
+            # Load once; pass state into trainer to avoid duplicate disk reads
+            resume_checkpoint_state = torch.load(args.resume_from_checkpoint, map_location=device)
 
-        print(f"Resuming training from checkpoint: {args.resume_from_checkpoint}")
-        checkpoint = torch.load(args.resume_from_checkpoint, map_location=device)
-        print(f"best validation loss was: {checkpoint['best_val_loss']:.4f} at iteration: {checkpoint['best_iteration']}")
-        start_iteration = checkpoint["config"]["training"].get("num_iterations")+1 # Use .get for safety
-        if start_iteration is None:
-            start_iteration = args.resume_from_iteration
-            print(f"Warning: 'iteration' not found in checkpoint. Resuming from iteration {start_iteration}.")
-
-
-        # Initialize wandb with the ID of the run you're resuming
-        if args.wandb:
-            wandb.login(key=args.wandb_key)
-            run_id = checkpoint["config"].get('wandb_run_id')
-            if run_id is None:
-                run_id = args.resume_run_id
-                print(f"Warning: 'wandb_run_id' not found in checkpoint. Resuming with run_id {run_id}.")
-
-            if run_id:
-                wandb.init(project="FM-RIR", id=run_id, resume="must", config=config)
+            # Determine experiment directory
+            parent = os.path.dirname(args.resume_from_checkpoint)
+            if os.path.basename(parent) == 'checkpoints':
+                experiment_dir = os.path.dirname(parent)
             else:
-                print("Warning: No wandb run ID found or provided. Cannot resume wandb run.")
+                experiment_dir = parent
 
-    else:
+            experiment_name = os.path.basename(experiment_dir)
+
+            # W&B resume (if available)
+            wandb.login(key=args.wandb_key)
+            run_id = resume_checkpoint_state.get('wandb_run_id') or resume_checkpoint_state.get('config', {}).get('wandb_run_id')
+            if args.wandb:
+                if run_id:
+                    wandb.init(project="FM-RIR", id=run_id, resume="allow", config=config)
+                    print(f"Resuming/attaching to wandb run ID: {run_id}")
+                else:
+                    wandb.init(project="FM-RIR", resume="allow", config=config)
+        else:
+            print(f"⚠️  Warning: resume path does not exist: {args.resume_from_checkpoint}")
+
+
+    if experiment_dir is None:
         # --- Experiment Setup ---
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         experiment_name = f"{config['model']['name']}_{timestamp}_iter{str(config['training']['num_iterations'])}"
         experiment_dir = os.path.join(config['experiments_dir'], experiment_name)
         os.makedirs(experiment_dir, exist_ok=True)
+        print("\n NEW EXPERIMENT\n")
 
         # Initialize a new wandb run
         if args.wandb:
@@ -163,9 +167,7 @@ def main(args):
         flag_gaussian_mask=args.flag_gaussian_mask
     )
 
-    if start_iteration > 0:
-        atf_unet.load_state_dict(checkpoint['model_state_dict'])
-        trainer.y_null.data = checkpoint['y_null'].to(device)
+    # NOTE: Model/optimizer/y_null restoration handled inside trainer via resume_checkpoint_state
 
     # --- Training ---
     print(f"\n--- Starting Training for experiment: {experiment_name} ---")
@@ -180,7 +182,8 @@ def main(args):
         checkpoint_interval=args.checkpoint_interval,
         validation_interval=training_cfg['validation_interval'],
         start_iteration=start_iteration,
-        config=config
+        config=config,
+        resume_checkpoint_state=resume_checkpoint_state
     )
 
     # --- Finalizing the Run ---
@@ -208,7 +211,7 @@ if __name__ == '__main__':
     # --- Data ---
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/", help='Directory of the data.')
     # --- Model ---
-    parser.add_argument('--model_name', type=str, default="ATFUNet_M30_holeloss", help='Name of the model.')
+    parser.add_argument('--model_name', type=str, help='Name of the model.')
 
     parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128], help='List of channels for the model, comma-separated.')
     parser.add_argument('--num_residual_layers', type=int, default=2, help='Number of residual layers.')
