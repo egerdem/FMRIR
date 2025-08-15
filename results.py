@@ -31,7 +31,7 @@ print("Found model files:")
 
 all = []
 
-available_models = ["/Users/ege/Projects/FMRIR/experiments/None_20250815-140723_iter4/checkpoints/model_4.pt"]
+# available_models = ["/Users/ege/Projects/FMRIR/experiments/None_20250815-140723_iter4/checkpoints/model_4.pt"]
 for i, model_path in enumerate(available_models):
 
     # You can choose which model to load by index

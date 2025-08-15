@@ -605,10 +605,13 @@ class Trainer(ABC):
             iter_value = checkpoint.get('iteration', None)
             if isinstance(iter_value, (int, float)):
                 start_iteration = int(iter_value)
+                print("starting from iteration", start_iteration)
             else:
-                # Best-model artifacts typically lack an 'iteration' counter;
-                # treat this as a warm start and continue from 0.
-                start_iteration = start_iteration or 0
+                start_iteration = checkpoint["config"]["training"].get("num_iterations") + 1
+                print("starting from iteration", start_iteration)
+            if start_iteration is None or not isinstance(start_iteration, int) or start_iteration <= 0:
+                assert start_iteration >= 0, "start_iteration must be a non-negative integer"
+
             best_val_loss = checkpoint.get('best_val_loss', best_val_loss)
             best_iteration = checkpoint.get('best_iteration', best_iteration)
             print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss}, best_iteration={best_iteration}")
