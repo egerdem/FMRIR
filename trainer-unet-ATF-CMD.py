@@ -228,12 +228,13 @@ if __name__ == '__main__':
     parser.add_argument('--eta', type=float, default=0.1, help='Eta for inpainting.')
     parser.add_argument('--flag_gaussian_mask', type=bool, default=True)
     parser.add_argument('--sigma', type=float, default=0.1, help='Sigma for noise.')
-    parser.add_argument('--checkpoint_interval', type=int, default=10000, help='Save a checkpoint every N iterations.')
+    parser.add_argument('--checkpoint_interval', type=int, default=100000, help='Save a checkpoint every N iterations.')
     parser.add_argument('--validation_interval', type=int, default=20, help='Save a checkpoint every N iterations.')
 
     # --- Paths ---
     parser.add_argument('--experiments_dir', type=str, default="experiments", help='Directory for experiments.')
-    parser.add_argument('--project_root', type=str, default="/Users/ege/Projects/FMRIR", help='Project root directory.')
+    # parser.add_argument('--project_root', type=str, default="/Users/ege/Projects/FMRIR", help='Project root directory.')
+    parser.add_argument('--project_root', type=str, default="None", help='Project root directory.')
 
     args = parser.parse_args()
     main(args)
