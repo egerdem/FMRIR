@@ -665,6 +665,7 @@ class Trainer(ABC):
                 # NEW: Check for early stopping
                 if early_stopper.step(val_loss):
                     print(f"--- Early stopping triggered at iteration {iteration} with val_loss: {val_loss}---")
+                    flag_save = True
                     break  # Exit the training loop
 
             else:
@@ -690,7 +691,7 @@ class Trainer(ABC):
 
         # --- Save final checkpoint ---
         final_iteration = iteration + 1
-        if final_iteration == num_iterations:
+        if final_iteration == num_iterations or flag_save:
 
             final_ckpt_path = os.path.join(checkpoint_path, f"ckpt_final_{final_iteration}.pt")
             print(f"\n--- Saving final checkpoint at iteration {final_iteration} to {final_ckpt_path} ---")
@@ -908,12 +909,12 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
     64 frequency bins for an 11x11 grid of microphones at a single height.
     """
     def __init__(self, data_path: str, mode: str, src_splits: dict, transform: Optional[callable] = None,
-                 freq_ind_up_to: Optional[int] = None):
+                 freq_up_to: Optional[int] = None):
         super().__init__()
         self.transform = transform
         self.mode = mode
         self.src_splits = src_splits
-        self.freq_ind_up_to = freq_ind_up_to
+        self.freq_up_to = freq_up_to
 
         processed_file = os.path.join(data_path, f'processed_atf_{self.mode}.pt')
 
@@ -978,9 +979,9 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
 
         self.dummy = torch.nn.Buffer(torch.zeros(1))
         # Optionally crop frequency channels after loading/processing
-        if self.freq_ind_up_to is not None:
-            if self.freq_ind_up_to < self.slices.shape[1]:
-                self.slices = self.slices[:, :self.freq_ind_up_to, :, :]
+        if self.freq_up_to is not None:
+            if self.freq_up_to < self.slices.shape[1]:
+                self.slices = self.slices[:, :self.freq_up_to, :, :]
 
         print(f"Loaded {len(self.slices)} ATF slices for {self.mode} set.")
         print(f"Slice tensor shape: {self.slices.shape}")
@@ -1068,6 +1069,185 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
         # Return with a batch dimension of 1
         return sample.unsqueeze(0).to(self.dummy.device), label.unsqueeze(0).to(self.dummy.device)
 
+class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
+    """
+    Serves 2D spatial slices of ATF magnitudes, treating each frequency bin
+    as a separate sample and adding the frequency index to the conditioning vector.
+    """
+    def __init__(self, data_path: str, mode: str, src_splits: dict,
+                 transform: Optional[callable] = None, freq_up_to: int = 64):
+        super().__init__()
+
+
+        self.transform = transform
+        self.mode = mode
+        self.src_splits = src_splits
+        self.num_freqs = freq_up_to
+
+        processed_file = os.path.join(data_path, f'processed_atf_{self.mode}.pt')
+
+        if os.path.exists(processed_file):
+            print(f"Loading pre-processed ATF {self.mode} data from {processed_file}")
+            data = torch.load(processed_file)
+            self.slices = data['slices']
+            self.coords = data['coords']
+            self.sample_info = data.get('sample_info')
+        else:
+            print(f"Processing ATF {self.mode} data from .npz files...")
+            source_indices = range(*src_splits[self.mode])
+            all_slices = []
+            all_coords = []
+            all_sample_info = []
+
+            for src_id in tqdm(source_indices, desc=f"Loading {self.mode} NPZ files"):
+                npz_file = os.path.join(data_path, f"data_s{src_id + 1:04d}.npz")
+                with np.load(npz_file) as data:
+                    atf_mags = data['atf_mag_algn']   # Shape: (1331, 64)
+                    mic_pos = data['posMic']          # Shape: (1331, 3)
+                    source_pos = data['posSrc']       # Shape: (3,)
+
+                    unique_z = np.unique(mic_pos[:, 2])
+
+                    for z_val in unique_z:
+                        slice_indices = np.where(mic_pos[:, 2] == z_val)[0]
+                        mic_pos_slice = mic_pos[slice_indices]
+                        atf_mags_slice = atf_mags[slice_indices]
+
+                        unique_x = sorted(np.unique(mic_pos_slice[:, 0]))
+                        unique_y = sorted(np.unique(mic_pos_slice[:, 1]))
+                        nx, ny = len(unique_x), len(unique_y)
+
+                        if nx * ny != len(mic_pos_slice):
+                            print(f"Warning: Skipping slice for src_id {src_id} at z={z_val} due to irregular grid.")
+                            continue
+
+                        x_map = {val: i for i, val in enumerate(unique_x)}
+                        y_map = {val: i for i, val in enumerate(unique_y)}
+
+                        # Pre-allocate for full frequency dimension; we'll crop later if requested
+                        grid_slice = torch.zeros((64, ny, nx), dtype=torch.float32)
+                        for i in range(len(mic_pos_slice)):
+                            ix, iy = x_map[mic_pos_slice[i, 0]], y_map[mic_pos_slice[i, 1]]
+                            grid_slice[:, iy, ix] = torch.tensor(atf_mags_slice[i])
+
+                        all_slices.append(grid_slice)
+                        coord_vec = np.concatenate([source_pos, [z_val]])
+                        all_coords.append(torch.tensor(coord_vec, dtype=torch.float32))
+                        all_sample_info.append(torch.tensor([src_id, z_val], dtype=torch.float32))
+
+            self.slices = torch.stack(all_slices)
+            self.coords = torch.stack(all_coords)
+            self.sample_info = torch.stack(all_sample_info)
+            torch.save({'slices': self.slices,
+                        'coords': self.coords,
+                       'sample_info': self.sample_info
+                        }, processed_file)
+            print(f"Saved processed ATF {self.mode} data to {processed_file}")
+
+            # --- New Logic for Frequency-Conditional Sampling ---
+            # 1. Crop to the desired number of frequencies immediately after loading.
+
+        if freq_up_to > self.slices.shape[1]:
+            raise ValueError(
+                f"freq_up_to ({freq_up_to}) cannot be larger than the number of available frequency bins ({self.slices.shape[1]}).")
+
+        self.slices = self.slices[:, :freq_up_to, :, :]
+
+
+        # --- Final Setup ---
+        self.dummy = torch.nn.Buffer(torch.zeros(1))
+
+        print(f"\n--- FreqConditionalATFSampler Initialized ({self.mode} mode) ---")
+        print(f"  Using {self.num_freqs} frequency bins per slice.")
+        print(f"  Number of original spatial slices: {len(self.slices)}")
+        print(f"  Total number of samples (slices * freqs): {len(self)}")
+        print(f"  Sample shape (before transform): (1, {self.slices.shape[2]}, {self.slices.shape[3]})")
+        print(f"  Label shape: ({self.coords.shape[1] + 1},)")
+        print("--------------------------------------------------")
+
+
+    def __len__(self):
+        # The total number of samples is num_slices * num_frequencies
+        return len(self.slices) * self.num_freqs
+
+
+    def plot(self, ind: int = 5, sample_idx: int = None):
+        """
+        Plots a 2D spatial slice of ATF magnitudes for a given sample and frequency.
+        'ind' corresponds to the frequency index.
+        """
+        if sample_idx is None:
+            sample_idx = random.randint(0, len(self) - 1)
+
+        # The user used 'ind', which we interpret as frequency index
+        freq_idx = ind
+
+        slice_to_plot = self.slices[sample_idx, freq_idx].cpu().numpy()
+
+        # plt.figure(figsize=(8, 6))
+        # im = plt.imshow(slice_to_plot, origin='lower', cmap='viridis', aspect='auto')
+        # plt.colorbar(im, label="Magnitude")
+        # plt.xlabel("X-index")
+        # plt.ylabel("Y-index")
+        # plt.title(f"ATF Slice - Sample {sample_idx}, Freq Index {freq_idx}")
+        # plt.show()
+
+    def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+        # Generate random indices for the flattened dataset
+        indices = torch.randint(0, len(self), (num_samples,))
+
+        # Convert flat indices back to slice and frequency indices
+        slice_indices = indices // self.num_freqs
+        freq_indices = indices % self.num_freqs
+
+        # Get the single-frequency spatial slices
+        # Note: self.slices is (N, C, H, W). We need to gather along N and C.
+        samples = self.slices[slice_indices, freq_indices, :, :]
+
+        # Get the corresponding 4D coordinate labels
+        coord_labels = self.coords[slice_indices]
+
+        # Create the new 5D conditioning vector: [coords, freq_idx]
+        freq_labels = freq_indices.float().unsqueeze(1).to(coord_labels.device)
+        labels = torch.cat([coord_labels, freq_labels], dim=1)
+
+        if self.transform:
+            samples = self.transform(samples)
+
+        # Return a single channel (the magnitude) and the new 5D label
+        # The channel dim is added here to make it (batch, 1, H, W)
+        return samples.unsqueeze(1).to(self.dummy.device), labels.to(self.dummy.device)
+
+    def get_slice_by_id(self, src_id: int, z_height: float):
+        """Finds and returns a specific slice by source ID and z-height."""
+        if self.sample_info is None:
+            raise RuntimeError("Sampler was not initialized with sample_info. Please re-process the data.")
+
+        # Find all entries matching the source ID
+        src_matches = self.sample_info[:, 0] == src_id
+        # Find all entries matching the z-height (with a small tolerance for float comparison)
+        z_matches = torch.isclose(self.sample_info[:, 1], torch.tensor(z_height))
+
+        # Find the index where both conditions are true
+        combined_matches = src_matches & z_matches
+        indices = torch.where(combined_matches)[0]
+
+        if len(indices) == 0:
+            print(f"Warning: No slice found for Source ID {src_id} and Z-Height {z_height}.")
+            return None, None
+
+        # Get the first matching index
+        item_idx = indices[0].item()
+
+        # Retrieve the data
+        sample = self.slices[item_idx]
+        label = self.coords[item_idx]
+
+        if self.transform:
+            sample = self.transform(sample.unsqueeze(0)).squeeze(0)
+
+        # Return with a batch dimension of 1
+        return sample.unsqueeze(0).to(self.dummy.device), label.unsqueeze(0).to(self.dummy.device)
 
 # """Part 2: Training for Classifier Free Guidance (CFG) """
 class ConditionalVectorField(nn.Module, ABC):
@@ -1189,7 +1369,7 @@ class CFGVectorFieldODE(ODE):
 
 class ATFInpaintingTrainer(Trainer):
     def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField,
-                 eta: float, M: int, y_dim: int, sigma: float, flag_gaussian_mask: bool,
+                 eta: float, M: int, y_dim: int, sigma: float, flag_gaussian_mask: bool, model_mode: str,
                  **kwargs):
         super().__init__(model, **kwargs)
         self.path = path
@@ -1198,6 +1378,7 @@ class ATFInpaintingTrainer(Trainer):
         self.m = M
         self.sigma = sigma
         self.FLAG_GAUSSIAN_MASK = flag_gaussian_mask
+        self.model_mode = model_mode
 
         # Flag to print shapes only on the first run
         self.shapes_printed = False
@@ -1223,6 +1404,7 @@ class ATFInpaintingTrainer(Trainer):
         return mask
 
     def get_train_loss(self, **kwargs) -> torch.Tensor:
+
         # 1. Sample a batch of COMPLETE, clean ATF slices 'z'
         batch_size = kwargs.get('batch_size')
         z, y = self.path.p_data.sample(batch_size)
@@ -1261,9 +1443,24 @@ class ATFInpaintingTrainer(Trainer):
         # --- Loss Calculation ---
         ut_theta = self.model(model_input, t, y_cond)
 
+        if self.model_mode == 'spatial':
+            # Crop output and reference to 11x11 before comparing
+            ut_theta_crop = ut_theta[:, :-1, :-1, :-1]
+
+        elif self.model_mode == 'freq_cond':
+            ut_theta_crop = ut_theta[:, :, :-1, :-1]
+
+        ut_ref_crop = ut_ref[:, :, :-1, :-1]
+
+        region_crop = (1.0 - mask)[:, :, :-1, :-1]
+        squared_err = torch.square(ut_theta_crop - ut_ref_crop)*region_crop
+        error = squared_err.sum() / region_crop.sum()
+        # error = torch.mean()
+
         if not self.shapes_printed:
             print("\\n--- Tensor Shapes (First Training Step) ---")
             print(f"  Input Slice (z):          {z.shape}")
+            print(f" Model Input (x_t + mask): {model_input.shape}\\n")
             print(f"  Masked Slice (z_masked):    {z_masked.shape}")
             print(f"  Noisy Sample (x_t):         {x_t.shape}")
             print(f"  Ground Truth Coords (y):    {y.shape}")
@@ -1271,18 +1468,10 @@ class ATFInpaintingTrainer(Trainer):
             print(f"  Final Condition (y_cond):   {y_cond.shape}")
             print(f"  Model Output (ut_theta):    {ut_theta.shape}")
             print(f"  No. of observations (M): {self.m}")
-            print(" cropped loss' shape: ut_theta[:, :, :-1, :-1] ", ut_theta[:, :, :-1, :-1].shape)
+            print(" cropped loss' shape: ut_theta[:, :, :-1, :-1] ", ut_theta_crop.shape)
             print("------------------------------------------\\n")
             self.shapes_printed = True
 
-        # Crop output and reference to 11x11 before comparing
-        ut_theta_crop = ut_theta[:, :-1, :-1, :-1]
-        ut_ref_crop = ut_ref[:, :, :-1, :-1]
-
-        region_crop = (1.0 - mask)[:, :, :-1, :-1]
-        squared_err = torch.square(ut_theta_crop - ut_ref_crop)*region_crop
-        error = squared_err.sum() / region_crop.sum()
-        # error = torch.mean()
         return error
 
     @torch.no_grad()
@@ -1619,7 +1808,7 @@ class SpecUNet(ConditionalVectorField):
 
 class ATFUNet(ConditionalVectorField):
     def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int,
-                 input_channels: int = 65, output_channels: int = 65):
+                 input_channels: int, output_channels: int):
         super().__init__()
 
         # --- MODIFICATION 1: Change input channels ---

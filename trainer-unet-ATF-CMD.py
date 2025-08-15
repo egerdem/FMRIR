@@ -6,7 +6,7 @@ import time
 import wandb
 import argparse
 
-from fm_utils import (ATFSliceSampler, GaussianConditionalProbabilityPath, LinearAlpha,
+from fm_utils import (ATFSliceSampler, FreqConditionalATFSampler, GaussianConditionalProbabilityPath, LinearAlpha,
                       LinearBeta, ATFInpaintingTrainer, ATFUNet)
 
 def main(args):
@@ -27,9 +27,8 @@ def main(args):
             "channels": args.channels,
             "num_residual_layers": args.num_residual_layers,
             "t_embed_dim": args.t_embed_dim,
-            "y_dim": args.y_dim,
             "y_embed_dim": args.y_embed_dim,
-            "freq_ind_up_to": args.freq_ind_up_to
+            "freq_up_to": args.freq_up_to
         },
         "training": {
             "num_iterations": args.num_iterations,
@@ -103,15 +102,34 @@ def main(args):
     # --- Data Loading ---
     data_cfg = config['data']
 
-    atf_train_sampler = ATFSliceSampler(
-        data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits'],
-        freq_ind_up_to=args.freq_ind_up_to
-    ).to(device)
+    if args.model_mode == "freq_cond":
 
-    atf_valid_sampler = ATFSliceSampler(
-        data_path=data_cfg['data_dir'], mode='valid', src_splits=data_cfg['src_splits'],
-        freq_ind_up_to=args.freq_ind_up_to
-    ).to(device)
+        print("Using Frequency-Conditional model and sampler.")
+        atf_train_sampler = FreqConditionalATFSampler(
+            data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits'], freq_up_to=args.freq_up_to
+        ).to(device)
+        atf_valid_sampler = FreqConditionalATFSampler(
+            data_path=data_cfg['data_dir'], mode='valid', src_splits=data_cfg['src_splits'], freq_up_to=args.freq_up_to
+        ).to(device)
+
+        # For this mode, the model input has 2 channels (mag + mask) and y_dim is 5
+        input_channels = 2
+        output_channels = 1
+        y_dim = 5
+
+    else:  # "spatial" mode
+        atf_train_sampler = ATFSliceSampler(
+        data_path=data_cfg['data_dir'], mode='train', src_splits=data_cfg['src_splits'],
+        freq_up_to=args.freq_up_to).to(device)
+
+        atf_valid_sampler = ATFSliceSampler(
+            data_path=data_cfg['data_dir'], mode='valid', src_splits=data_cfg['src_splits'],
+            freq_up_to=args.freq_up_to).to(device)
+
+        # For this mode, input channels = freqs+1 and y_dim is 4
+        input_channels = args.freq_up_to + 1
+        output_channels = args.freq_up_to
+        y_dim = 4
 
     spec_mean = atf_train_sampler.slices.mean()
     spec_std = atf_train_sampler.slices.std()
@@ -127,14 +145,14 @@ def main(args):
     atf_train_sampler.transform = transform
     atf_valid_sampler.transform = transform
 
-    atf_valid_sampler.plot()
+    # atf_valid_sampler.plot()
 
     sample_spec, _ = atf_train_sampler.sample(1)
     atf_shape = list(sample_spec.shape[1:])
     print(f"ATF Slice shape for Path: {atf_shape}")
-    freq_channels = atf_shape[0]
-    input_channels = freq_channels + 1  # +1 for mask channel
-    output_channels = freq_channels + 1  # predict per-frequency plus mask output channel
+    # freq_channels = atf_shape[0]
+    # input_channels = freq_channels + 1  # +1 for mask channel
+    # output_channels = freq_channels + 1  # predict per-frequency plus mask output channel
 
     path = GaussianConditionalProbabilityPath(
         p_data = atf_train_sampler,
@@ -151,7 +169,7 @@ def main(args):
         channels=model_cfg['channels'],
         num_residual_layers=model_cfg['num_residual_layers'],
         t_embed_dim=model_cfg['t_embed_dim'],
-        y_dim=model_cfg['y_dim'],
+        y_dim=y_dim,
         y_embed_dim=model_cfg['y_embed_dim'],
         input_channels=input_channels,
         output_channels=output_channels,
@@ -162,8 +180,9 @@ def main(args):
         model=atf_unet,
         eta=training_cfg['eta'],
         M=training_cfg['M'],
-        y_dim=model_cfg['y_dim'],
+        y_dim=y_dim,
         sigma=training_cfg['sigma'],
+        model_mode=args.model_mode,
         flag_gaussian_mask=args.flag_gaussian_mask
     )
 
@@ -211,14 +230,17 @@ if __name__ == '__main__':
     # --- Data ---
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/", help='Directory of the data.')
     # --- Model ---
-    parser.add_argument('--model_name', type=str, help='Name of the model.')
+    parser.add_argument('--model_name', default="TRRRIAL", type=str, help='Name of the model.')
 
     parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128], help='List of channels for the model, comma-separated.')
     parser.add_argument('--num_residual_layers', type=int, default=2, help='Number of residual layers.')
     parser.add_argument('--t_embed_dim', type=int, default=40, help='t embedding dimension.')
-    parser.add_argument('--y_dim', type=int, default=4, help='y dimension.')
+    # parser.add_argument('--y_dim', type=int, default=4, help='y dimension.')
     parser.add_argument('--y_embed_dim', type=int, default=40, help='y embedding dimension.')
-    parser.add_argument('--freq_ind_up_to', type=int, default=20, help='Use only the first N frequency channels; model uses N+1 channels with mask.')
+    parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels; model uses N+1 channels with mask.')
+    parser.add_argument("--model_mode", type=str, default="spatial",
+                        choices=["spatial", "freq_cond"],
+                        help="Model mode: 'spatial' for original model, 'freq_cond' for frequency-conditional model.")
 
     # --- Training ---
     parser.add_argument('--num_iterations', type=int, default=100000, help='Number of training iterations.')
@@ -227,7 +249,7 @@ if __name__ == '__main__':
     parser.add_argument('--M', type=int, default=30, help='Number of observation points.')
     parser.add_argument('--eta', type=float, default=0.1, help='Eta for inpainting.')
     parser.add_argument('--flag_gaussian_mask', type=bool, default=True)
-    parser.add_argument('--sigma', type=float, default=0.1, help='Sigma for noise.')
+    parser.add_argument('--sigma', type=float, default=0.0, help='Sigma for noise.')
     parser.add_argument('--checkpoint_interval', type=int, default=100000, help='Save a checkpoint every N iterations.')
     parser.add_argument('--validation_interval', type=int, default=20, help='Save a checkpoint every N iterations.')
 

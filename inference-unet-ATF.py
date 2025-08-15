@@ -43,9 +43,9 @@ config = {
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/checkpoints/model_100000.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_holeloss_ATFUNet_20250809-192847_100kish/model_best_for100k.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5/modelv0.pt"
+MODEL_LOAD_PATH = "ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt"
 
-
+MODEL_LOAD_PATH = os.path.join("/Users/ege/Projects/FMRIR/artifacts", MODEL_LOAD_PATH)
 
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
@@ -131,9 +131,9 @@ num_timesteps = 100
 # Layout: 5 examples (rows) x (2 + len(guidance_scales)) columns
 num_examples = 5  # different random samples to show
 num_cols = 2 + len(guidance_scales)  # GT, Input, then one per guidance scale
-M = 30  # Number of sparse points to use as input
+M = 5  # Number of sparse points to use as input
 freq_idx_to_plot = 15  # Which frequency channel to visualize
-FLAG_GAUSSIAN_MASK = False  # If True, use Gaussian noise to fill the holes
+FLAG_GAUSSIAN_MASK = False    # If True, use Gaussian noise to fill the holes
 
 # --- Generate and Plot ---
 fig, axes = plt.subplots(num_examples, num_cols, figsize=(4 * num_cols, 4 * num_examples), squeeze=False)
