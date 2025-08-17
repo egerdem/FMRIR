@@ -45,8 +45,7 @@ config = {
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_holeloss_ATFUNet_20250809-192847_100kish/model_best_for100k.pt"
 # MODEL_LOAD_PATH = "ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt"
 MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUnetFREQCOND_M50_20250815-182257_iter100000/model.pt"
-
-# MODEL_LOAD_PATH = os.path.join("/Users/ege/Projects/FMRIR/artifacts", MODEL_LOAD_PATH)
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUnetFREQCOND_M50_20250815-182257_iter100000/checkpoints/ckpt_final_100000.pt"
 
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']

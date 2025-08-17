@@ -1092,6 +1092,9 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
             self.slices = data['slices']
             self.coords = data['coords']
             self.sample_info = data.get('sample_info')
+            self.freq_algn = data['freq_algn']
+            self.nyquist_freq = self.freq_algn[-1]
+
         else:
             print(f"Processing ATF {self.mode} data from .npz files...")
             source_indices = range(*src_splits[self.mode])
@@ -1105,6 +1108,8 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
                     atf_mags = data['atf_mag_algn']   # Shape: (1331, 64)
                     mic_pos = data['posMic']          # Shape: (1331, 3)
                     source_pos = data['posSrc']       # Shape: (3,)
+                    self.freq_algn = data['freq_algn']
+                    self.nyquist_freq = self.freq_algn[-1]
 
                     unique_z = np.unique(mic_pos[:, 2])
 
@@ -1206,9 +1211,14 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
 
         # Get the corresponding 4D coordinate labels
         coord_labels = self.coords[slice_indices]
+        freq_hz_vals = torch.tensor(self.freq_algn[freq_indices.cpu()], dtype=torch.float32)
+
+        # 2. Normalize the Hz values to the range [0, 1]
+        normalized_freqs = freq_hz_vals / self.nyquist_freq
 
         # Create the new 5D conditioning vector: [coords, freq_idx]
-        freq_labels = freq_indices.float().unsqueeze(1).to(coord_labels.device)
+        # freq_labels = freq_indices.float().unsqueeze(1).to(coord_labels.device) # old
+        freq_labels = normalized_freqs.unsqueeze(1).to(coord_labels.device)
         labels = torch.cat([coord_labels, freq_labels], dim=1)
 
         if self.transform:
@@ -1248,8 +1258,12 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
         # 3. Select the specific frequency plane
         sample = full_slice[freq_idx]  # Shape: (11, 11)
 
+        # 2. Look up the actual Hz value and normalize it
+        freq_hz_val = self.freq_algn[freq_idx]
+        normalized_freq = freq_hz_val / self.nyquist_freq
+
         # 4. Construct the final 5D conditioning vector
-        freq_label = torch.tensor([freq_idx], dtype=torch.float32, device=base_coord.device)
+        freq_label = torch.tensor([normalized_freq], dtype=torch.float32, device=base_coord.device)
         label = torch.cat([base_coord, freq_label])  # Shape: (5,)
 
         # 5. Apply transform and return with a batch dimension of 1
