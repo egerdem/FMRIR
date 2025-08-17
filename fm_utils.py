@@ -1078,6 +1078,13 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
                  transform: Optional[callable] = None, freq_up_to: int = 64):
         super().__init__()
 
+        # **NEW: Store the actual frequency values (in Hz)**
+        # We assume a fixed fftlen_algn of 128 and fs of 2000 from your generation script
+        fftlen_algn = 128
+        fs = 2000
+        # This creates the same frequency table you have in your screenshot
+        self.freq_algn = np.arange(1, fftlen_algn // 2 + 1) / fftlen_algn * fs
+        self.nyquist_freq = fs / 2  # The maximum possible frequency
 
         self.transform = transform
         self.mode = mode
@@ -1092,8 +1099,8 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
             self.slices = data['slices']
             self.coords = data['coords']
             self.sample_info = data.get('sample_info')
-            self.freq_algn = data['freq_algn']
-            self.nyquist_freq = self.freq_algn[-1]
+            # self.freq_algn = data['freq_algn']
+            # self.nyquist_freq = self.freq_algn[-1]
 
         else:
             print(f"Processing ATF {self.mode} data from .npz files...")
@@ -1108,8 +1115,8 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
                     atf_mags = data['atf_mag_algn']   # Shape: (1331, 64)
                     mic_pos = data['posMic']          # Shape: (1331, 3)
                     source_pos = data['posSrc']       # Shape: (3,)
-                    self.freq_algn = data['freq_algn']
-                    self.nyquist_freq = self.freq_algn[-1]
+                    # self.freq_algn = data['freq_algn']
+                    # self.nyquist_freq = self.freq_algn[-1]
 
                     unique_z = np.unique(mic_pos[:, 2])
 
