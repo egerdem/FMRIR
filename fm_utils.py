@@ -558,7 +558,7 @@ class Trainer(ABC):
               checkpoint_interval: Optional[int] = None,
               start_iteration: int = 0,
               config: dict = None,
-              early_stopping_patience: int = 1000,
+              early_stopping_patience: int = 3000,
               resume_checkpoint_path: Optional[str] = None,
               resume_checkpoint_state: Optional[dict] = None,
               **kwargs):
