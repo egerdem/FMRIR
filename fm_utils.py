@@ -1225,7 +1225,8 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
 
         # Create the new 5D conditioning vector: [coords, freq_idx]
         # freq_labels = freq_indices.float().unsqueeze(1).to(coord_labels.device) # old
-        freq_labels = normalized_freqs.unsqueeze(1).to(coord_labels.device)
+        # freq_labels = normalized_freqs.unsqueeze(1).to(coord_labels.device)
+        freq_labels = normalized_freqs.view(-1, 1).to(coord_labels.device)
         labels = torch.cat([coord_labels, freq_labels], dim=1)
 
         if self.transform:
