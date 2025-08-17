@@ -6,12 +6,12 @@ from torchvision import datasets, transforms
 import os
 import numpy as np
 import random
-from fm_utils import (ATFSliceSampler, CFGVectorFieldODE, EulerSimulator,
+from fm_utils import (ATFSliceSampler, FreqConditionalATFSampler, CFGVectorFieldODE, EulerSimulator,
                       ATFUNet)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-SEED = 42  # You can use any integer you like
+SEED = 4  # You can use any integer you like
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED) # for GPU
 np.random.seed(SEED)
@@ -31,7 +31,7 @@ config = {
         "channels": [32, 64, 128], "num_residual_layers": 2,
         "t_embed_dim": 40, "y_dim": 4, "y_embed_dim": 40,
         # Optional: if set, use only the first N frequency channels
-        "freq_ind_up_to": 20
+        "freq_up_to": 20
     }
 }
 
@@ -43,18 +43,39 @@ config = {
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/checkpoints/model_100000.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_holeloss_ATFUNet_20250809-192847_100kish/model_best_for100k.pt"
-MODEL_LOAD_PATH = "ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt"
+# MODEL_LOAD_PATH = "ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUnetFREQCOND_M50_20250815-182257_iter100000/model.pt"
 
-MODEL_LOAD_PATH = os.path.join("/Users/ege/Projects/FMRIR/artifacts", MODEL_LOAD_PATH)
+# MODEL_LOAD_PATH = os.path.join("/Users/ege/Projects/FMRIR/artifacts", MODEL_LOAD_PATH)
 
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
+manual_mode = "freq_cond"
+model_mode = config["model"].get('model_mode', manual_mode)
+freq_up_to = config['model'].get('freq_up_to')
 
-# Calculate stats from the training set to correctly de-normalize
-temp_train_sampler = ATFSliceSampler(
-    data_path=data_dir, mode='train', src_splits=src_split,
-    freq_ind_up_to=config['model'].get('freq_ind_up_to')
-)
+if model_mode == "freq_cond":
+    config['model']["y_dim"] = 5
+    config['model']["input_channels"] = 2
+    config['model']["output_channels"] = 1
+
+    temp_train_sampler = FreqConditionalATFSampler(
+        data_path=data_dir, mode='train', src_splits=src_split,
+        freq_up_to=freq_up_to
+    )
+elif model_mode == "spatial":
+    config['model']["y_dim"] = 4
+    config['model']["input_channels"] = freq_up_to + 1
+    config['model']["output_channels"] = freq_up_to
+
+    # Calculate stats from the training set to correctly de-normalize
+    temp_train_sampler = ATFSliceSampler(
+        data_path=data_dir, mode='train', src_splits=src_split,
+        freq_up_to=config['model'].get('freq_up_to')
+    )
+
+print(config)
+
 spec_mean = temp_train_sampler.slices.mean()
 spec_std = temp_train_sampler.slices.std()
 print(f"Loaded Stats from Training Set: Mean={spec_mean:.4f}, Std={spec_std:.4f}")
@@ -66,13 +87,23 @@ transform = transforms.Compose([
     transforms.Normalize((spec_mean,), (spec_std,)),
 ])
 
-# Create the test sampler
-atf_test_sampler = ATFSliceSampler(
-    data_path=data_dir, mode='test',
-    src_splits=src_split,
-    transform=transform,
-    freq_ind_up_to=config['model'].get('freq_ind_up_to')
-).to(device)
+if model_mode == "freq_cond":
+    # Create the test sampler with frequency conditioning
+    atf_test_sampler = FreqConditionalATFSampler(
+        data_path=data_dir, mode='test',
+        src_splits=src_split,
+        transform=transform,
+        freq_up_to=config['model'].get('freq_up_to')
+    ).to(device)
+
+elif model_mode == "spatial":
+    # Create the test sampler
+    atf_test_sampler = ATFSliceSampler(
+        data_path=data_dir, mode='test',
+        src_splits=src_split,
+        transform=transform,
+        freq_up_to=config['model'].get('freq_up_to')
+    ).to(device)
 
 print("\n--- Debugging Test Sampler ---")
 if hasattr(atf_test_sampler, 'sample_info') and atf_test_sampler.sample_info is not None:
@@ -89,9 +120,6 @@ else:
 
 # Dynamically compute input/output channels based on data
 sample_spec, _ = temp_train_sampler.sample(1)
-freq_channels = sample_spec.shape[1]
-input_channels = freq_channels + 1
-output_channels = freq_channels + 1
 
 model_kwargs = {
     'channels': config['model']['channels'],
@@ -99,8 +127,8 @@ model_kwargs = {
     't_embed_dim': config['model']['t_embed_dim'],
     'y_dim': config['model']['y_dim'],
     'y_embed_dim': config['model']['y_embed_dim'],
-    'input_channels': input_channels,
-    'output_channels': output_channels,
+    'input_channels': config['model']['input_channels'],
+    'output_channels': config['model']['output_channels'],
 }
 atf_unet = ATFUNet(**model_kwargs).to(device)
 checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
@@ -129,10 +157,10 @@ guidance_scales = [1.0, 5]  # explore different guidance strengths
 num_timesteps = 100
 
 # Layout: 5 examples (rows) x (2 + len(guidance_scales)) columns
-num_examples = 5  # different random samples to show
+num_examples = 9  # different random samples to show
 num_cols = 2 + len(guidance_scales)  # GT, Input, then one per guidance scale
-M = 5  # Number of sparse points to use as input
-freq_idx_to_plot = 15  # Which frequency channel to visualize
+M = 50  # Number of sparse points to use as input
+freq_idx_to_plot = 5  # Which frequency channel to visualize
 FLAG_GAUSSIAN_MASK = False    # If True, use Gaussian noise to fill the holes
 
 # --- Generate and Plot ---
@@ -141,8 +169,8 @@ fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot})", fontsiz
 
 for row in range(num_examples):
     # 1. Get a random ground truth slice and its conditioning vector
-    # z_true, y_true = atf_test_sampler.sample(1)
-    z_true, y_true = atf_test_sampler.get_slice_by_id(src_id=930, z_height=0.0)
+    z_true, y_true = atf_test_sampler.sample(1)
+    # z_true, y_true = atf_test_sampler.get_slice_by_id(src_id=930, z_height=0.0)
     print(f"freq ind: {freq_idx_to_plot}, Conditioning Vector: {y_true}")
     
     # 2. Create the sparse input
@@ -175,8 +203,8 @@ for row in range(num_examples):
     # 3. De-normalize for visualization
     z_true_denorm = (z_true * spec_std + spec_mean)
     x0_sparse_denorm = (x0_sparse * spec_std + spec_mean)
-    z_plot = z_true_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
-    x0_plot_raw = x0_sparse_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
+    z_plot = z_true_denorm[0, 0, :-1, :-1].detach().cpu().numpy()
+    x0_plot_raw = x0_sparse_denorm[0, 0, :-1, :-1].detach().cpu().numpy()
     
     # Create proper sparse visualization: use NaN for missing values (where mask=0)
     mask_2d = mask[0, 0, :-1, :-1].detach().cpu().numpy()  # 2D mask for this frequency
@@ -224,7 +252,7 @@ for row in range(num_examples):
         x1_recon = torch.cat([x1_recon_data, recon_mask], dim=1)
 
         x1_recon_denorm = (x1_recon * spec_std + spec_mean)
-        x1_plot = x1_recon_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
+        x1_plot = x1_recon_denorm[0, 0, :-1, :-1].detach().cpu().numpy()
 
         col_idx = g_idx + 2  # +2 for GT and Input columns
         last_im = axes[row, col_idx].imshow(x1_plot, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)

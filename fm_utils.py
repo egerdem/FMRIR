@@ -1218,10 +1218,12 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
         # The channel dim is added here to make it (batch, 1, H, W)
         return samples.unsqueeze(1).to(self.dummy.device), labels.to(self.dummy.device)
 
-    def get_slice_by_id(self, src_id: int, z_height: float):
+    def get_slice_by_id(self, src_id: int, z_height: float, freq_idx: int):
         """Finds and returns a specific slice by source ID and z-height."""
         if self.sample_info is None:
             raise RuntimeError("Sampler was not initialized with sample_info. Please re-process the data.")
+        if not (0 <= freq_idx < self.num_freqs):
+            raise IndexError(f"freq_idx {freq_idx} is out of bounds for the number of frequencies ({self.num_freqs}).")
 
         # Find all entries matching the source ID
         src_matches = self.sample_info[:, 0] == src_id
@@ -1239,10 +1241,18 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
         # Get the first matching index
         item_idx = indices[0].item()
 
-        # Retrieve the data
-        sample = self.slices[item_idx]
-        label = self.coords[item_idx]
+        # 2. Retrieve the multi-channel slice and its 4D coordinate
+        full_slice = self.slices[item_idx]  # Shape: (num_freqs, 11, 11)
+        base_coord = self.coords[item_idx]  # Shape: (4,)
 
+        # 3. Select the specific frequency plane
+        sample = full_slice[freq_idx]  # Shape: (11, 11)
+
+        # 4. Construct the final 5D conditioning vector
+        freq_label = torch.tensor([freq_idx], dtype=torch.float32, device=base_coord.device)
+        label = torch.cat([base_coord, freq_label])  # Shape: (5,)
+
+        # 5. Apply transform and return with a batch dimension of 1
         if self.transform:
             sample = self.transform(sample.unsqueeze(0)).squeeze(0)
 

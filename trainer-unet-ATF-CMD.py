@@ -37,6 +37,7 @@ def main(args):
             "M": args.M,
             "eta": args.eta,
             "sigma": args.sigma,
+            "model_mode": args.model_mode,
             "flag_gaussian_mask": args.flag_gaussian_mask,
             "validation_interval": args.validation_interval
         },
