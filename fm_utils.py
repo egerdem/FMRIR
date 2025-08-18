@@ -600,6 +600,7 @@ class Trainer(ABC):
             # Restore optimizer if present
             if checkpoint.get('optimizer_state_dict') is not None:
                 opt.load_state_dict(checkpoint['optimizer_state_dict'])
+                print("Optimizer state restored from checkpoint.")
 
             # Adopt iteration and best metrics if available
             iter_value = checkpoint.get('iteration', None)
@@ -647,7 +648,7 @@ class Trainer(ABC):
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     print(
-                        f"** [Iter {iteration}] New best val. loss found for: train loss: {loss.item():.3f} and val loss: {best_val_loss:.3f}. Saving model. **")
+                        f"** [Iter {iteration}] New best val. loss found for: train loss: {loss.item():.5f} and val loss: {best_val_loss:.5f}. Saving model. **")
                     # Save best model state for inference
                     best_model_state = {
                         'model_state_dict': self.model.state_dict(),
@@ -669,7 +670,7 @@ class Trainer(ABC):
                     break  # Exit the training loop
 
             else:
-                pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.3f}')
+                pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.5f}, Val Loss: {val_loss:.5f}')
 
             # --- Periodic Checkpointing Logic ---
             if (iteration + 1) % checkpoint_interval == 0:
@@ -718,7 +719,7 @@ class Trainer(ABC):
             # Leave only model.pt as the stable best artifact (no versioned copy)
 
         self.model.eval()
-        print(f"--- Training finished. Best validation loss was {best_val_loss:.4f} at iteration {best_iteration}. ---")
+        print(f"--- Training finished. Best validation loss was {best_val_loss:.5f} at iteration {best_iteration}. ---")
 
 
 class MNISTSampler(nn.Module, Sampleable):
