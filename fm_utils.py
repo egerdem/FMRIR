@@ -464,8 +464,22 @@ class EulerSimulator(Simulator):
     def __init__(self, ode: ODE):
         self.ode = ode
 
+    # def step(self, xt: torch.Tensor, t: torch.Tensor, h: torch.Tensor, **kwargs): #PREVIOUSLY
+    #     return xt + self.ode.drift_coefficient(xt, t, **kwargs) * h
+
     def step(self, xt: torch.Tensor, t: torch.Tensor, h: torch.Tensor, **kwargs):
-        return xt + self.ode.drift_coefficient(xt, t, **kwargs) * h
+        # Get the model's output (the "drift"), which has 20 channels
+        drift = self.ode.drift_coefficient(xt, t, **kwargs)
+
+        # Separate the current state `xt` into its data and mask components
+        xt_data = xt[:, :-1]  # The first 20 channels (frequencies)
+        xt_mask = xt[:, -1:]  # The last channel (the mask)
+
+        # Apply the Euler update ONLY to the data channels
+        updated_xt_data = xt_data + drift * h
+
+        # Re-combine the updated data with the original, unchanged mask
+        return torch.cat([updated_xt_data, xt_mask], dim=1)
 
     @torch.no_grad()
     def simulate_trajectory(self, x: torch.Tensor, max_timesteps: int, y: torch.Tensor):
@@ -1329,8 +1343,20 @@ class CFGVectorFieldODE(ODE):
         bs = x.shape[0]
         unguided_y = self.y_null.repeat(bs, 1)  # was: unguided_y = torch.ones_like(y) * 10
         unguided_vector_field = self.net(x, t, unguided_y)
-        return (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
 
+        combined_field = (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
+
+        # return (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
+
+        # --- ADD THIS CHECK TO HANDLE OLD MODELS ---
+        # The data part of the input state `x` has x.shape[1] - 1 channels.
+        # If the model's output has more channels than that, it's an old model.
+        num_data_channels = x.shape[1] - 1
+        if combined_field.shape[1] > num_data_channels:
+            # Slice off the extra, meaningless channel(s) to match the data.
+            return combined_field[:, :num_data_channels]
+
+        return combined_field
 
 # class CFGTrainer(Trainer):
 #     def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, y_dim: int,

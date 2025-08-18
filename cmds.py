@@ -18,13 +18,14 @@ python trainer-unet-ATF-CMD.py --resume_from_checkpoint /home/eerdem/DATA/artifa
 python trainer-unet-ATF-CMD.py \
        --model_name ATFUNet_M5_holeloss_NOGAUSSION_LR5e3 \
         --model_mode "spatial" \
+        --flag_gaussian_mask False \
         --sigma 0. \
         --batch_size 250 \
         --M 50 \
         --validation_interval 20 \
         --eta 0.1 \
         --lr 5e-3 \
-        --num_iterations 100000 \
+        --num_iterations 300000 \
         --data_dir /home/eerdem/DATA \
         --experiments_dir ~/FMRIR_experiments
 
@@ -51,13 +52,31 @@ python trainer-unet-ATF-CMD.py \
 # --experiments_dir ~/FMRIR_experiments
 # conda activate fmvenv
 # move checkpoint to local:
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/FREQCOND_M50_LRe3_fbin20_NOGAUASSIAN_20250818-213142_iter50000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments//ATFUNet_M5_holeloss_NOGAUSSION_LR5e3_20250818-224428_iter100000 /Users/ege/Projects/FMRIR/artifacts
 
 #HPC CREATE
+ssh k24037994@hpc.create.kcl.ac.uk
+
 # --data_dir ~/DATASET
 # --experiments_dir ~/FMRIR_experiments
 # source ~/fmvenv/bin/activate
 
+python trainer-unet-ATF-CMD.py \
+       --model_name ATFUNet_M5_holeloss_GaussFalse_LR5e3 \
+        --model_mode "spatial" \
+        --flag_gaussian_mask False \
+        --sigma 0. \
+        --batch_size 250 \
+        --M 5 \
+        --validation_interval 20 \
+        --eta 0.1 \
+        --lr 5e-3 \
+        --num_iterations 400000 \
+        --data_dir ~/DATASET \
+        --experiments_dir ~/FMRIR_experiments
+
 #LOCALDEN ROSSINIYE
 scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments
+
+scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model k24037994@hpc.create.kcl.ac.uk:/users/k24037994/FMRIR
 

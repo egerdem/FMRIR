@@ -22,10 +22,18 @@ random.seed(SEED)
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_ATFUNet_20250808-174928_iter60k/model60k.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_noisegauss_ATFUNet_20250808-202859_iter20000-best-model/model.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt" #
+
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/checkpoints/model_100000.pt"
+
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_holeloss_ATFUNet_20250809-192847_100kish/model_best_for100k.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt"
+
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv1.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv0.pt"
+
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M50_holeloss_NOGAUSSION_LR5e3_20250818-224428_iter100000/model.pt"
+
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUnetFREQCOND_M50_20250815-182257_iter100000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_20250818-154438_iter50000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_20250818-154438_iter50000/checkpoints/ckpt_final_50000.pt"
@@ -39,14 +47,20 @@ MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_LRe3_fbin20_NOGAUASSIAN_20250818-213142_iter50000/checkpoints/ckpt_final_50000.pt"
 
 # Extract artifact directory name after 'artifacts/' and before next '/'
-MODEL_NAME = os.path.basename(os.path.dirname(MODEL_LOAD_PATH))
+# MODEL_NAME = os.path.basename(os.path.dirname(MODEL_LOAD_PATH))
+MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 print(f"Model artifact: {MODEL_NAME}")
 
 checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+state_dict = checkpoint['model_state_dict']
+output_channels_from_ckpt = state_dict['final_conv.weight'].shape[0]
+
+print(f"Detected {output_channels_from_ckpt} output channels from checkpoint.")
 
 config = checkpoint.get('config', {}) # Use .get for safety
 training_params = config.get('training', {})
 FLAG_GAUSSIAN_MASK = training_params.get('flag_gaussian_mask')
+# FLAG_GAUSSIAN_MASK = False
 sigma_train = training_params.get('sigma')
 
 print("\n--- Automatically Configured from Loaded Model ---")
@@ -97,7 +111,9 @@ else:
     sample_spec, _ = temp_train_sampler.sample(1)
     freq_channels = sample_spec.shape[1]
     config['model']["input_channels"] = freq_channels + 1
-    config['model']["output_channels"] = freq_channels + 1
+    # config['model']["output_channels"] = freq_channels
+    config['model']['output_channels'] = output_channels_from_ckpt
+
     print(f"Using {config['model']['input_channels']} input channels and {config['model']['output_channels']} output channels for model.")
 
 
@@ -183,17 +199,28 @@ num_timesteps = 100
 # Layout: 5 examples (rows) x (2 + len(guidance_scales)) columns
 num_examples = 9  # different random samples to show
 num_cols = 2 + len(guidance_scales)  # GT, Input, then one per guidance scale
-M = 5  # Number of sparse points to use as input
+# M = 5  # Number of sparse points to use as input
+# M = 5  # Number of sparse points to use as input
+M = training_params.get('M')  # Use M from config if available, else default to 5
 
 
 # --- Generate and Plot ---
-fig, axes = plt.subplots(num_examples, num_cols, figsize=(4 * num_cols, 4 * num_examples), squeeze=False)
+fig, axes = plt.subplots(
+    num_examples,
+    num_cols,
+    figsize=(4 * num_cols, 4 * num_examples),
+    squeeze=False,
+    constrained_layout=True,
+)
+fig.set_constrained_layout_pads(hspace=0.0, wspace=0.0)
 
 if model_mode == "freq_cond":
-    fig.suptitle(f"Inpainting Results (M={M}) | {MODEL_NAME}", fontsize=16)
+    fig.suptitle(f"Inpainting Results (M={M}) | {MODEL_NAME}", fontsize=11)
+    freq_idx_to_plot = 0  # all freqs automatically estimated
+
 elif model_mode == "spatial":
-    freq_idx_to_plot = 5  # Which frequency channel to visualize
-    fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot}) | {MODEL_NAME}", fontsize=16)
+    freq_idx_to_plot = 4  # Which frequency channel to visualize
+    fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot}) \n | {MODEL_NAME}\n", fontsize=11)
 
 for row in range(num_examples):
     # 1. Get a random ground truth slice and its conditioning vector
@@ -233,8 +260,8 @@ for row in range(num_examples):
     # 3. De-normalize for visualization
     z_true_denorm = (z_true * spec_std + spec_mean)
     x0_sparse_denorm = (x0_sparse * spec_std + spec_mean)
-    z_plot = z_true_denorm[0, 0, :-1, :-1].detach().cpu().numpy()
-    x0_plot_raw = x0_sparse_denorm[0, 0, :-1, :-1].detach().cpu().numpy()
+    z_plot = z_true_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
+    x0_plot_raw = x0_sparse_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
     
     # Create proper sparse visualization: use NaN for missing values (where mask=0)
     mask_2d = mask[0, 0, :-1, :-1].detach().cpu().numpy()  # 2D mask for this frequency
@@ -247,7 +274,7 @@ for row in range(num_examples):
 
     # 4. Plot ground truth and sparse input
     im_gt = axes[row, 0].imshow(z_plot, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
-    axes[row, 0].set_title("Ground Truth" if row == 0 else "")
+    axes[row, 0].set_title("Truth" if row == 0 else "")
     axes[row, 0].axis('off')
     if model_mode == "freq_cond":
         axes[row, 0].text(0.02, 0.98, f"ffreq = {ffreq:.0f}", transform=axes[row, 0].transAxes,
@@ -258,7 +285,7 @@ for row in range(num_examples):
     cmap_sparse.set_bad('white', alpha=0.3)  # NaN values appear as semi-transparent white
     
     im_sparse = axes[row, 1].imshow(x0_plot, origin='lower', cmap=cmap_sparse, vmin=vmin, vmax=vmax)
-    axes[row, 1].set_title(f"Sparse Input (M={M})" if row == 0 else "")
+    axes[row, 1].set_title(f"Input (M={M})" if row == 0 else "")
     axes[row, 1].axis('off')
 
     # Store the last image for consistent colorbar reference
@@ -285,7 +312,7 @@ for row in range(num_examples):
         x1_recon = torch.cat([x1_recon_data, recon_mask], dim=1)
 
         x1_recon_denorm = (x1_recon * spec_std + spec_mean)
-        x1_plot = x1_recon_denorm[0, 0, :-1, :-1].detach().cpu().numpy()
+        x1_plot = x1_recon_denorm[0, freq_idx_to_plot, :-1, :-1].detach().cpu().numpy()
 
         col_idx = g_idx + 2  # +2 for GT and Input columns
         last_im = axes[row, col_idx].imshow(x1_plot, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
@@ -297,5 +324,5 @@ for row in range(num_examples):
     cbar.ax.tick_params(labelsize=8)
     cbar.set_label("Magnitude", fontsize=9)
 
-# plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+# With constrained_layout=True, tight_layout is not needed and can cause conflicts
 plt.show()
