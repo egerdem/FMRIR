@@ -4,7 +4,6 @@
 python trainer-unet-ATF-CMD.py --resume_from_checkpoint /home/eerdem/DATA/artifacts/ATFUNet_20250806-185407_iter20000-best-model:v0/model.pt --resume_from_iteration 20000
 --resume_run_id j30tdj4w  --sigma 0.0 --batch_size 250 --M 50 --validation_interval 20 --eta 0.1 --lr 1e-4 --num_iterations 40000 --checkpoint_interval 1000 --data_dir /home/eerdem/DATA
 
-python trainer-unet-ATF-CMD.py --model_name FREQCOND_M50_Le4 --model_mode "freq_cond" --sigma 0.0 --batch_size 250 --M 50 --validation_interval 20 --eta 0.1 --lr 1e-4 --num_iterations 50000 --data_dir /home/eerdem/DATA --experiments_dir ~/FMRIR_experiments
 
 # import wandb
 # wandb.login(key= "ec2cf1718868be26a8055412b556d952681ee0b6")
@@ -15,9 +14,17 @@ python trainer-unet-ATF-CMD.py --model_name FREQCOND_M50_Le4 --model_mode "freq_
 
 #
 #  ROSSINI
+# first
+python trainer-unet-ATF-CMD.py --model_name FREQCOND_M50_Le4 --model_mode "freq_cond" --sigma 0.0 --batch_size 250 --M 50 --validation_interval 20 --eta 0.1 --lr 1e-4 --num_iterations 50000 --data_dir /home/eerdem/DATA --experiments_dir ~/FMRIR_experiments
+
+#resume
+python trainer-unet-ATF-CMD.py --model_mode "freq_cond" --sigma 0.0 --batch_size 250 --M 50 --validation_interval 20 --eta 0.1 --lr 1e-4 --num_iterations 100000 --data_dir /home/eerdem/DATA --experiments_dir ~/FMRIR_experiments --resume_from_checkpoint /home/eerdem/FMRIR_experiments/FREQCOND_M50_Le4_20250818-154438_iter50000/model.pt
+
 # --data_dir /home/eerdem/DATA
 # --experiments_dir ~/FMRIR_experiments
 # conda activate fmvenv
+# move checkpoint to local:
+# scp -r eerdem@rossini1.ap.nii.ac.jp:/home/eerdem/FMRIR_experiments/FREQCOND_M50_Le4_20250818-154438_iter50000 /Users/ege/Projects/FMRIR/artifacts
 
 #HPC CREATE
 # --data_dir ~/DATASET

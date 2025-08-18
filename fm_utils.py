@@ -670,7 +670,7 @@ class Trainer(ABC):
                     break  # Exit the training loop
 
             else:
-                pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.5f}, Val Loss: {val_loss:.5f}')
+                pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.5f}')
 
             # --- Periodic Checkpointing Logic ---
             if (iteration + 1) % checkpoint_interval == 0:
