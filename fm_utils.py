@@ -602,6 +602,10 @@ class Trainer(ABC):
                 opt.load_state_dict(checkpoint['optimizer_state_dict'])
                 print("Optimizer state restored from checkpoint.")
 
+                print(f"Overwriting optimizer LR with new command-line value: {lr}")
+                for param_group in opt.param_groups:
+                    param_group['lr'] = lr
+
             # Adopt iteration and best metrics if available
             iter_value = checkpoint.get('iteration', None)
             if isinstance(iter_value, (int, float)):

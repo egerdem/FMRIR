@@ -31,8 +31,9 @@ config = {
         "channels": [32, 64, 128], "num_residual_layers": 2,
         "t_embed_dim": 40, "y_dim": 4, "y_embed_dim": 40,
         # Optional: if set, use only the first N frequency channels
-        "freq_up_to": 20
-    }
+        "freq_up_to": 64,
+        "model_mode": "freq_cond"  # Uncomment to use frequency conditioning
+    },
 }
 
 # --- Data and Model Setup ---
@@ -43,17 +44,24 @@ config = {
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/checkpoints/model_100000.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_holeloss_ATFUNet_20250809-192847_100kish/model_best_for100k.pt"
-# MODEL_LOAD_PATH = "ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUnetFREQCOND_M50_20250815-182257_iter100000/model.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_20250818-154438_iter50000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_20250818-154438_iter50000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_20250818-154438_iter50000/checkpoints/ckpt_final_50000.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_sigma1e1_20250818-165410_iter50000/model.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_sigma1e1_20250818-165410_iter50000/model.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_sigma1e1_20250818-165410_iter50000/checkpoints/ckpt_final_50000.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_LRe3_fbin64_20250818-192005_iter200000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_sigma1e1_20250818-165410_iter50000/checkpoints/ckpt_final_200000.pt"
 
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
 manual_mode = "freq_cond"
-model_mode = config["model"].get('model_mode', manual_mode)
+model_mode = config["model"].get('model_mode')
 freq_up_to = config['model'].get('freq_up_to')
 
 if model_mode == "freq_cond":
+    print("YESDFJAEFWEG")
     config['model']["y_dim"] = 5
     config['model']["input_channels"] = 2
     config['model']["output_channels"] = 1
@@ -62,10 +70,11 @@ if model_mode == "freq_cond":
         data_path=data_dir, mode='train', src_splits=src_split,
         freq_up_to=freq_up_to
     )
-elif model_mode == "spatial":
+else:
     config['model']["y_dim"] = 4
     config['model']["input_channels"] = freq_up_to + 1
-    config['model']["output_channels"] = freq_up_to
+    config['model']["output_channels"] = freq_up_to + 1
+    print(f"Using {config['model']['input_channels']} input channels and {config['model']['output_channels']} output channels for model.")
 
     # Calculate stats from the training set to correctly de-normalize
     temp_train_sampler = ATFSliceSampler(
@@ -95,7 +104,7 @@ if model_mode == "freq_cond":
         freq_up_to=config['model'].get('freq_up_to')
     ).to(device)
 
-elif model_mode == "spatial":
+else:
     # Create the test sampler
     atf_test_sampler = ATFSliceSampler(
         data_path=data_dir, mode='test',
@@ -159,19 +168,29 @@ num_timesteps = 100
 num_examples = 9  # different random samples to show
 num_cols = 2 + len(guidance_scales)  # GT, Input, then one per guidance scale
 M = 50  # Number of sparse points to use as input
-freq_idx_to_plot = 5  # Which frequency channel to visualize
+
+if model_mode == "freq_cond":
+    freq_idx_to_plot = 5  # Which frequency channel to visualize
+
 FLAG_GAUSSIAN_MASK = False    # If True, use Gaussian noise to fill the holes
 
 # --- Generate and Plot ---
 fig, axes = plt.subplots(num_examples, num_cols, figsize=(4 * num_cols, 4 * num_examples), squeeze=False)
-fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot})", fontsize=16)
+
+if model_mode == "freq_cond":
+    fig.suptitle(f"Inpainting Results (M={M})", fontsize=16)
+elif model_mode == "spatial":
+    fig.suptitle(f"Inpainting Results (M={M}, Freq Idx={freq_idx_to_plot})", fontsize=16)
 
 for row in range(num_examples):
     # 1. Get a random ground truth slice and its conditioning vector
     z_true, y_true = atf_test_sampler.sample(1)
     # z_true, y_true = atf_test_sampler.get_slice_by_id(src_id=930, z_height=0.0)
-    print(f"freq ind: {freq_idx_to_plot}, Conditioning Vector: {y_true}")
-    
+    if model_mode == "freq_cond":
+        ffreq = float((y_true[0, -1] * 1000).item())
+        print(f"ffreq: {ffreq:.0f} Hz, Conditioning Vector: {y_true}")
+    else:
+        print(f"Conditioning Vector: {y_true}")
     # 2. Create the sparse input
     B, _, H, W = z_true.shape
     mask = torch.zeros(B, 1, H, W, device=z_true.device)
@@ -218,6 +237,9 @@ for row in range(num_examples):
     im_gt = axes[row, 0].imshow(z_plot, origin='lower', cmap='viridis', vmin=vmin, vmax=vmax)
     axes[row, 0].set_title("Ground Truth" if row == 0 else "")
     axes[row, 0].axis('off')
+    if model_mode == "freq_cond":
+        axes[row, 0].text(0.02, 0.98, f"ffreq = {ffreq:.0f}", transform=axes[row, 0].transAxes,
+                          va='top', ha='left', fontsize=10)
 
     # For sparse input, use a colormap that shows NaN as white/transparent
     cmap_sparse = plt.cm.viridis.copy()
