@@ -1544,12 +1544,12 @@ class ATFInpaintingTrainer(Trainer):
         ut_theta = self.model(model_input, t, y)  # Use the true label for validation
         # error = torch.mean(torch.square(ut_theta[:, :-1, :-1, :-1] - ut_ref[:, :, :-1, :-1]))
 
-        if self.model_mode == 'spatial':
+        # if self.model_mode == 'spatial':
             # Crop output and reference to 11x11 before comparing
-            ut_theta_crop = ut_theta[:, :-1, :-1, :-1]
+            # ut_theta_crop = ut_theta[:, :-1, :-1, :-1]
 
-        elif self.model_mode == 'freq_cond':
-            ut_theta_crop = ut_theta[:, :, :-1, :-1]
+        # elif self.model_mode == 'freq_cond':
+        ut_theta_crop = ut_theta[:, :, :-1, :-1]
 
         # Crop output and reference to 11x11 before comparing
         ut_ref_crop = ut_ref[:, :, :-1, :-1]
