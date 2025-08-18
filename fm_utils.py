@@ -558,7 +558,7 @@ class Trainer(ABC):
               checkpoint_interval: Optional[int] = None,
               start_iteration: int = 0,
               config: dict = None,
-              early_stopping_patience: int = 3000,
+              early_stopping_patience: int = 1800, #was 1000
               resume_checkpoint_path: Optional[str] = None,
               resume_checkpoint_state: Optional[dict] = None,
               **kwargs):
@@ -1482,12 +1482,12 @@ class ATFInpaintingTrainer(Trainer):
         # --- Loss Calculation ---
         ut_theta = self.model(model_input, t, y_cond)
 
-        if self.model_mode == 'spatial':
+        # if self.model_mode == 'spatial':
             # Crop output and reference to 11x11 before comparing
-            ut_theta_crop = ut_theta[:, :-1, :-1, :-1]
+            # ut_theta_crop = ut_theta[:, :-1, :-1, :-1]
 
-        elif self.model_mode == 'freq_cond':
-            ut_theta_crop = ut_theta[:, :, :-1, :-1]
+        # elif self.model_mode == 'freq_cond':
+        ut_theta_crop = ut_theta[:, :, :-1, :-1]
 
         ut_ref_crop = ut_ref[:, :, :-1, :-1]
 

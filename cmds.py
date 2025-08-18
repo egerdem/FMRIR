@@ -16,42 +16,48 @@ python trainer-unet-ATF-CMD.py --resume_from_checkpoint /home/eerdem/DATA/artifa
 #  ROSSINI
 # first
 python trainer-unet-ATF-CMD.py \
-       --model_name FREQCOND_M50_Le4_sigma1e1 \
-                    --model_mode "freq_cond" \
-                    --sigma 0.1 \
-                    --batch_size 250 \
-                    --M 50 \
-                    --validation_interval 20 \
-                    --eta 0.1 \
-                    --lr 1e-4 \
-                    --num_iterations 50000 \
-                    --data_dir /home/eerdem/DATA \
-                    --experiments_dir ~/FMRIR_experiments
+       --model_name ATFUNet_M5_holeloss_NOGAUSSION_LR5e3 \
+        --model_mode "spatial" \
+        --sigma 0. \
+        --batch_size 250 \
+        --M 50 \
+        --validation_interval 20 \
+        --eta 0.1 \
+        --lr 5e-3 \
+        --num_iterations 100000 \
+        --data_dir /home/eerdem/DATA \
+        --experiments_dir ~/FMRIR_experiments
 
 #resume
 
 python trainer-unet-ATF-CMD.py \
-    --model_mode "freq_cond" \
-    --model_name FREQCOND_M50_LRe4_fbin64_NOGAUASSIAN \
+    --model_mode "spatial" \
     --flag_gaussian_mask False \
     --sigma 0.0 \
     --batch_size 250 \
-    --M 50 \
+    --M 5 \
     --validation_interval 20 \
     --eta 0.1 \
-    --lr 1e-4 \
-    --num_iterations 100000 \
-    --freq_up_to 64 \
+    --lr 1e-3 \
+    --num_iterations 350000 \
+    --resume_from_iteration 234579 \
+    --freq_up_to 20 \
     --data_dir /home/eerdem/DATA \
-    --experiments_dir ~/FMRIR_experiments
+    --experiments_dir ~/FMRIR_experiments \
+    --resume_from_checkpoint ~/FMRIR_experiments/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt
+
 
 # --data_dir /home/eerdem/DATA
 # --experiments_dir ~/FMRIR_experiments
 # conda activate fmvenv
 # move checkpoint to local:
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/FREQCOND_M50_LRe4_fbin64_20250818-201558_iter100000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/FREQCOND_M50_LRe3_fbin20_NOGAUASSIAN_20250818-213142_iter50000 /Users/ege/Projects/FMRIR/artifacts
 
 #HPC CREATE
 # --data_dir ~/DATASET
 # --experiments_dir ~/FMRIR_experiments
 # source ~/fmvenv/bin/activate
+
+#LOCALDEN ROSSINIYE
+scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments
+
