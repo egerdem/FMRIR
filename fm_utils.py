@@ -656,6 +656,8 @@ class Trainer(ABC):
                     # Save best model state for inference
                     best_model_state = {
                         'model_state_dict': self.model.state_dict(),
+                        'optimizer_state_dict': opt.state_dict(),
+                        'iteration': iteration + 1,  # Store next iteration for resuming
                         'y_null': getattr(self, 'y_null', None),
                         'best_val_loss': best_val_loss,
                         'best_iteration': iteration,

@@ -41,8 +41,7 @@ python trainer-unet-ATF-CMD.py \
     --num_iterations 100000 \
     --freq_up_to 64 \
     --data_dir /home/eerdem/DATA \
-    --experiments_dir ~/FMRIR_experiments
-    --resume_from_checkpoint ~/home/eerdem/FMRIR_experiments/FREQCOND_M50_LRe3_fbin64_20250818-192005_iter200000/model.pt
+    --experiments_dir ~/FMRIR_experiments \
 
 # --data_dir /home/eerdem/DATA
 # --experiments_dir ~/FMRIR_experiments
