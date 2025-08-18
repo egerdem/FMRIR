@@ -32,6 +32,8 @@ python trainer-unet-ATF-CMD.py \
 
 python trainer-unet-ATF-CMD.py \
     --model_mode "freq_cond" \
+    --model_name FREQCOND_M50_LRe4_fbin64_NOGAUASSIAN \
+    --flag_gaussian_mask False \
     --sigma 0.0 \
     --batch_size 250 \
     --M 50 \
@@ -41,13 +43,13 @@ python trainer-unet-ATF-CMD.py \
     --num_iterations 100000 \
     --freq_up_to 64 \
     --data_dir /home/eerdem/DATA \
-    --experiments_dir ~/FMRIR_experiments \
+    --experiments_dir ~/FMRIR_experiments
 
 # --data_dir /home/eerdem/DATA
 # --experiments_dir ~/FMRIR_experiments
 # conda activate fmvenv
 # move checkpoint to local:
-scp -r eerdem@rossini1.ap.nii.ac.jp:/home/eerdem/FMRIR_experiments/FREQCOND_M50_LRe3_fbin64_20250818-192005_iter200000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/FREQCOND_M50_LRe4_fbin64_20250818-201558_iter100000 /Users/ege/Projects/FMRIR/artifacts
 
 #HPC CREATE
 # --data_dir ~/DATASET

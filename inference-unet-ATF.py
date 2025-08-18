@@ -31,7 +31,7 @@ config = {
         "channels": [32, 64, 128], "num_residual_layers": 2,
         "t_embed_dim": 40, "y_dim": 4, "y_embed_dim": 40,
         # Optional: if set, use only the first N frequency channels
-        "freq_up_to": 64,
+        "freq_up_to": 20,
         "model_mode": "freq_cond"  # Uncomment to use frequency conditioning
     },
 }
@@ -49,10 +49,10 @@ config = {
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_20250818-154438_iter50000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_20250818-154438_iter50000/checkpoints/ckpt_final_50000.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_sigma1e1_20250818-165410_iter50000/model.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_sigma1e1_20250818-165410_iter50000/model.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_sigma1e1_20250818-165410_iter50000/checkpoints/ckpt_final_50000.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_LRe3_fbin64_20250818-192005_iter200000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_sigma1e1_20250818-165410_iter50000/checkpoints/ckpt_final_50000.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_LRe3_fbin64_20250818-192005_iter200000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_sigma1e1_20250818-165410_iter50000/checkpoints/ckpt_final_200000.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_LRe4_fbin64_20250818-201558_iter100000/model.pt"
 
 data_dir = config['data']['data_dir']
 src_split = config['data']['src_splits']
@@ -154,6 +154,16 @@ atf_unet.load_state_dict(checkpoint['model_state_dict'])
 atf_unet.eval()
 print(f"--- Loaded model from {MODEL_LOAD_PATH} for inference ---")
 
+train_config = checkpoint.get('config', {}) # Use .get for safety
+training_params = train_config.get('training', {})
+FLAG_GAUSSIAN_MASK = training_params.get('flag_gaussian_mask', False)
+sigma_train = training_params.get('sigma')
+
+print("\n--- Automatically Configured from Loaded Model ---")
+print(f"  FLAG_GAUSSIAN_MASK: {FLAG_GAUSSIAN_MASK}")
+print(f"  Training Sigma: {sigma_train:.4f}")
+print("--------------------------------------------------\n")
+
 # --- Inference Setup ---
 ode_inference = CFGVectorFieldODE(net=atf_unet)
 ode_inference.y_null.data = checkpoint['y_null'].to(device)
@@ -171,8 +181,6 @@ M = 50  # Number of sparse points to use as input
 
 if model_mode == "freq_cond":
     freq_idx_to_plot = 5  # Which frequency channel to visualize
-
-FLAG_GAUSSIAN_MASK = False    # If True, use Gaussian noise to fill the holes
 
 # --- Generate and Plot ---
 fig, axes = plt.subplots(num_examples, num_cols, figsize=(4 * num_cols, 4 * num_examples), squeeze=False)
@@ -210,8 +218,7 @@ for row in range(num_examples):
     x0_sparse = z_true * mask
 
     if FLAG_GAUSSIAN_MASK:
-        sigma = 0.1
-        noise = torch.randn_like(z_true) * sigma  # Gaussian prior
+        noise = torch.randn_like(z_true) * sigma_train  # Gaussian prior
         x0_full = x0_sparse + (1 - mask) * noise  # fill the holes
         x0_model_input = torch.cat([x0_full, mask], dim=1)
 
