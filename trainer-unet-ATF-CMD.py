@@ -249,7 +249,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate.')
     parser.add_argument('--M', type=int, default=30, help='Number of observation points.')
     parser.add_argument('--eta', type=float, default=0.1, help='Eta for inpainting.')
-    parser.add_argument('--flag_gaussian_mask', type=bool, default=True)
+    parser.add_argument('--flag_gaussian_mask', type=bool, default=False)
     parser.add_argument('--sigma', type=float, default=0.0, help='Sigma for noise.')
     parser.add_argument('--checkpoint_interval', type=int, default=100000, help='Save a checkpoint every N iterations.')
     parser.add_argument('--validation_interval', type=int, default=20, help='Save a checkpoint every N iterations.')

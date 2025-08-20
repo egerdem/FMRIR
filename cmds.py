@@ -71,7 +71,7 @@ python trainer-unet-ATF-CMD.py \
         --validation_interval 20 \
         --eta 0.1 \
         --lr 5e-3 \
-        --num_iterations 400000 \
+        --num_iterations 500000 \
         --data_dir ~/DATASET \
         --experiments_dir ~/FMRIR_experiments
 

@@ -14,6 +14,7 @@ ir_fs8000_s1_m1331_room4.0x6.0x3.0_rt200/
 /experiments
 *.pt
 *.json
+*.png
 artifacts/find20_holeloss_ATFUNet_20250809-192847_100kish/
 artifacts/ATFUNet_M20_holeloss_20250811-200617_iter100000/
 artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/

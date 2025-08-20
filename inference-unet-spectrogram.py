@@ -15,17 +15,18 @@ from fm_utils import (
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-src_split = {"src_splits": {
+src_split = {
             "train": [0, 820],
             "valid": [820, 922],
             "test": [922, 1024],
-            "all": [0, 1024]}}
+            "all": [0, 1024]}
 
 # --- Data and Model Setup ---
-MODEL_LOAD_PATH = "experiments/SpecUNet_20250730-112150/model.pt"
+# MODEL_LOAD_PATH = "experiments/SpecUNet_20250730-112150/model.pt"
+MODEL_LOAD_PATH = "experiments/SpecUNet_20250730-065144_5kv1/model.pt"
 
 data_dir = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
-temp_sampler = SpectrogramSampler(data_path=data_dir, mode="all", src_splits=src_split)
+temp_sampler = SpectrogramSampler(data_path=data_dir, mode="test", src_splits=src_split)
 
 spec_mean = temp_sampler.spectrograms.mean()
 spec_std = temp_sampler.spectrograms.std()

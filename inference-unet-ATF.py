@@ -23,16 +23,18 @@ random.seed(SEED)
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_noisegauss_ATFUNet_20250808-202859_iter20000-best-model/model.pt" #
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt" #
 
+
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/checkpoints/model_100000.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt"
 
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/find20_holeloss_ATFUNet_20250809-192847_100kish/model_best_for100k.pt"
-
+#
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv1.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv0.pt"
 
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M50_holeloss_NOGAUSSION_LR5e3_20250818-224428_iter100000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M50_holeloss_NOGAUSSION_LR5e3_20250818-224428_iter100000/model.pt"
 
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUnetFREQCOND_M50_20250815-182257_iter100000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_Le4_20250818-154438_iter50000/model.pt"
@@ -197,7 +199,7 @@ guidance_scales = [1.0, 5]  # explore different guidance strengths
 num_timesteps = 100
 
 # Layout: 5 examples (rows) x (2 + len(guidance_scales)) columns
-num_examples = 9  # different random samples to show
+num_examples = 5  # different random samples to show
 num_cols = 2 + len(guidance_scales)  # GT, Input, then one per guidance scale
 # M = 5  # Number of sparse points to use as input
 # M = 5  # Number of sparse points to use as input
@@ -325,4 +327,15 @@ for row in range(num_examples):
     cbar.set_label("Magnitude", fontsize=9)
 
 # With constrained_layout=True, tight_layout is not needed and can cause conflicts
+# Save the figure to the directory containing the model checkpoint
+model_dir = os.path.dirname(MODEL_LOAD_PATH)
+if model_mode == "spatial":
+    outfile_name = f"{model_mode}_{freq_idx_to_plot}.png"
+else:
+    rand = np.random.randint(1000)
+    outfile_name = f"{model_mode}_{rand}.png"
+save_path = os.path.join(model_dir, outfile_name)
+print(f"Saving figure to: {save_path}")
+fig.savefig(save_path, dpi=200, bbox_inches='tight')
+
 plt.show()

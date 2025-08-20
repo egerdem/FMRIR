@@ -16,7 +16,7 @@ eval "$(conda shell.bash hook)"
 #conda activate fmvenv     # <- change if your env name is different
 
 # If you use venv instead, comment conda lines and uncomment:
- source "$HOME/fmvenv/bin/activate"
+source "$HOME/fmvenv/bin/activate"
 
 # Optional: WandB credentials via env (safer than CLI)
 # export WANDB_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
