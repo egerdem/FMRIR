@@ -1831,12 +1831,14 @@ class ATF3DTrainer(Trainer):
 
     def make_observation_set(self, z_full, src_xyz):
         B, C, D, H, W = z_full.shape
-        N = self.grid_xyz.shape[0]  # Total number of mics (1331)
+        dev = z_full.device
 
+        grid_xyz = self.grid_xyz.to(dev)  # ensure same device
+        src_xyz = src_xyz.to(dev)
+
+        N = self.grid_xyz.shape[0]  # Total number of mics (1331)
         M_max = self.M_range[1]
-        obs_coords_rel_list = []
-        obs_values_list = []
-        obs_mask_list = []
+        obs_coords_rel_list, obs_values_list, obs_mask_list = [], [], []
 
         # Loop over each sample in the batch to handle variable M
         for i in range(B):
@@ -1844,7 +1846,7 @@ class ATF3DTrainer(Trainer):
             M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
 
             # 2. Randomly choose M mic indices
-            obs_indices = torch.randperm(N, device=z_full.device)[:M]
+            obs_indices = torch.randperm(N, device=dev)[:M]
 
             # 3. Gather coordinates and values
             obs_xyz = self.grid_xyz[obs_indices]  # [M, 3]
@@ -1870,7 +1872,7 @@ class ATF3DTrainer(Trainer):
             # obs_values_padded[:M] = obs_values
 
             # Create a mask: True for valid observations, False for padding
-            mask = torch.zeros(M_max, dtype=torch.bool, device=z_full.device)
+            mask = torch.zeros(M_max, dtype=torch.bool, device=dev)
             mask[:M] = True
 
             obs_coords_rel_list.append(obs_coords_rel_padded)
@@ -1883,6 +1885,11 @@ class ATF3DTrainer(Trainer):
         batch_size = kwargs.get('batch_size')
         # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
         z_full, src_xyz = self.path.p_data.sample(batch_size)
+
+        dev = next(self.model.parameters()).device
+        z_full = z_full.to(dev)
+        src_xyz = src_xyz.to(dev)
+
         x1 = z_full
 
         # 2. Create the sparse observation set on the fly
@@ -1921,6 +1928,11 @@ class ATF3DTrainer(Trainer):
     def get_valid_loss(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
         z_full, src_xyz = valid_sampler.sample(batch_size)
+
+        dev = next(self.model.parameters()).device
+        z_full = z_full.to(dev)
+        src_xyz = src_xyz.to(dev)
+
         x1 = z_full
 
         obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)

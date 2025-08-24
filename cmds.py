@@ -73,11 +73,28 @@ python trainer-unet-ATF-CMD.py \
         --lr 5e-3 \
         --num_iterations 500000 \
         --freq_up_to 30 \
-        --data_dir ~/DATA \
+        --data_dir ~/DATASET \
         --experiments_dir ~/FMRIR_experiments
+
+python trainer-atf-3d.py \
+    --model_name "ATF3D-CrossAttn-v1" \
+    --data_dir ~/DATASET \
+    --experiments_dir ~/FMRIR_experiments \
+    --batch_size 4 \
+    --num_iterations 20000 \
+    --lr 1e-4 \
+    --channels 32,64,128 \
+    --d_model 256 \
+    --nhead 4 \
+    --num_encoder_layers 3 \
+    --M_range 30,50 \
+    --eta 0.1 \
+    --sigma 0.0 \
+    --validation_interval 50 \
+    --checkpoint_interval 5000
 
 #LOCALDEN ROSSINIYE
 scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments
 
-scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model k24037994@hpc.create.kcl.ac.uk:/users/k24037994/FMRIR
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/DATASET
 
