@@ -48,6 +48,7 @@ random.seed(SEED)
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_LRe3_fbin20_NOGAUASSIAN_20250818-213142_iter50000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/FREQCOND_M50_LRe3_fbin20_NOGAUASSIAN_20250818-213142_iter50000/checkpoints/ckpt_final_50000.pt"
 
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_GaussFalse_LR5e3_n05_20250820-173718_iter500000/model.pt"
 # Extract artifact directory name after 'artifacts/' and before next '/'
 # MODEL_NAME = os.path.basename(os.path.dirname(MODEL_LOAD_PATH))
 MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]

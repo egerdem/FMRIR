@@ -1302,6 +1302,171 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
         # Return with a batch dimension of 1
         return sample.unsqueeze(0).to(self.dummy.device), label.unsqueeze(0).to(self.dummy.device)
 
+
+class ATF3DSampler(torch.nn.Module, Sampleable):
+    """
+        Loads and serves full 3D ATF magnitude cubes.
+        Each sample is a tensor of shape [64, 11, 11, 11] (freq, Z, Y, X).
+        """
+    def __init__(self, data_path: str, mode: str, src_splits: dict, normalize: bool = True):
+        super().__init__()
+        self.mode = mode
+        self.src_splits = src_splits
+        self.normalize = normalize
+        self.mean = None
+        self.std = None
+        # Use a distinct cache file to avoid clobbering 2D slice caches
+        processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}.pt')
+
+        if os.path.exists(processed_file):
+            print(f"Loading pre-processed ATF-3D {self.mode} data from {processed_file}")
+            data = torch.load(processed_file)
+            self.cubes = data['cubes']
+            self.source_coords = data['source_coords']
+            self.grid_xyz = data['grid_xyz']
+            # self.sample_info = data.get('sample_info')
+            if self.normalize:
+                self.mean = data.get('mean')
+                self.std = data.get('std')
+
+        else:
+            print(f"Processing ATF-3D {self.mode} data from .npz files...")
+            source_indices = range(*src_splits[self.mode])
+            all_cubes = []
+            all_source_coords = []
+            all_sample_info = []
+
+            # --- Grid construction (assuming it's constant for all sources) ---
+            # --- Colleague's Fix 1: Establish a canonical grid order and permutation ---
+            first_npz_file = os.path.join(data_path, f"data_s{source_indices[0] + 1:04d}.npz")
+            with np.load(first_npz_file) as data:
+                mic_pos = data['posMic']  # shape (1331, 3)
+                x, y, z = mic_pos[:, 0], mic_pos[:, 1], mic_pos[:, 2]
+
+                # Sort by z, then y, then x to get a canonical C-style row-major order
+                perm = np.lexsort((x, y, z))
+
+                unique_x, unique_y, unique_z = sorted(np.unique(x)), sorted(np.unique(y)), sorted(np.unique(z))
+                self.nx, self.ny, self.nz = len(unique_x), len(unique_y), len(unique_z)
+
+            # Create the canonical grid that matches the flattened order
+            zz, yy, xx = torch.meshgrid(
+                torch.tensor(unique_z, dtype=torch.float32),
+                torch.tensor(unique_y, dtype=torch.float32),
+                torch.tensor(unique_x, dtype=torch.float32),
+                indexing='ij'
+            )
+            self.grid_xyz = torch.stack([xx, yy, zz], dim=-1).view(-1, 3)
+
+            for src_id in tqdm(source_indices, desc=f"Loading {self.mode} NPZ files"):
+                npz_file = os.path.join(data_path, f"data_s{src_id + 1:04d}.npz")
+                if not os.path.exists(npz_file): continue
+
+                with np.load(npz_file) as data_single:
+
+                    atf_mag_algn = data_single['atf_mag_algn']  # (1331, 64)
+                    source_pos = data_single['posSrc']  # (3,)
+
+                    # Reorder rows into the canonical layout using the permutation
+                    atf_perm = torch.tensor(atf_mag_algn[perm], dtype=torch.float32)  # [1331, 64]
+
+                    # chatgpt version: cube = atf_perm.T.view(64, nz, ny, nx)
+                    # Reshape the ordered data into the 3D cube
+                    cube = atf_perm.T.contiguous().view(64, self.nz, self.ny, self.nx)  # [64, 11, 11, 11]
+
+                    all_cubes.append(cube)
+                    all_source_coords.append(torch.tensor(source_pos, dtype=torch.float32))
+                    all_sample_info.append(torch.tensor([src_id], dtype=torch.int32))
+
+            self.cubes = torch.stack(all_cubes)
+            self.source_coords = torch.stack(all_source_coords)
+            self.sample_info = torch.stack(all_sample_info)
+
+            if self.normalize and self.mode == 'train':
+                self.mean = self.cubes.mean()
+                self.std = self.cubes.std()
+                self.cubes = (self.cubes - self.mean) / (self.std + 1e-8)
+
+
+            # --- Colleague's Fix 2: Save the grid and its dimensions with the cache ---
+            save_data = {
+                'cubes': self.cubes,
+                'source_coords': self.source_coords,
+                'sample_info': self.sample_info,
+                'grid_xyz': self.grid_xyz,
+                'nxnyz': (self.nx, self.ny, self.nz),
+            }
+
+            if self.normalize:
+                save_data.update({'mean': self.mean, 'std': self.std})
+            torch.save(save_data, processed_file)
+            print(f"Saved processed ATF-3D {self.mode} data to {processed_file}")
+
+        self.dummy = torch.nn.Buffer(torch.zeros(1))
+        print(f"Loaded {len(self.cubes)} ATF-3D cubes for {self.mode} set.")
+        print(f"Cube tensor shape: {self.cubes.shape}")
+
+    def __len__(self):
+        return len(self.cubes)
+
+    def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+
+        indices = torch.randperm(len(self.cubes))[:num_samples]
+        z_full_batch = self.cubes[indices]
+        src_xyz_batch = self.source_coords[indices]
+        return z_full_batch.to(self.dummy.device), src_xyz_batch.to(self.dummy.device)
+
+
+class SetEncoder(nn.Module):
+    """Encodes a sparse set of observations into a sequence of tokens. and a pooled context vector."""
+
+    def __init__(self, num_freqs=64, d_model=256, nhead=4, num_layers=3):
+        super().__init__()
+        self.d_model = d_model
+        # MLP to tokenize each observation: [rel_coord(3), values(64)] -> d_model
+        self.tokenizer_mlp = nn.Sequential(
+            nn.Linear(3 + num_freqs, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model)
+        )
+
+        # Transformer encoder to mix observation tokens
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=True)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        self.y_null_token = nn.Parameter(torch.randn(1, 1, d_model))
+
+    def forward(self, obs_coords_rel, obs_values, obs_mask):
+        """
+        Args:
+            obs_coords_rel (Tensor): Relative mic coordinates [B, M_max, 3]
+            obs_values (Tensor): ATF magnitudes at those mics [B, M_max, 64]
+            obs_mask (Tensor): Boolean mask indicating valid observations [B, M_max]
+        Returns:
+            tokens (Tensor): Encoded observation tokens [B, M_max, d_model]
+            pooled_context (Tensor): A single context vector per batch item [B, d_model]
+
+        """
+        # 1. Concatenate coordinates and values for each observation
+        token_features = torch.cat([obs_coords_rel, obs_values], dim=-1)  # [B, M_max, 67]
+
+        # 2. Project each observation to a token of dimension d_model
+        tokens = self.tokenizer_mlp(token_features)  # [B, M_max, d_model]
+
+        # 3. Use transformer to let observations communicate with each other
+        # The transformer expects a padding mask where True means "ignore"
+        padding_mask = ~obs_mask
+        tokens = self.transformer_encoder(tokens, src_key_padding_mask=padding_mask)
+
+        # --- NEW: Create the pooled context vector ---
+        # To correctly average, we mask the padded tokens before summing.
+        masked_tokens = tokens.masked_fill(~obs_mask.unsqueeze(-1), 0.0)
+        # Sum valid tokens and divide by the number of valid tokens. Add epsilon for stability.
+        num_valid_tokens = obs_mask.sum(dim=1, keepdim=True)
+        pooled_context = masked_tokens.sum(dim=1) / (num_valid_tokens + 1e-8)
+
+        return tokens, pooled_context
+
 # """Part 2: Training for Classifier Free Guidance (CFG) """
 class ConditionalVectorField(nn.Module, ABC):
     """
@@ -1489,7 +1654,8 @@ class ATFInpaintingTrainer(Trainer):
             x_t = (1 - t) * z0 + t * z
             ut_ref = z - z0
         else:
-            x_t = (1 - t) * z_masked + t * z + noise #
+            # x_t = (1 - t) * z_masked + t * z + noise #
+            x_t = (1 - (1-self.sigma)*t) * z_masked + t * z #
             # The target vector field is the difference vector
             ut_ref = z - z_masked  # The target velocity is the difference vector
 
@@ -1561,7 +1727,8 @@ class ATFInpaintingTrainer(Trainer):
             x_t = (1 - t) * z0 + t * z
             ut_ref = z - z0
         else:
-            x_t = (1 - t) * z_masked + t * z + noise  #
+            # x_t = (1 - t) * z_masked + t * z + noise  #
+            x_t = (1 - (1-self.sigma)*t) * z_masked + t * z + noise  #
             # The target vector field is the difference vector
             ut_ref = z - z_masked  # The target velocity is the difference vector
 
@@ -1648,6 +1815,128 @@ class ATFInpaintingTrainer(Trainer):
     #     plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust for suptitle
     #     plt.show()
 
+
+class ATF3DTrainer(Trainer):
+    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, **kwargs):
+        super().__init__(model)
+        self.path = path
+        self.set_encoder = set_encoder
+        self.eta = eta
+        self.M_range = (int(M_range[0]), int(M_range[1]))
+        self.sigma = sigma
+        self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
+
+        # A learnable embedding for the unconditional (null) case
+        d_model = set_encoder.d_model
+
+    def make_observation_set(self, z_full, src_xyz):
+        B, C, D, H, W = z_full.shape
+        N = self.grid_xyz.shape[0]  # Total number of mics (1331)
+
+        M_max = self.M_range[1]
+        obs_coords_rel_list = []
+        obs_values_list = []
+        obs_mask_list = []
+
+        # Loop over each sample in the batch to handle variable M
+        for i in range(B):
+            # 1. Randomly pick M for this sample
+            M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
+
+            # 2. Randomly choose M mic indices
+            obs_indices = torch.randperm(N, device=z_full.device)[:M]
+
+            # 3. Gather coordinates and values
+            obs_xyz = self.grid_xyz[obs_indices]  # [M, 3]
+            obs_coords_rel = obs_xyz - src_xyz[i].unsqueeze(0)  # [M, 3]
+
+            # Flatten spatial dimensions of the cube to easily gather values
+            z_flat = z_full[i].view(C, -1)  # [64, 1331]
+            obs_values = z_flat[:, obs_indices].transpose(0, 1)  # [M, 64]
+
+            # 4. Pad tensors to max length for batching, gemini commented:
+            pad_len = M_max - M
+            obs_coords_rel_padded = nn.functional.pad(obs_coords_rel, (0, 0, 0, pad_len))
+            obs_values_padded = nn.functional.pad(obs_values, (0, 0, 0, pad_len))
+            # target sizes -- chatgpt version:
+            # M_max = self.M_range[1]
+            #
+            # # coords: [M, 3] -> [M_max, 3]
+            # obs_coords_rel_padded = torch.zeros(M_max, 3, device=z_full.device, dtype=obs_coords_rel.dtype)
+            # obs_coords_rel_padded[:M] = obs_coords_rel
+            #
+            # # values: [M, 64] -> [M_max, 64]
+            # obs_values_padded = torch.zeros(M_max, obs_values.shape[1], device=z_full.device, dtype=obs_values.dtype)
+            # obs_values_padded[:M] = obs_values
+
+            # Create a mask: True for valid observations, False for padding
+            mask = torch.zeros(M_max, dtype=torch.bool, device=z_full.device)
+            mask[:M] = True
+
+            obs_coords_rel_list.append(obs_coords_rel_padded)
+            obs_values_list.append(obs_values_padded)
+            obs_mask_list.append(mask)
+
+        return torch.stack(obs_coords_rel_list), torch.stack(obs_values_list), torch.stack(obs_mask_list)
+
+    def get_train_loss(self, **kwargs) -> torch.Tensor:
+        batch_size = kwargs.get('batch_size')
+        # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
+        z_full, src_xyz = self.path.p_data.sample(batch_size)
+        x1 = z_full
+
+        # 2. Create the sparse observation set on the fly
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+
+        # 3. Encode the observations into conditioning tokens
+        y_tokens, _ = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
+
+        # 4. Define the Flow Matching path from noise to data
+        t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
+        x0 = torch.randn_like(x1)
+        xt = (1 - t) * x0 + t * x1
+        ut_ref = x1 - x0
+
+        # 5. Apply Classifier-Free Guidance during training
+        # With probability eta, replace conditioning tokens with the null token
+        is_conditional_mask = (torch.rand(batch_size, device=x1.device) > self.eta)
+
+        # Broadcast y_null_token and select based on the mask
+        null_tokens = self.set_encoder.y_null_token.expand(batch_size, y_tokens.shape[1], -1)
+        final_tokens = torch.where(is_conditional_mask.view(-1, 1, 1), y_tokens, null_tokens)
+
+        # The mask for the transformer (to ignore padding) is the same for both cases
+        final_obs_mask = obs_mask
+
+        # 6. Get the model's prediction for the velocity field
+        # The 3D U-Net's forward pass must accept `context` and `context_mask`
+        ut_theta = self.model(xt, t, context=final_tokens, context_mask=final_obs_mask)
+
+        # 7. Compute the loss
+        loss = torch.mean(torch.square(ut_theta - ut_ref))
+
+        return loss
+
+    @torch.no_grad()
+    def get_valid_loss(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
+        batch_size = kwargs.get('batch_size')
+        z_full, src_xyz = valid_sampler.sample(batch_size)
+        x1 = z_full
+
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        y_tokens, _ = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+        t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
+        x0 = torch.randn_like(x1)
+        xt = (1 - t) * x0 + t * x1
+        ut_ref = x1 - x0
+
+        # For validation, we are always conditional
+        ut_theta = self.model(xt, t.squeeze(), context=y_tokens, context_mask=obs_mask)
+
+        loss = torch.mean(torch.square(ut_theta - ut_ref))
+
+        return loss
 
 # """ Part 3: An Architecture for Spectrograms: Building a U-Net """
 
@@ -1954,3 +2243,144 @@ class ATFUNet(ConditionalVectorField):
         x = self.final_conv(x)
 
         return x
+
+
+class CrossAttentionBlock3D(nn.Module):
+    def __init__(self, in_channels, d_model, nhead=4):
+        super().__init__()
+        # The attention layer
+        self.attention = nn.MultiheadAttention(
+            embed_dim=in_channels,
+            kdim=d_model,  # Key dimension from context
+            vdim=d_model,  # Value dimension from context
+            num_heads=nhead,
+            batch_first=True
+        )
+        self.norm = nn.LayerNorm(in_channels)
+
+    def forward(self, x, context, context_mask):
+        """
+        Args:
+            x (Tensor): The spatial feature map from the U-Net [B, C, D, H, W]
+            context (Tensor): The conditioning tokens from SetEncoder [B, M, d_model]
+            context_mask (Tensor): The padding mask for the context [B, M]
+        """
+        B, C, D, H, W = x.shape
+
+        # 1. Reshape spatial features to a sequence for attention
+        # Query: The pixels/voxels of our image
+        query = x.view(B, C, -1).permute(0, 2, 1)  # [B, D*H*W, C]
+
+        # 2. Perform cross-attention
+        # The query (our image pixels) attends to the key/value (our observation tokens)
+        attn_output, _ = self.attention(
+            query=query,
+            key=context,
+            value=context,
+            key_padding_mask=~context_mask  # Invert mask: True means "ignore"
+        )
+
+        # 3. Add and normalize (residual connection)
+        x_flat = query + attn_output
+        x_flat = self.norm(x_flat)
+
+        # 4. Reshape back to the original 3D spatial format
+        return x_flat.permute(0, 2, 1).view(B, C, D, H, W)
+
+
+# A more stable 3D convolutional block using GroupNorm
+class ConvBlock3D(nn.Module):
+    def __init__(self, in_channels, out_channels, groups=8):
+        super().__init__()
+        # Ensure num_groups is valid
+        if out_channels < groups:
+            groups = 1 if out_channels == 1 else 2  # A simple fallback
+
+        self.block = nn.Sequential(
+            nn.Conv3d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.GroupNorm(num_groups=groups, num_channels=out_channels),
+            nn.SiLU()  # Using SiLU (Swish) as a modern alternative to ReLU
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+
+# The full U-Net architecture with Pad-and-Crop and GroupNorm
+class CrossAttentionUNet3D(nn.Module):
+    def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4):
+        super().__init__()
+        self.channels = channels
+
+        # Sanity check: embed_dim must be divisible by nhead for each attn block
+        assert all(c % nhead == 0 for c in channels), "Channel dimensions must be divisible by nhead"
+
+        # Pad to (D,H,W)=(12,12,12) and crop back to (11,11,11)
+        self.pad = nn.ConstantPad3d((0, 1, 0, 1, 0, 1), 0.0)
+
+        # --- Time Embedding ---
+        self.time_embedder = FourierEncoder(d_model)
+        self.time_mlp = nn.Linear(d_model, channels[-1])
+
+        # --- Initial Convolution ---
+        self.init_conv = ConvBlock3D(in_channels, channels[0])
+
+        # --- Encoder ---
+        self.down1 = nn.Sequential(ConvBlock3D(channels[0], channels[1]), nn.MaxPool3d(2))  # 12->6
+        self.attn1 = CrossAttentionBlock3D(in_channels=channels[1], d_model=d_model, nhead=nhead)
+
+        self.down2 = nn.Sequential(ConvBlock3D(channels[1], channels[2]), nn.MaxPool3d(2))  # 6->3
+        self.attn2 = CrossAttentionBlock3D(in_channels=channels[2], d_model=d_model, nhead=nhead)
+
+        # --- Bottleneck ---
+        self.bottleneck = ConvBlock3D(channels[2], channels[2])
+        self.attn_mid = CrossAttentionBlock3D(in_channels=channels[2], d_model=d_model, nhead=nhead)
+
+        # --- Decoder ---
+        self.up1_trans = nn.ConvTranspose3d(channels[2], channels[1], kernel_size=2, stride=2)  # 3->6
+        self.up1_conv = ConvBlock3D(channels[1] * 2, channels[1])
+
+        self.up2_trans = nn.ConvTranspose3d(channels[1], channels[0], kernel_size=2, stride=2)  # 6->12
+        self.up2_conv = ConvBlock3D(channels[0] * 2, channels[0])
+
+        # --- Final ---
+        self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
+
+    def forward(self, x, t, context, context_mask):
+        B = x.size(0)
+
+        # 0. Pad to 12x12x12
+        x = self.pad(x)
+
+        # 1. Initial Convolution
+        x1 = self.init_conv(x)
+
+        # 2. Encoder Path
+        x2 = self.down1(x1)
+        x2 = self.attn1(x2, context, context_mask)
+
+        x3 = self.down2(x2)
+        x3 = self.attn2(x3, context, context_mask)
+
+        # 3. Bottleneck
+        bn = self.bottleneck(x3)
+
+        # Add time embedding
+        t_emb = self.time_mlp(self.time_embedder(t.unsqueeze(-1)))
+        bn = bn + t_emb.view(B, self.channels[-1], 1, 1, 1)
+
+        # Add cross-attention in the bottleneck
+        bn = self.attn_mid(bn, context, context_mask)
+
+        # 4. Decoder Path
+        d1 = self.up1_trans(bn)
+        d1 = torch.cat([d1, x2], dim=1)  # Skip connection
+        d1 = self.up1_conv(d1)
+
+        d2 = self.up2_trans(d1)
+        d2 = torch.cat([d2, x1], dim=1)  # Skip connection
+        d2 = self.up2_conv(d2)
+
+        # 5. Final output and crop back to 11x11x11
+        out = self.final_conv(d2)
+        return out[..., :11, :11, :11]

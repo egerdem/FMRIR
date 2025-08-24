@@ -52,7 +52,7 @@ python trainer-unet-ATF-CMD.py \
 # --experiments_dir ~/FMRIR_experiments
 # conda activate fmvenv
 # move checkpoint to local:
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments//ATFUNet_M5_holeloss_NOGAUSSION_LR5e3_20250818-224428_iter100000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATFUNet_M5_holeloss_GaussFalse_LR5e3_n05_20250820-173718_iter500000 /Users/ege/Projects/FMRIR/artifacts
 
 #HPC CREATE
 ssh k24037994@hpc.create.kcl.ac.uk
@@ -62,17 +62,18 @@ ssh k24037994@hpc.create.kcl.ac.uk
 # source ~/fmvenv/bin/activate
 
 python trainer-unet-ATF-CMD.py \
-       --model_name ATFUNet_M5_holeloss_GaussFalse_LR5e3 \
+       --model_name ATFUNet_M5_holeloss_GaussFalse_LR5e3_n05 \
         --model_mode "spatial" \
         --flag_gaussian_mask False \
         --sigma 0. \
         --batch_size 250 \
         --M 5 \
         --validation_interval 20 \
-        --eta 0.1 \
+        --eta 0.05 \
         --lr 5e-3 \
         --num_iterations 500000 \
-        --data_dir ~/DATASET \
+        --freq_up_to 30 \
+        --data_dir ~/DATA \
         --experiments_dir ~/FMRIR_experiments
 
 #LOCALDEN ROSSINIYE
