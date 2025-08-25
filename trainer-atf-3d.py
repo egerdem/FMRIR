@@ -20,54 +20,41 @@ from fm_utils import (
 def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # --- Configuration ---
-    # Create a config dict from args to save with the model
+    # --- 1. Initial Config from Arguments ---
+    # This creates a baseline config that can be used immediately
     config = {
-        "data": {
-            "data_dir": args.data_dir,
-            "src_splits": {
-                "train": [0, 820],
-                "valid": [820, 922],
-                "test": [922, 1024]
-            }
-        },
-        "model": {
-            "name": args.model_name,
-            "channels": args.channels,
-            "d_model": args.d_model,
-            "nhead": args.nhead,
-            "num_encoder_layers": args.num_encoder_layers,
-            "freq_up_to": args.freq_up_to
-        },
-        "training": {
-            "num_iterations": args.num_iterations,
-            "batch_size": args.batch_size,
-            "lr": args.lr,
-            "M_range": args.M_range,
-            "eta": args.eta,
-            "sigma": args.sigma,
-            "validation_interval": args.validation_interval
-        },
+        "data": {"data_dir": args.data_dir,
+                 "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
+        "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
+                  "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to},
+        "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
+                     "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma,
+                     "validation_interval": args.validation_interval},
         "experiments_dir": args.experiments_dir
     }
 
+    # --- 2. Handle Resuming ---
     start_iteration = 0
     resume_checkpoint_state = None
     experiment_dir = None
+    experiment_name = ""
 
     if args.resume_from_checkpoint:
-        print(f"RESUMING training from: {args.resume_from_checkpoint}")
         if os.path.exists(args.resume_from_checkpoint):
+            print(f"RESUMING training from: {args.resume_from_checkpoint}")
             resume_checkpoint_state = torch.load(args.resume_from_checkpoint, map_location=device)
-            # Load the config from the checkpoint to ensure consistency
-            config = resume_checkpoint_state.get('config', config)
-            print("Loaded config from checkpoint.")
+
+            # Load the old config, but then immediately update it with new args
+            loaded_config = resume_checkpoint_state.get('config', {})
+            loaded_config.update(config)
+            config = loaded_config
+
+            start_iteration = resume_checkpoint_state.get('iteration', 0)
+            print(f"Resuming from iteration {start_iteration}")
 
             parent = os.path.dirname(args.resume_from_checkpoint)
             experiment_dir = os.path.dirname(parent) if os.path.basename(parent) == 'checkpoints' else parent
             experiment_name = os.path.basename(experiment_dir)
-            start_iteration = resume_checkpoint_state.get('iteration')
-            print(f"Resuming from iteration {start_iteration}")
 
              # Initialize WandB if enabled and resume run
             if args.wandb:
@@ -77,6 +64,37 @@ def main(args):
                 print(f"Resuming W&B run ID: {run_id}")
         else:
             print(f"⚠️ Warning: resume path does not exist: {args.resume_from_checkpoint}")
+
+        # --- Configuration ---
+        # Create a config dict from args to save with the model
+        config = {
+            "data": {
+                "data_dir": args.data_dir,
+                "src_splits": {
+                    "train": [0, 820],
+                    "valid": [820, 922],
+                    "test": [922, 1024]
+                }
+            },
+            "model": {
+                "name": args.model_name,
+                "channels": args.channels,
+                "d_model": args.d_model,
+                "nhead": args.nhead,
+                "num_encoder_layers": args.num_encoder_layers,
+                "freq_up_to": args.freq_up_to
+            },
+            "training": {
+                "num_iterations": args.num_iterations,
+                "batch_size": args.batch_size,
+                "lr": args.lr,
+                "M_range": args.M_range,
+                "eta": args.eta,
+                "sigma": args.sigma,
+                "validation_interval": args.validation_interval
+            },
+            "experiments_dir": args.experiments_dir
+        }
 
     if experiment_dir is None:
         timestamp = time.strftime("%Y%m%d-%H%M%S")
@@ -194,7 +212,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="3D ATF Trainer CMD")
 
     # --- Resuming ---
-    parser.add_argument('--resume_from_checkpoint', type=str, help='Path to a checkpoint to resume from.')
+    parser.add_argument('--resume_from_checkpoint', default= "~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/checkpoints/ckpt_final_200000.pt", type=str, help='Path to a checkpoint to resume from.')
 
     # --- WandB ---
     parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=True)
