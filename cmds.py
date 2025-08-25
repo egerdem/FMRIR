@@ -15,6 +15,7 @@ python trainer-unet-ATF-CMD.py --resume_from_checkpoint /home/eerdem/DATA/artifa
 #
 #  ROSSINI
 # first
+#SLICE
 python trainer-unet-ATF-CMD.py \
        --model_name ATFUNet_M5_holeloss_NOGAUSSION_LR5e3 \
         --model_mode "spatial" \
@@ -28,7 +29,23 @@ python trainer-unet-ATF-CMD.py \
         --num_iterations 300000 \
         --data_dir /home/eerdem/DATA \
         --experiments_dir ~/FMRIR_experiments
-
+#3D UNET
+python trainer-atf-3d.py \
+    --model_name "ATF3D-CrossAttn-v1" \
+    --data_dir ~/DATA \
+    --experiments_dir ~/FMRIR_experiments \
+    --batch_size 4 \
+    --num_iterations 100000 \
+    --lr 1e-4 \
+    --channels 32,64,128 \
+    --d_model 256 \
+    --nhead 4 \
+    --num_encoder_layers 3 \
+    --M_range 30,50 \
+    --eta 0.1 \
+    --sigma 0.0 \
+    --validation_interval 50 \
+    --checkpoint_interval 20000
 #resume
 
 python trainer-unet-ATF-CMD.py \
@@ -43,7 +60,7 @@ python trainer-unet-ATF-CMD.py \
     --num_iterations 350000 \
     --resume_from_iteration 234579 \
     --freq_up_to 20 \
-    --data_dir /home/eerdem/DATA \
+    --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --resume_from_checkpoint ~/FMRIR_experiments/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model/modelv2.pt
 
@@ -82,7 +99,7 @@ python trainer-atf-3d.py \
     --data_dir ~/DATASET \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
-    --num_iterations 20000 \
+    --num_iterations 100000 \
     --lr 1e-4 \
     --channels 32,64,128 \
     --d_model 256 \
@@ -92,10 +109,14 @@ python trainer-atf-3d.py \
     --eta 0.1 \
     --sigma 0.0 \
     --validation_interval 50 \
-    --checkpoint_interval 5000
+    --checkpoint_interval 20000
 
 #LOCALDEN ROSSINIYE
 scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments
-
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_valid.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
+#LOCALDEN KCL Create'e
 scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/DATASET
+
+#ROSSINI'den locale
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1_20250825-154454_iter100000 /Users/ege/Projects/FMRIR/artifacts
 

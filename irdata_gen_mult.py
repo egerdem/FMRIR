@@ -13,8 +13,8 @@ from irdata_utils import dim2cuboid
 
 if __name__ == "__main__":
 
-    save_figs = False  # Set to False to disable saving figures
-    save_data = False
+    save_figs = True  # Set to False to disable saving figures
+    save_data = True
     # Set random seed
     seed = 0
     np.random.seed(seed)
@@ -32,13 +32,13 @@ if __name__ == "__main__":
     rt60_tgt = args.rt60/1000  # Target RT60 (s) (default=200)
     num_src = args.num_src # Number of sources (default=1)
 
-    irlen = 272 # 256#1024#2048#4096  # IR length
+    irlen = 256 # 256#1024#2048#4096  # IR length
     fftlen = 256#1024#2048#4096  # FFT length
     t = np.arange(0, irlen)/fs # Time
     freq = np.arange(1,fftlen//2+1)/fftlen*fs # Frequency
     window = windows.hamming(irlen) # Window function
     
-    irlen_algn = 136 # 128#512 # IR length for time-alignment
+    irlen_algn = 128 # 128#512 # IR length for time-alignment
     fftlen_algn = 128#512 # FFT length for time-alignment
     t_algn = np.arange(0, irlen_algn)/fs # Time for time-alignment
     freq_algn = np.arange(1,fftlen_algn//2+1)/fftlen_algn*fs # Frequency for time-alignment
@@ -128,33 +128,33 @@ if __name__ == "__main__":
             atf_mag_algn[j,:] = 20*np.log10(np.abs(atf_algn[j,:]))
 
             # Calculate spectrograms for each microphone
-            f_spec, t_spec, spec = spectrogram(rir[j,:], fs=fs, window='hamming', nperseg=32, noverlap=16)
-            f_spec_algn, t_spec_algn, spec_algn = spectrogram(rir_algn[j,:], fs=fs, window='hamming', nperseg=16, noverlap=8)
+            # f_spec, t_spec, spec = spectrogram(rir[j,:], fs=fs, window='hamming', nperseg=32, noverlap=16)
+            # f_spec_algn, t_spec_algn, spec_algn = spectrogram(rir_algn[j,:], fs=fs, window='hamming', nperseg=16, noverlap=8)
 
             # MODIFICATION: Crop the spectrogram to be exactly 16x16
             # The output of the above is (17, 16). We crop the last freq bin.
-            spec = spec[:-1, :]
-            f_spec = f_spec[:-1]
+            # spec = spec[:-1, :]
+            # f_spec = f_spec[:-1]
             # print(f"Spectrogram shape for mic {j+1}: {spec.shape}, Time bins: {t_spec.shape}, Frequency bins: {f_spec.shape}")
 
             # Store spectrograms for each microphone
-            spec_all.append(spec)
-            spec_algn_all.append(spec_algn)
+            # spec_all.append(spec)
+            # spec_algn_all.append(spec_algn)
 
         # Convert to numpy arrays: (num_mic, freq_bins, time_bins)
-        spec_all = np.array(spec_all)
-        spec_algn_all = np.array(spec_algn_all)
+        # spec_all = np.array(spec_all)
+        # spec_algn_all = np.array(spec_algn_all)
 
         if save_data:
             # Save data
             np.savez(f"{dir}data_s{i+1:04d}.npz",
                      rir=rir, atf=atf, atf_mag=atf_mag,
                      rir_algn=rir_algn, atf_algn=atf_algn, atf_mag_algn=atf_mag_algn,
-                     spec=spec_all, f_spec=f_spec, t_spec=t_spec,
-                     spec_algn=spec_algn_all, f_spec_algn=f_spec_algn, t_spec_algn=t_spec_algn,
+                     # spec=spec_all, f_spec=f_spec, t_spec=t_spec,
+                     # spec_algn=spec_algn_all, f_spec_algn=f_spec_algn, t_spec_algn=t_spec_algn,
                      posSrc=posSrc[i,:], posMic=posMic)
 
-        if i % max(1, num_src//10) == 0:
+        if i % max(1, num_src//100) == 0:
             # Plot impulse response of the first source and microphone
             fig, ax = plt.subplots()
             plt.plot(t, rir[0,:])
@@ -190,23 +190,23 @@ if __name__ == "__main__":
             plt.savefig(f"{dir}atf_algn_s{i+1:04d}.pdf")
 
             # Plot spectrograms
-            fig, ax = plt.subplots()
-            plt.pcolormesh(t_spec, f_spec, 10 * np.log10(spec_all[0]))
-            plt.title("Spectrogram")
-            plt.xlabel("Time (s)")
-            plt.ylabel("Frequency (Hz)")
-            plt.colorbar(label='Magnitude (dB)')
-            if save_figs:
-                plt.savefig(f"{dir}spec_s{i+1:04d}.pdf")
-
-            fig, ax = plt.subplots()
-            plt.pcolormesh(t_spec_algn, f_spec_algn, 10 * np.log10(spec_algn_all[0]))
-            plt.title("Time-Aligned Spectrogram")
-            plt.xlabel("Time (s)")
-            plt.ylabel("Frequency (Hz)")
-            plt.colorbar(label='Magnitude (dB)')
-            if save_figs:
-                plt.savefig(f"{dir}spec_algn_s{i+1:04d}.pdf")
+            # fig, ax = plt.subplots()
+            # plt.pcolormesh(t_spec, f_spec, 10 * np.log10(spec_all[0]))
+            # plt.title("Spectrogram")
+            # plt.xlabel("Time (s)")
+            # plt.ylabel("Frequency (Hz)")
+            # plt.colorbar(label='Magnitude (dB)')
+            # if save_figs:
+            #     plt.savefig(f"{dir}spec_s{i+1:04d}.pdf")
+            #
+            # fig, ax = plt.subplots()
+            # plt.pcolormesh(t_spec_algn, f_spec_algn, 10 * np.log10(spec_algn_all[0]))
+            # plt.title("Time-Aligned Spectrogram")
+            # plt.xlabel("Time (s)")
+            # plt.ylabel("Frequency (Hz)")
+            # plt.colorbar(label='Magnitude (dB)')
+            # if save_figs:
+            #     plt.savefig(f"{dir}spec_algn_s{i+1:04d}.pdf")
 
         del room
 
@@ -240,5 +240,5 @@ if __name__ == "__main__":
         plt.colorbar(label='Magnitude (dB)')
         plt.show()
 
-    plot_spect_mic(1000, mic_position)  # Example to plot the spectrogram for the first microphone
+    # plot_spect_mic(1000, mic_position)  # Example to plot the spectrogram for the first microphone
 

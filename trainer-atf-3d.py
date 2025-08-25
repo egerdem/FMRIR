@@ -202,7 +202,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
-    parser.add_argument('--model_name', default="ATF-3D-CrossAttn-UNet", type=str)
+    parser.add_argument('--model_name', default="ZZZATF-3D-CrossAttn-UNet", type=str)
     parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128])
     parser.add_argument('--d_model', type=int, default=256, help='Dimension for tokens and context.')
     parser.add_argument('--nhead', type=int, default=4, help='Number of attention heads.')
@@ -213,6 +213,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=4)  # NOTE: Must be small for 3D models
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[10, 50])
+    parser.add_argument('--freq_up_to', type=int, default=64, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, default=0.0, help='Probability for CFG dropout.')
     parser.add_argument('--sigma', type=float, default=0.0, help='Sigma for noise in the path.')
     parser.add_argument('--checkpoint_interval', type=int, default=20000)

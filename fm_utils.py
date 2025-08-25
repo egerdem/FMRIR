@@ -1378,13 +1378,14 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         Loads and serves full 3D ATF magnitude cubes.
         Each sample is a tensor of shape [64, 11, 11, 11] (freq, Z, Y, X).
         """
-    def __init__(self, data_path: str, mode: str, src_splits: dict, normalize: bool = True):
+    def __init__(self, data_path: str, mode: str, src_splits: dict, normalize: bool = True,  freq_up_to: int = 64):
         super().__init__()
         self.mode = mode
         self.src_splits = src_splits
         self.normalize = normalize
         self.mean = None
         self.std = None
+        self.freq_up_to = freq_up_to
         # Use a distinct cache file to avoid clobbering 2D slice caches
         processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}.pt')
 
@@ -1435,6 +1436,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
                 with np.load(npz_file) as data_single:
 
                     atf_mag_algn = data_single['atf_mag_algn']  # (1331, 64)
+                    np_of_mics, np_of_freqs = atf_mag_algn.shape
                     source_pos = data_single['posSrc']  # (3,)
 
                     # Reorder rows into the canonical layout using the permutation
@@ -1442,7 +1444,8 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
 
                     # chatgpt version: cube = atf_perm.T.view(64, nz, ny, nx)
                     # Reshape the ordered data into the 3D cube
-                    cube = atf_perm.T.contiguous().view(64, self.nz, self.ny, self.nx)  # [64, 11, 11, 11]
+                    cube_all = atf_perm.T.contiguous().view(np_of_freqs, self.nz, self.ny, self.nx)  # [64, 11, 11, 11]
+                    cube = cube_all[:self.freq_up_to, :, :, :]
 
                     all_cubes.append(cube)
                     all_source_coords.append(torch.tensor(source_pos, dtype=torch.float32))

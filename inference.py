@@ -20,9 +20,8 @@ random.seed(SEED)
 # def main():
 # --- Universal Setup ---
 # (Your argparse and model loading logic)
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/experiments_3d/ATF-3D-CrossAttn-UNet_20250825-152925_iter100/checkpoints/ckpt_final_100.pt"
-# MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
-MODEL_NAME = MODEL_LOAD_PATH.split("experiments_3d/")[1].split("/")[0]
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1_20250825-154454_iter100000/model.pt"
+MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
 print(f"Model artifact: {MODEL_NAME}")
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -107,7 +106,7 @@ if is_3d_model:
     num_examples = 5
     num_timesteps = 10
     guidance_scales = [1.0, 2.0, 3.0]
-    freq_idx_to_plot = 8  # Pick a frequency channel to visualize
+    freq_idx_to_plot = 45  # Pick a frequency channel to visualize
 
     fig, axes = plt.subplots(num_examples, 2 + len(guidance_scales),
                              figsize=(4 * (2 + len(guidance_scales)), 4 * num_examples), squeeze=False)

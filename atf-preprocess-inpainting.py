@@ -23,10 +23,10 @@ source_indices = range(*src_splits["test"])
 
 fs = 2000  # 8000#16000  # Sampling frequency
 
-irlen_algn = 136  # 128#512 # IR length for time-alignment
-fftlen_algn = 128  # 512 # FFT length for time-alignment
-t_algn = np.arange(0, irlen_algn) / fs  # Time for time-alignment
-freq_algn = np.arange(1, fftlen_algn // 2 + 1) / fftlen_algn * fs  # Frequency for time-alignment
+# irlen_algn = 136  # 128#512 # IR length for time-alignment
+# fftlen_algn = 128  # 512 # FFT length for time-alignment
+# t_algn = np.arange(0, irlen_algn) / fs  # Time for time-alignment
+# freq_algn = np.arange(1, fftlen_algn // 2 + 1) / fftlen_algn * fs  # Frequency for time-alignment
 
 for src_id in tqdm(source_indices, desc=f"Loading test NPZ files"):
     npz_file = os.path.join(data_path, f"data_s{src_id + 1:04d}.npz")
