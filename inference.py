@@ -8,6 +8,8 @@ import numpy as np
 import random
 from fm_utils import (ATF3DSampler, FreqConditionalATFSampler, CFGVectorFieldODE, EulerSimulator,
                       ATFUNet, SetEncoder, CrossAttentionUNet3D, ATF3DTrainer)
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+import json
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -20,7 +22,8 @@ random.seed(SEED)
 # def main():
 # --- Universal Setup ---
 # (Your argparse and model loading logic)
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1_20250825-154454_iter100000/model.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-172803_iter200000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-172803_iter200000/checkpoints/ckpt_20000.pt"
 MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
 print(f"Model artifact: {MODEL_NAME}")
@@ -58,6 +61,41 @@ is_3d_model = 'set_encoder' in model_states_cfg
 
 if is_3d_model:
     print("--- Detected 3D Conditional Generation Model ---")
+
+    # --- CONFIGURATION FOR VISUALIZATION ---
+    PLOT_3D = True  # Set to True to generate a separate 3D scatter plot
+    data_config_path = os.path.join(data_dir, "config.json")
+    with open(data_config_path, 'r') as f:
+        data_config = json.load(f)
+    room_dim = data_config.get('room_dim')
+    center = data_config.get('center')
+
+    # Helper function to plot a 3D box
+    def plot_room_box(ax, dimensions):
+        w, d, h = dimensions  # width, depth, height
+        # Define the 8 corners of the box
+        corners = [
+            [0, 0, 0], [w, 0, 0], [w, d, 0], [0, d, 0],
+            [0, 0, h], [w, 0, h], [w, d, h], [0, d, h]
+        ]
+        corners = np.array(corners)
+        # Define the 6 faces of the box
+        faces = [
+            [corners[0], corners[1], corners[5], corners[4]],  # Front
+            [corners[2], corners[3], corners[7], corners[6]],  # Back
+            [corners[0], corners[3], corners[7], corners[4]],  # Left
+            [corners[1], corners[2], corners[6], corners[5]],  # Right
+            [corners[0], corners[1], corners[2], corners[3]],  # Bottom
+            [corners[4], corners[5], corners[6], corners[7]]  # Top
+        ]
+        # Create and add the 3D polygon collection
+        ax.add_collection3d(Poly3DCollection(
+            faces, facecolors='cyan', linewidths=1, edgecolors='darkblue', alpha=0.05
+        ))
+        # Set axis limits
+        ax.set_xlim(0, w);
+        ax.set_ylim(0, d);
+        ax.set_zlim(0, h)
 
     # --- 1. Data Loading ---
     # Create train sampler to get normalization stats and grid coordinates
@@ -102,15 +140,23 @@ if is_3d_model:
     print("--- Loaded 3D U-Net and SetEncoder models for inference ---")
 
     # --- 4. Inference & Visualization ---
-    M_range = config['training'].get('M_range', [10, 50])
+    M_range = config['training'].get('M_range')
     num_examples = 5
     num_timesteps = 10
     guidance_scales = [1.0, 2.0, 3.0]
-    freq_idx_to_plot = 45  # Pick a frequency channel to visualize
+    freq_idx_to_plot = 5  # Pick a frequency channel to visualize
 
-    fig, axes = plt.subplots(num_examples, 2 + len(guidance_scales),
-                             figsize=(4 * (2 + len(guidance_scales)), 4 * num_examples), squeeze=False)
+    # --- SETUP THE PLOT GRID ---
+    # Add an extra column at the far left for a 3D snapshot view
+    num_cols = 3 + len(guidance_scales)
+    fig, axes = plt.subplots(num_examples, num_cols, figsize=(4.5 * num_cols, 4 * num_examples), squeeze=False)
     fig.suptitle(f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}) | {MODEL_NAME}", fontsize=16)
+
+    # fig, axes = plt.subplots(num_examples, 2 + len(guidance_scales),
+    #                          figsize=(4 * (2 + len(guidance_scales)), 4 * num_examples), squeeze=False)
+    # fig.suptitle(f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}) | {MODEL_NAME}", fontsize=16)
+
+    center_np = np.array(center)
 
     for row in range(num_examples):
         # Get a random ground truth sample
@@ -136,16 +182,64 @@ if is_3d_model:
         gt_slice_to_plot = z_true_denorm[0, freq_idx_to_plot].cpu().numpy()
         vmin, vmax = np.min(gt_slice_to_plot), np.max(gt_slice_to_plot)
 
-        axes[row, 0].imshow(gt_slice_to_plot.mean(axis=0), origin='lower', cmap='viridis', vmin=vmin,
+        axes[row, 1].imshow(gt_slice_to_plot.mean(axis=0), origin='lower', cmap='viridis', vmin=vmin,
                             vmax=vmax)  # show a projection
-        axes[row, 0].set_title("Ground Truth (Z-projection)" if row == 0 else "")
-        axes[row, 0].axis('off')
-
-        axes[row, 1].text(0.5, 0.5, f'Input:\n{M} random mics', ha='center', va='center', fontsize=12)
-        axes[row, 1].set_title(f"Sparse Input (M={M})" if row == 0 else "")
+        axes[row, 1].set_title("True (Z-projection)" if row == 0 else "")
         axes[row, 1].axis('off')
 
+        # --- NEW: Plot Sparse Input (2D Scatter Projection) ---
+        ax_scatter = axes[row, 2]
+        obs_xyz_plot = obs_xyz_abs.cpu().numpy()
+        # Plot X vs Y, and use Z for the color
+        sc = ax_scatter.scatter(obs_xyz_plot[:, 0], obs_xyz_plot[:, 1], c=obs_xyz_plot[:, 2], cmap='viridis', s=20,
+                                vmin=-0.5, vmax=0.5)
+        ax_scatter.set_title(f"Input Mics")
+        ax_scatter.set_aspect('equal', adjustable='box')
+        ax_scatter.set_xlim(-0.6, 0.6);
+        ax_scatter.set_ylim(-0.6, 0.6)  # Example limits
+        ax_scatter.set_xticks([]);
+        ax_scatter.set_yticks([])
+
+        cbar_z = fig.colorbar(sc, ax=ax_scatter, fraction=0.046, pad=0.04)
+        cbar_z.set_label('Z-height (m)', size=8)
+        cbar_z.ax.tick_params(labelsize=7)
+
+        # Show per-row microphone count under the sparse figure
+        ax_scatter.set_xlabel(f"M={M}", fontsize=9, labelpad=2)
+
+        # --- NEW: Inline 3D snapshot in the first column ---
+        # Replace the placeholder 2D axis with a 3D axis in the same GridSpec cell
+        gs = axes[row, 0].get_gridspec()
+        axes[row, 0].remove()
+        ax3d_inline = fig.add_subplot(gs[row, 0], projection='3d')
+
+        # Room box
+        plot_room_box(ax3d_inline, room_dim)
+
+        # Global positions for plotting
+        obs_xyz_global = obs_xyz_abs.cpu().numpy() + center_np
+        src_xyz_global = src_xyz.cpu().numpy() + center_np
+
+        # Scatter microphones and source
+        ax3d_inline.scatter(
+            obs_xyz_global[:, 0], obs_xyz_global[:, 1], obs_xyz_global[:, 2],
+            s=20, c='b'
+        )
+        ax3d_inline.scatter(
+            src_xyz_global[0, 0], src_xyz_global[0, 1], src_xyz_global[0, 2],
+            s=60, c='r', marker='*'
+        )
+
+        # Labels and limits
+        ax3d_inline.set_xlabel('X (m)'); ax3d_inline.set_ylabel('Y (m)'); ax3d_inline.set_zlabel('Z (m)')
+        ax3d_inline.set_title('Room (3D)' if row == 0 else '')
+
+        # axes[row, 1].text(0.5, 0.5, f'Input:\n{M} random mics', ha='center', va='center', fontsize=12)
+        # axes[row, 1].set_title(f"Sparse Input (M={M})" if row == 0 else "")
+        # axes[row, 1].axis('off')
+
         # --- Generate for each guidance scale ---
+
         for g_idx, w in enumerate(guidance_scales):
             # Start from pure noise
             xt = torch.randn_like(z_true)
@@ -174,12 +268,27 @@ if is_3d_model:
             x1_recon_denorm = (xt * spec_std + spec_mean)
             recon_slice_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
 
-            im = axes[row, g_idx + 2].imshow(recon_slice_to_plot.mean(axis=0), origin='lower', cmap='viridis',
-                                             vmin=vmin, vmax=vmax)
-            axes[row, g_idx + 2].set_title(f"w={w}" if row == 0 else "")
-            axes[row, g_idx + 2].axis('off')
+            col_idx = g_idx + 3
+            im = axes[row, col_idx].imshow(
+                recon_slice_to_plot.mean(axis=0),
+                origin='lower',
+                cmap='viridis',
+                vmin=vmin,
+                vmax=vmax
+            )
+            axes[row, col_idx].set_title(f"w={w}" if row == 0 else "")
+            axes[row, col_idx].axis('off')
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        # Shared colorbar for GT and generated columns (exclude scatter input)
+        ax_list = [axes[row, 1]] + [axes[row, i + 3] for i in range(len(guidance_scales))]
+        mappable = matplotlib.cm.ScalarMappable(
+            norm=matplotlib.colors.Normalize(vmin=vmin, vmax=vmax), cmap='viridis'
+        )
+        cbar_mag = fig.colorbar(mappable, ax=ax_list, fraction=0.046, pad=0.04)
+        cbar_mag.set_label('Magnitude (dB)', size=8)
+        cbar_mag.ax.tick_params(labelsize=7)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95], h_pad=0.5, w_pad=1.5)
     plt.show()
 
 # if __name__ == '__main__':
