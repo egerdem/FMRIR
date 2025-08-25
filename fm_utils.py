@@ -1165,8 +1165,8 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
     Serves 2D spatial slices of ATF magnitudes, treating each frequency bin
     as a separate sample and adding the frequency index to the conditioning vector.
     """
-    def __init__(self, data_path: str, mode: str, src_splits: dict,
-                 transform: Optional[callable] = None, freq_up_to: int = 64):
+    def __init__(self, data_path: str, mode: str, src_splits: dict, freq_up_to: int,
+                 transform: Optional[callable] = None, ):
         super().__init__()
 
         # **NEW: Store the actual frequency values (in Hz)**
@@ -1378,7 +1378,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         Loads and serves full 3D ATF magnitude cubes.
         Each sample is a tensor of shape [64, 11, 11, 11] (freq, Z, Y, X).
         """
-    def __init__(self, data_path: str, mode: str, src_splits: dict, normalize: bool = True,  freq_up_to: int = 64):
+    def __init__(self, data_path: str, mode: str, src_splits: dict, freq_up_to: int, normalize: bool = True):
         super().__init__()
         self.mode = mode
         self.src_splits = src_splits
@@ -1387,7 +1387,8 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         self.std = None
         self.freq_up_to = freq_up_to
         # Use a distinct cache file to avoid clobbering 2D slice caches
-        processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}.pt')
+        # processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}.pt')
+        processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}.pt')
 
         if os.path.exists(processed_file):
             print(f"Loading pre-processed ATF-3D {self.mode} data from {processed_file}")
@@ -1444,8 +1445,8 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
 
                     # chatgpt version: cube = atf_perm.T.view(64, nz, ny, nx)
                     # Reshape the ordered data into the 3D cube
-                    cube_all = atf_perm.T.contiguous().view(np_of_freqs, self.nz, self.ny, self.nx)  # [64, 11, 11, 11]
-                    cube = cube_all[:self.freq_up_to, :, :, :]
+                    full_cube = atf_perm.T.contiguous().view(np_of_freqs, self.nz, self.ny, self.nx)  # [64, 11, 11, 11]
+                    cube = full_cube[:self.freq_up_to, :, :, :]
 
                     all_cubes.append(cube)
                     all_source_coords.append(torch.tensor(source_pos, dtype=torch.float32))

@@ -36,7 +36,8 @@ def main(args):
             "channels": args.channels,
             "d_model": args.d_model,
             "nhead": args.nhead,
-            "num_encoder_layers": args.num_encoder_layers
+            "num_encoder_layers": args.num_encoder_layers,
+            "freq_up_to": args.freq_up_to
         },
         "training": {
             "num_iterations": args.num_iterations,
@@ -97,12 +98,17 @@ def main(args):
 
     # --- Data Loading ---
     data_cfg = config['data']
+    model_cfg = config['model']
+    training_cfg = config['training']
+
+
     # 1. Create the training sampler. It will calculate and apply its own normalization.
     print("--- Loading Training Data ---")
     atf_train_sampler = ATF3DSampler(
         data_path=data_cfg['data_dir'],
         mode='train',
         src_splits=data_cfg['src_splits'],
+        freq_up_to=model_cfg['freq_up_to'],
         normalize=True
     )
 
@@ -112,6 +118,7 @@ def main(args):
         data_path=data_cfg['data_dir'],
         mode='valid',
         src_splits=data_cfg['src_splits'],
+        freq_up_to=model_cfg['freq_up_to'],
         normalize=False
     )
 
@@ -124,8 +131,6 @@ def main(args):
     atf_valid_sampler.std = atf_train_sampler.std
 
     # --- Model and Trainer Initialization ---
-    model_cfg = config['model']
-    training_cfg = config['training']
 
     # Get cube shape from the sampler for the probability path
     cube_shape = atf_train_sampler.cubes.shape[1:]

@@ -13,7 +13,7 @@ import json
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-SEED = 42  # You can use any integer you like
+SEED = 420  # You can use any integer you like
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED) # for GPU
 np.random.seed(SEED)
@@ -22,8 +22,8 @@ random.seed(SEED)
 # def main():
 # --- Universal Setup ---
 # (Your argparse and model loading logic)
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-172803_iter200000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-172803_iter200000/checkpoints/ckpt_20000.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-172803_iter200000/model.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq30_M5to50_20250825-184335_iter200000/model.pt"
 MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
 print(f"Model artifact: {MODEL_NAME}")
@@ -100,11 +100,11 @@ if is_3d_model:
     # --- 1. Data Loading ---
     # Create train sampler to get normalization stats and grid coordinates
     train_sampler = ATF3DSampler(
-        data_path=data_dir, mode='train', src_splits=src_split, normalize=True
+        data_path=data_dir, mode='train', src_splits=src_split, normalize=True, freq_up_to=freq_up_to
     )
     # Create test sampler with raw data
     test_sampler = ATF3DSampler(
-        data_path=data_dir, mode='test', src_splits=src_split, normalize=False
+        data_path=data_dir, mode='test', src_splits=src_split, normalize=False, freq_up_to=freq_up_to
     )
     # Normalize the test data using the stats from the training set
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
@@ -141,10 +141,11 @@ if is_3d_model:
 
     # --- 4. Inference & Visualization ---
     M_range = config['training'].get('M_range')
+    M_range = [40,50]
     num_examples = 5
     num_timesteps = 10
     guidance_scales = [1.0, 2.0, 3.0]
-    freq_idx_to_plot = 5  # Pick a frequency channel to visualize
+    freq_idx_to_plot = 10  # Pick a frequency channel to visualize
 
     # --- SETUP THE PLOT GRID ---
     # Add an extra column at the far left for a 3D snapshot view
@@ -191,9 +192,9 @@ if is_3d_model:
         ax_scatter = axes[row, 2]
         obs_xyz_plot = obs_xyz_abs.cpu().numpy()
         # Plot X vs Y, and use Z for the color
-        sc = ax_scatter.scatter(obs_xyz_plot[:, 0], obs_xyz_plot[:, 1], c=obs_xyz_plot[:, 2], cmap='viridis', s=20,
+        sc = ax_scatter.scatter(obs_xyz_plot[:, 0], obs_xyz_plot[:, 1], c=obs_xyz_plot[:, 2], cmap='coolwarm', s=20,
                                 vmin=-0.5, vmax=0.5)
-        ax_scatter.set_title(f"Input Mics")
+        ax_scatter.set_title(f"Input Mics" if row == 0 else "")
         ax_scatter.set_aspect('equal', adjustable='box')
         ax_scatter.set_xlim(-0.6, 0.6);
         ax_scatter.set_ylim(-0.6, 0.6)  # Example limits
@@ -204,8 +205,19 @@ if is_3d_model:
         cbar_z.set_label('Z-height (m)', size=8)
         cbar_z.ax.tick_params(labelsize=7)
 
-        # Show per-row microphone count under the sparse figure
-        ax_scatter.set_xlabel(f"M={M}", fontsize=9, labelpad=2)
+        # Show per-row microphone count BETWEEN GT and scatter columns
+        pos_gt = axes[row, 1].get_position(fig)
+        pos_sc = axes[row, 2].get_position(fig)
+        x_mid_M = (pos_gt.x1 + pos_sc.x0) * 0.5
+        y_mid_row = (pos_gt.y0 + pos_gt.y1) * 0.5
+        fig.text(x_mid_M-0.03, y_mid_row, f"M={M}", ha='center', va='center', fontsize=9)
+
+        # Annotate source coordinates between 3D and GT columns (no matching needed)
+        # src_xyz_global = (src_xyz.cpu().numpy() + center_np)[0]
+        # src_label = f"Src: ({src_xyz_global[0]:.2f}, {src_xyz_global[1]:.2f}, {src_xyz_global[2]:.2f})"
+        # pos_3d = axes[row, 0].get_position(fig)
+        # x_mid_src = (pos_3d.x1 + pos_gt.x0) * 0.5
+        # fig.text(x_mid_src-0.060, y_mid_row, src_label, ha='center', va='center', fontsize=8)
 
         # --- NEW: Inline 3D snapshot in the first column ---
         # Replace the placeholder 2D axis with a 3D axis in the same GridSpec cell
@@ -267,6 +279,8 @@ if is_3d_model:
             # De-normalize and plot
             x1_recon_denorm = (xt * spec_std + spec_mean)
             recon_slice_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
+            mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
+            print(f"MSE with low M: {mse:.4f}")
 
             col_idx = g_idx + 3
             im = axes[row, col_idx].imshow(
