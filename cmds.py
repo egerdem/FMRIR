@@ -53,7 +53,7 @@ python trainer-atf-3d.py \
     --model_name "ATF3D-CrossAttn-v1-freq20_M5to50" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
-    --resume_from_checkpoint ~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/checkpoints/ckpt_final_200000.pt
+    --resume_from_checkpoint ~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/checkpoints/ckpt_final_200000.pt \
     --batch_size 4 \
     --num_iterations 300000 \
     --lr 1e-4 \

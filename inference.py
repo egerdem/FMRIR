@@ -24,7 +24,8 @@ random.seed(SEED)
 # (Your argparse and model loading logic)
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-184335_iter200000/model.pt"
 
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/model.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/checkpoints/ckpt_final_200000.pt"
 MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
 print(f"Model artifact: {MODEL_NAME}")
@@ -142,7 +143,7 @@ if is_3d_model:
 
     # --- 4. Inference & Visualization ---
     M_range = config['training'].get('M_range')
-    M_range = [30,50]
+    M_range = [5,20]
     num_examples = 5
     num_timesteps = 50
     guidance_scales = [1.0, 2.0, 3.0]

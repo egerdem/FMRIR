@@ -66,8 +66,10 @@ def main(args):
             parent = os.path.dirname(args.resume_from_checkpoint)
             experiment_dir = os.path.dirname(parent) if os.path.basename(parent) == 'checkpoints' else parent
             experiment_name = os.path.basename(experiment_dir)
-            start_iteration = resume_checkpoint_state.get('iteration', 0)
+            start_iteration = resume_checkpoint_state.get('iteration')
+            print(f"Resuming from iteration {start_iteration}")
 
+             # Initialize WandB if enabled and resume run
             if args.wandb:
                 wandb.login(key=args.wandb_key)
                 run_id = resume_checkpoint_state.get('wandb_run_id')
