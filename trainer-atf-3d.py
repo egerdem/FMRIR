@@ -169,12 +169,6 @@ def main(args):
     )
 
     # Handle resuming from a checkpoint state
-    if resume_checkpoint_state:
-        # NOTE: Assumes your Trainer.train is updated to save/load both model states
-        trainer.model.load_state_dict(resume_checkpoint_state["model_states"].get("unet"))
-        trainer.set_encoder.load_state_dict(resume_checkpoint_state["model_states"].get('set_encoder'))
-        trainer.optimizer.load_state_dict(resume_checkpoint_state['optimizer_state_dict'])
-        print("Successfully loaded model and optimizer states from checkpoint.")
 
     # --- Training ---
     print(f"\n--- Starting Training for experiment: {experiment_name} ---")
@@ -189,7 +183,8 @@ def main(args):
         checkpoint_interval=args.checkpoint_interval,
         validation_interval=training_cfg['validation_interval'],
         start_iteration=start_iteration,
-        config=config
+        config=config,
+        resume_checkpoint_state=resume_checkpoint_state  #
     )
 
 
