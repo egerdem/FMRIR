@@ -22,8 +22,9 @@ random.seed(SEED)
 # def main():
 # --- Universal Setup ---
 # (Your argparse and model loading logic)
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-172803_iter200000/model.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq30_M5to50_20250825-184335_iter200000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-184335_iter200000/model.pt"
+
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/model.pt"
 MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
 print(f"Model artifact: {MODEL_NAME}")
@@ -141,17 +142,20 @@ if is_3d_model:
 
     # --- 4. Inference & Visualization ---
     M_range = config['training'].get('M_range')
-    M_range = [40,50]
+    M_range = [30,50]
     num_examples = 5
-    num_timesteps = 10
+    num_timesteps = 50
     guidance_scales = [1.0, 2.0, 3.0]
-    freq_idx_to_plot = 10  # Pick a frequency channel to visualize
+    freq_idx_to_plot = 5  # Pick a frequency channel to visualize
+    z_slice_idx_to_plot = 0
 
     # --- SETUP THE PLOT GRID ---
     # Add an extra column at the far left for a 3D snapshot view
     num_cols = 3 + len(guidance_scales)
     fig, axes = plt.subplots(num_examples, num_cols, figsize=(4.5 * num_cols, 4 * num_examples), squeeze=False)
-    fig.suptitle(f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}) | {MODEL_NAME}", fontsize=16)
+    fig.suptitle(
+        f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}, Z-Slice={z_slice_idx_to_plot}) | {MODEL_NAME}",
+        fontsize=16)
 
     # fig, axes = plt.subplots(num_examples, 2 + len(guidance_scales),
     #                          figsize=(4 * (2 + len(guidance_scales)), 4 * num_examples), squeeze=False)
@@ -180,11 +184,11 @@ if is_3d_model:
 
         # --- Plot Ground Truth and Sparse Input ---
         z_true_denorm = (z_true * spec_std + spec_mean)
-        gt_slice_to_plot = z_true_denorm[0, freq_idx_to_plot].cpu().numpy()
-        vmin, vmax = np.min(gt_slice_to_plot), np.max(gt_slice_to_plot)
+        gt_cube_to_plot = z_true_denorm[0, freq_idx_to_plot].cpu().numpy()  # This is the (11, 11, 11) cube
 
-        axes[row, 1].imshow(gt_slice_to_plot.mean(axis=0), origin='lower', cmap='viridis', vmin=vmin,
-                            vmax=vmax)  # show a projection
+        gt_slice = gt_cube_to_plot[z_slice_idx_to_plot, :, :]  # Select the specific slice
+
+        axes[row, 1].imshow(gt_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(), vmax=gt_slice.max())
         axes[row, 1].set_title("True (Z-projection)" if row == 0 else "")
         axes[row, 1].axis('off')
 
@@ -278,25 +282,23 @@ if is_3d_model:
 
             # De-normalize and plot
             x1_recon_denorm = (xt * spec_std + spec_mean)
-            recon_slice_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
+            recon_cube_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
             mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
-            print(f"MSE with low M: {mse:.4f}")
+            print(f"MSE: {mse:.4f}")
 
             col_idx = g_idx + 3
-            im = axes[row, col_idx].imshow(
-                recon_slice_to_plot.mean(axis=0),
-                origin='lower',
-                cmap='viridis',
-                vmin=vmin,
-                vmax=vmax
-            )
+
+            recon_slice = recon_cube_to_plot[z_slice_idx_to_plot, :, :]  # Select the same slice
+            im = axes[row, col_idx].imshow(recon_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(),
+                                             vmax=gt_slice.max())
+
             axes[row, col_idx].set_title(f"w={w}" if row == 0 else "")
             axes[row, col_idx].axis('off')
 
         # Shared colorbar for GT and generated columns (exclude scatter input)
         ax_list = [axes[row, 1]] + [axes[row, i + 3] for i in range(len(guidance_scales))]
         mappable = matplotlib.cm.ScalarMappable(
-            norm=matplotlib.colors.Normalize(vmin=vmin, vmax=vmax), cmap='viridis'
+            norm=matplotlib.colors.Normalize(vmin=gt_slice.min(), vmax=gt_slice.max()), cmap='viridis'
         )
         cbar_mag = fig.colorbar(mappable, ax=ax_list, fraction=0.046, pad=0.04)
         cbar_mag.set_label('Magnitude (dB)', size=8)

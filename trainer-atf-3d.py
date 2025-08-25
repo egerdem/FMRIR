@@ -171,8 +171,8 @@ def main(args):
     # Handle resuming from a checkpoint state
     if resume_checkpoint_state:
         # NOTE: Assumes your Trainer.train is updated to save/load both model states
-        trainer.model.load_state_dict(resume_checkpoint_state['unet_state_dict'])
-        trainer.set_encoder.load_state_dict(resume_checkpoint_state['set_encoder_state_dict'])
+        trainer.model.load_state_dict(resume_checkpoint_state["model_states"].get("unet"))
+        trainer.set_encoder.load_state_dict(resume_checkpoint_state["model_states"].get('set_encoder'))
         trainer.optimizer.load_state_dict(resume_checkpoint_state['optimizer_state_dict'])
         print("Successfully loaded model and optimizer states from checkpoint.")
 
@@ -218,7 +218,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=4)  # NOTE: Must be small for 3D models
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[10, 50])
-    parser.add_argument('--freq_up_to', type=int, default=64, help='Use only the first N frequency channels')
+    parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, default=0.0, help='Probability for CFG dropout.')
     parser.add_argument('--sigma', type=float, default=0.0, help='Sigma for noise in the path.')
     parser.add_argument('--checkpoint_interval', type=int, default=20000)
