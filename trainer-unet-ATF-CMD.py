@@ -220,7 +220,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="U-Net ATF Trainer CMD")
 
     # --- reprendre la formation ---
-    parser.add_argument('--resume_from_checkpoint', type=str, help='Path to a checkpoint to resume training from.')
+    parser.add_argument('--resume_from_checkpoint', type=str, default="/Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_GaussFalse_LR5e3_n05_20250820-173718_iter500000/checkpoints/ckpt_final_50660.pt", help='Path to a checkpoint to resume training from.')
     parser.add_argument('--resume_from_iteration', type=int, help='Iteration to resume from if not in checkpoint.')
     parser.add_argument('--resume_run_id', type=str, help='WandB run ID to resume if not in checkpoint.')
 
@@ -238,7 +238,7 @@ if __name__ == '__main__':
     parser.add_argument('--t_embed_dim', type=int, default=40, help='t embedding dimension.')
     # parser.add_argument('--y_dim', type=int, default=4, help='y dimension.')
     parser.add_argument('--y_embed_dim', type=int, default=40, help='y embedding dimension.')
-    parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels; model uses N+1 channels with mask.')
+    parser.add_argument('--freq_up_to', type=int, default=30, help='Use only the first N frequency channels; model uses N+1 channels with mask.')
     parser.add_argument("--model_mode", type=str, default="spatial",
                         choices=["spatial", "freq_cond"],
                         help="Model mode: 'spatial' for original model, 'freq_cond' for frequency-conditional model.")

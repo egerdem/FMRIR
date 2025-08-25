@@ -547,9 +547,15 @@ def model_size_b(model: nn.Module) -> int:
 
 
 class Trainer(ABC):
-    def __init__(self, model: nn.Module):
+    def __init__(self, models: Dict[str, nn.Module]):
         super().__init__()
-        self.model = model
+        if not isinstance(models, dict) or not models:
+            raise ValueError("`models` must be a non-empty dictionary of nn.Modules.")
+
+        self.models = models
+        # For convenience, self.model can point to the primary model
+        self.model = next(iter(self.models.values()))
+        self.optimizer = None
 
     @abstractmethod
     def get_train_loss(self, **kwargs) -> torch.Tensor:
@@ -562,7 +568,12 @@ class Trainer(ABC):
         pass
 
     def get_optimizer(self, lr: float):
-        return torch.optim.Adam(self.model.parameters(), lr=lr)
+        # Collect parameters from ALL models provided
+        all_params = []
+        for model in self.models.values():
+            all_params.extend(list(model.parameters()))
+        self.optimizer = torch.optim.Adam(all_params, lr=lr)
+        return self.optimizer
 
     def train(self, num_iterations: int, device: torch.device, lr: float,
               valid_sampler: Optional[Sampleable] = None,
@@ -577,75 +588,120 @@ class Trainer(ABC):
               resume_checkpoint_state: Optional[dict] = None,
               **kwargs):
 
-        # Report model size
-        size_b = model_size_b(self.model)
-        print(f'Training model with size: {size_b / MiB:.3f} MiB')
+        print("--- Model(s) Summary ---")
+        for name, model in self.models.items():
+            print(f"  - {name}: {model_size_b(model) / MiB:.3f} MiB")
+            model.to(device)
 
         # Start
-        self.model.to(device)
         opt = self.get_optimizer(lr)
-
+        # NEW: Initialize the EarlyStopping monitor
+        early_stopper = EarlyStopping(patience=early_stopping_patience)
         # --- State Tracking ---
         best_val_loss = float("inf")
         best_iteration = start_iteration
 
-        # NEW: Initialize the EarlyStopping monitor
-        early_stopper = EarlyStopping(patience=early_stopping_patience)
-
         # Unified resume logic: load from an explicit checkpoint path/state if provided
-        checkpoint = None
-        if resume_checkpoint_state is not None:
-            checkpoint = resume_checkpoint_state
+        # checkpoint = None
+        # if resume_checkpoint_state is not None:
+        #     checkpoint = resume_checkpoint_state
+        #     print("Resuming from provided in-memory checkpoint state")
+        # elif resume_checkpoint_path is not None and os.path.exists(resume_checkpoint_path):
+        #     print(f"Loading checkpoint from {resume_checkpoint_path}")
+        #     checkpoint = torch.load(resume_checkpoint_path, map_location=device)
+        #
+        # if checkpoint is not None:
+        #     # Restore model weights if present
+        #     model_state = checkpoint.get('model_state_dict')
+        #     if model_state is not None:
+        #         self.model.load_state_dict(model_state)
+        #
+        #     # Restore trainer-specific state if present (e.g., y_null)
+        #     if hasattr(self, 'y_null') and checkpoint.get('y_null') is not None:
+        #         self.y_null.data = checkpoint['y_null'].to(device)
+        #
+        #     # Restore optimizer if present
+        #     if checkpoint.get('optimizer_state_dict') is not None:
+        #         opt.load_state_dict(checkpoint['optimizer_state_dict'])
+        #         print("Optimizer state restored from checkpoint.")
+        #
+        #         print(f"Overwriting optimizer LR with new command-line value: {lr}")
+        #         for param_group in opt.param_groups:
+        #             param_group['lr'] = lr
+        #
+        #     # Adopt iteration and best metrics if available
+        #     iter_value = checkpoint.get('iteration', None)
+        #     if isinstance(iter_value, (int, float)):
+        #         start_iteration = int(iter_value)
+        #         print("starting from iteration", start_iteration)
+        #     else:
+        #         start_iteration = checkpoint["config"]["training"].get("num_iterations") + 1
+        #         print("starting from iteration", start_iteration)
+        #     if start_iteration is None or not isinstance(start_iteration, int) or start_iteration <= 0:
+        #         assert start_iteration >= 0, "start_iteration must be a non-negative integer"
+        #
+        #     best_val_loss = checkpoint.get('best_val_loss', best_val_loss)
+        #     best_iteration = checkpoint.get('best_iteration', best_iteration)
+        #     print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss}, best_iteration={best_iteration}")
+
+        if resume_checkpoint_state:
             print("Resuming from provided in-memory checkpoint state")
-        elif resume_checkpoint_path is not None and os.path.exists(resume_checkpoint_path):
-            print(f"Loading checkpoint from {resume_checkpoint_path}")
-            checkpoint = torch.load(resume_checkpoint_path, map_location=device)
 
-        if checkpoint is not None:
-            # Restore model weights if present
-            model_state = checkpoint.get('model_state_dict')
-            if model_state is not None:
-                self.model.load_state_dict(model_state)
+            # New, robust way: load multiple model states
+            if 'model_states' in resume_checkpoint_state:
+                for key, state_dict in resume_checkpoint_state['model_states'].items():
+                    if key in self.models:
+                        self.models[key].load_state_dict(state_dict)
+                        print(f"  - Loaded state for model: '{key}'")
+            # Fallback for old, single-model checkpoints
+            elif 'model_state_dict' in resume_checkpoint_state:
+                print("  - Loading state from legacy 'model_state_dict' key.")
+                self.model.load_state_dict(resume_checkpoint_state['model_state_dict'])
 
-            # Restore trainer-specific state if present (e.g., y_null)
-            if hasattr(self, 'y_null') and checkpoint.get('y_null') is not None:
-                self.y_null.data = checkpoint['y_null'].to(device)
+            # Restore optimizer and other trainer state
+            if 'optimizer_state_dict' in resume_checkpoint_state:
+                opt.load_state_dict(resume_checkpoint_state['optimizer_state_dict'])
+                print("  - Optimizer state restored.")
 
-            # Restore optimizer if present
-            if checkpoint.get('optimizer_state_dict') is not None:
-                opt.load_state_dict(checkpoint['optimizer_state_dict'])
-                print("Optimizer state restored from checkpoint.")
+            if hasattr(self, 'y_null_token') and 'y_null_token' in resume_checkpoint_state:
+                self.set_encoder.y_null_token.data = resume_checkpoint_state['y_null_token'].to(device)
+                print("  - y_null_token restored.")
 
-                print(f"Overwriting optimizer LR with new command-line value: {lr}")
-                for param_group in opt.param_groups:
-                    param_group['lr'] = lr
+                # --- Robust y_null Loading ---
+                # Try to load the new, unified key first
+                if 'y_null_token' in resume_checkpoint_state and resume_checkpoint_state['y_null_token'] is not None:
+                    y_null_val = resume_checkpoint_state['y_null_token'].to(device)
+                    # Check if the current trainer is a 3D one
+                    if hasattr(self, 'set_encoder') and hasattr(self.set_encoder, 'y_null_token'):
+                        self.set_encoder.y_null_token.data = y_null_val
+                        print("  - y_null_token restored.")
+                    # Check if the current trainer is a 2D one
+                    elif hasattr(self, 'y_null'):
+                        self.y_null.data = y_null_val
+                        print("  - y_null restored (from 'y_null_token' key).")
 
-            # Adopt iteration and best metrics if available
-            iter_value = checkpoint.get('iteration', None)
-            if isinstance(iter_value, (int, float)):
-                start_iteration = int(iter_value)
-                print("starting from iteration", start_iteration)
-            else:
-                start_iteration = checkpoint["config"]["training"].get("num_iterations") + 1
-                print("starting from iteration", start_iteration)
-            if start_iteration is None or not isinstance(start_iteration, int) or start_iteration <= 0:
-                assert start_iteration >= 0, "start_iteration must be a non-negative integer"
+                # Fallback for old checkpoints with the legacy 'y_null' key
+                elif 'y_null' in resume_checkpoint_state and resume_checkpoint_state['y_null'] is not None:
+                    if hasattr(self, 'y_null'):
+                        self.y_null.data = resume_checkpoint_state['y_null'].to(device)
+                        print("  - y_null restored from legacy 'y_null' key.")
 
-            best_val_loss = checkpoint.get('best_val_loss', best_val_loss)
-            best_iteration = checkpoint.get('best_iteration', best_iteration)
-            print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss}, best_iteration={best_iteration}")
+            start_iteration = resume_checkpoint_state.get('iteration', start_iteration)
+            best_val_loss = resume_checkpoint_state.get('best_val_loss', best_val_loss)
+            best_iteration = resume_checkpoint_state.get('best_iteration', best_iteration)
+            print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss:.5f}")
 
+        # --- TRAINING LOOP ---
         batch_size = kwargs.get('batch_size')
-
-        # **NEW: Get total dataset size for epoch calculation**
         # dataset_size = len(self.path.p_data.spectrograms)
         dataset_size = len(self.path.p_data)
 
         pbar = tqdm(range(start_iteration, num_iterations))
         for iteration in pbar:
-            self.model.train()
+            for model in self.models.values():
+                model.train()
+            # self.model.train()
             opt.zero_grad()
-
             loss = self.get_train_loss(**kwargs)
             loss.backward()
             opt.step()
@@ -656,27 +712,41 @@ class Trainer(ABC):
 
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
-                self.model.eval()
+                # self.model.eval()
+                for model in self.models.values():
+                    model.eval()
                 val_loss = self.get_valid_loss(valid_sampler=valid_sampler, **kwargs)
-                pbar.set_description(
-                    f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.3f}, Val Loss: {val_loss.item():.3f}')
                 # **NEW: Log validation loss to wandb**
                 wandb.log({"val_loss": val_loss.item(), "epoch": current_epoch, "iteration": iteration})
+                pbar.set_description(
+                    f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.5f}, Val Loss: {val_loss.item():.5f}')
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     print(
                         f"** [Iter {iteration}] New best val. loss found for: train loss: {loss.item():.5f} and val loss: {best_val_loss:.5f}. Saving model. **")
+
                     # Save best model state for inference
+                    # Handle different y_null types
+                    y_null_to_save = None
+                    if hasattr(self, 'set_encoder') and self.set_encoder is not None:
+                        y_null_to_save = self.set_encoder.y_null_token
+                    elif hasattr(self, 'y_null'):
+                        y_null_to_save = self.y_null
+
+                    # 2. Create the state dictionary
+                    model_states_to_save = {key: model.state_dict() for key, model in self.models.items()}
+
                     best_model_state = {
-                        'model_state_dict': self.model.state_dict(),
+                        # 'model_state_dict': self.model.state_dict(),
+                        'model_states': {key: model.state_dict() for key, model in self.models.items()},
                         'optimizer_state_dict': opt.state_dict(),
                         'iteration': iteration + 1,  # Store next iteration for resuming
-                        'y_null': getattr(self, 'y_null', None),
                         'best_val_loss': best_val_loss,
                         'best_iteration': iteration,
                         'config': config,
                         'wandb_run_id': config.get('wandb_run_id'),
+                        'y_null_token': y_null_to_save,
                         'is_best': True  # Flag to indicate this is best model
                     }
                     # Stable pointer to current best (guard against interruptions)
@@ -696,17 +766,21 @@ class Trainer(ABC):
             if (iteration + 1) % checkpoint_interval == 0:
                 print(f"\n--- Saving checkpoint at iteration {iteration + 1} ---")
                 ckpt_save_path = os.path.join(checkpoint_path, f"ckpt_{iteration + 1}.pt")
+
+                y_null_to_save = getattr(self.models.get('set_encoder'), 'y_null_token', getattr(self, 'y_null', None))
+
                 # Save checkpoint for resuming training (latest state)
                 checkpoint_state = {
                     'iteration': iteration + 1,
-                    'model_state_dict': self.model.state_dict(),
+                    'model_states': {key: model.state_dict() for key, model in self.models.items()},
+                    # 'model_state_dict': self.model.state_dict(),
                     'optimizer_state_dict': opt.state_dict(),
                     'best_val_loss': best_val_loss,
                     'best_iteration': best_iteration,
-                    'y_null': getattr(self, 'y_null', None),
                     'config': config,
                     'wandb_run_id': config.get('wandb_run_id'),
-                    'is_best': False  # Flag to indicate this is latest checkpoint
+                    'is_best': False,  # Flag to indicate this is latest checkpoint
+                    'y_null_token': y_null_to_save,
                 }
                 torch.save(checkpoint_state, ckpt_save_path)
 
@@ -716,27 +790,23 @@ class Trainer(ABC):
 
             final_ckpt_path = os.path.join(checkpoint_path, f"ckpt_final_{final_iteration}.pt")
             print(f"\n--- Saving final checkpoint at iteration {final_iteration} to {final_ckpt_path} ---")
+
+            y_null_to_save = getattr(self.models.get('set_encoder'), 'y_null_token', getattr(self, 'y_null', None))
+
             final_checkpoint_state = {
                 'iteration': final_iteration,
-                'model_state_dict': self.model.state_dict(),
+                # 'model_state_dict': self.model.state_dict(),
                 'optimizer_state_dict': opt.state_dict(),
                 'best_val_loss': best_val_loss,
                 'best_iteration': best_iteration,
-                'y_null': getattr(self, 'y_null', None),
                 'config': config,
                 'wandb_run_id': config.get('wandb_run_id'),
                 'is_best': False,
-                'is_final': True  # Flag to indicate this is the final state
+                'is_final': True,  # Flag to indicate this is the final state
+                'model_states': {key: model.state_dict() for key, model in self.models.items()},
+                'y_null_token': y_null_to_save
             }
             torch.save(final_checkpoint_state, final_ckpt_path)
-
-            # Additionally, save a "last" checkpoint alias for easy resume
-            # ckpt_last_versioned = os.path.join(checkpoint_path, f"ckpt_last_{final_iteration}.pt")
-            # ckpt_last_alias = os.path.join(checkpoint_path, "ckpt_last.pt")
-            # torch.save(final_checkpoint_state, ckpt_last_versioned)
-            # torch.save(final_checkpoint_state, ckpt_last_alias)
-
-            # Leave only model.pt as the stable best artifact (no versioned copy)
 
         self.model.eval()
         print(f"--- Training finished. Best validation loss was {best_val_loss:.5f} at iteration {best_iteration}. ---")
@@ -776,7 +846,7 @@ class MNISTSampler(nn.Module, Sampleable):
 
     def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
         """
-        Args:
+        Args:save_path
             - num_samples: the desired number of samples
         Returns:
             - samples: shape (batch_size, c, h, w)
@@ -1601,7 +1671,7 @@ class ATFInpaintingTrainer(Trainer):
     def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField,
                  eta: float, M: int, y_dim: int, sigma: float, flag_gaussian_mask: bool, model_mode: str,
                  **kwargs):
-        super().__init__(model, **kwargs)
+        super().__init__(models={'unet': model}, **kwargs)
         self.path = path
         self.eta = eta
         self.y_null = torch.nn.Parameter(torch.randn(1, y_dim))
@@ -1818,7 +1888,7 @@ class ATFInpaintingTrainer(Trainer):
 
 class ATF3DTrainer(Trainer):
     def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, **kwargs):
-        super().__init__(model)
+        super().__init__(models={'unet': model, 'set_encoder': set_encoder})
         self.path = path
         self.set_encoder = set_encoder
         self.eta = eta

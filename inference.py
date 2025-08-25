@@ -1,0 +1,187 @@
+import matplotlib
+matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
+from matplotlib import pyplot as plt
+import torch
+from torchvision import datasets, transforms
+import os
+import numpy as np
+import random
+from fm_utils import (ATF3DSampler, FreqConditionalATFSampler, CFGVectorFieldODE, EulerSimulator,
+                      ATFUNet, SetEncoder, CrossAttentionUNet3D, ATF3DTrainer)
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+SEED = 42  # You can use any integer you like
+torch.manual_seed(SEED)
+torch.cuda.manual_seed_all(SEED) # for GPU
+np.random.seed(SEED)
+random.seed(SEED)
+
+# def main():
+# --- Universal Setup ---
+# (Your argparse and model loading logic)
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/experiments_3d/ATF-3D-CrossAttn-UNet_20250825-152925_iter100/checkpoints/ckpt_final_100.pt"
+# MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
+MODEL_NAME = MODEL_LOAD_PATH.split("experiments_3d/")[1].split("/")[0]
+
+print(f"Model artifact: {MODEL_NAME}")
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+
+config = checkpoint.get('config', {})  # Use .get for safety
+training_params = config.get('training', {})
+# FLAG_GAUSSIAN_MASK = False
+sigma_train = training_params.get('sigma')
+
+print("\n--- Automatically Configured from Loaded Model ---")
+print(f"  Training Sigma: {sigma_train:.4f}")
+print("--------------------------------------------------\n")
+
+data_dir = config['data']['data_dir']
+# override data_dir with local
+data_dir = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
+
+src_split = config['data']['src_splits']
+
+model_mode = config["training"].get('model_mode', "spatial")
+freq_up_to = config['model'].get('freq_up_to')
+
+model_cfg = config.get('model', {})
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+config = checkpoint.get('config', {})
+model_states_cfg = checkpoint['model_states']
+
+# --- KEY CHANGE: Detect Model Type ---
+# Check if the checkpoint has keys associated with the 3D model
+is_3d_model = 'set_encoder' in model_states_cfg
+
+if is_3d_model:
+    print("--- Detected 3D Conditional Generation Model ---")
+
+    # --- 1. Data Loading ---
+    # Create train sampler to get normalization stats and grid coordinates
+    train_sampler = ATF3DSampler(
+        data_path=data_dir, mode='train', src_splits=src_split, normalize=True
+    )
+    # Create test sampler with raw data
+    test_sampler = ATF3DSampler(
+        data_path=data_dir, mode='test', src_splits=src_split, normalize=False
+    )
+    # Normalize the test data using the stats from the training set
+    test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
+
+    grid_xyz = train_sampler.grid_xyz.to(device)
+    spec_mean = train_sampler.mean.item()
+    spec_std = train_sampler.std.item()
+
+    print(f"Loaded Stats from 3D Training Set: Mean={spec_mean:.4f}, Std={spec_std:.4f}")
+
+    # --- 2. Re-create Models ---
+    model_cfg = config['model']
+    set_encoder = SetEncoder(
+        num_freqs=train_sampler.cubes.shape[1],
+        d_model=model_cfg['d_model'],
+        nhead=model_cfg['nhead'],
+        num_layers=model_cfg['num_encoder_layers']
+    ).to(device)
+
+    unet_3d = CrossAttentionUNet3D(
+        in_channels=train_sampler.cubes.shape[1],
+        out_channels=train_sampler.cubes.shape[1],
+        channels=model_cfg['channels'],
+        d_model=model_cfg['d_model'],
+        nhead=model_cfg['nhead']
+    ).to(device)
+
+    # --- 3. Load Weights ---
+    set_encoder.load_state_dict(model_states_cfg['set_encoder'])
+    unet_3d.load_state_dict(model_states_cfg['unet'])
+    set_encoder.eval()
+    unet_3d.eval()
+    print("--- Loaded 3D U-Net and SetEncoder models for inference ---")
+
+    # --- 4. Inference & Visualization ---
+    M_range = config['training'].get('M_range', [10, 50])
+    num_examples = 5
+    num_timesteps = 10
+    guidance_scales = [1.0, 2.0, 3.0]
+    freq_idx_to_plot = 8  # Pick a frequency channel to visualize
+
+    fig, axes = plt.subplots(num_examples, 2 + len(guidance_scales),
+                             figsize=(4 * (2 + len(guidance_scales)), 4 * num_examples), squeeze=False)
+    fig.suptitle(f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}) | {MODEL_NAME}", fontsize=16)
+
+    for row in range(num_examples):
+        # Get a random ground truth sample
+        z_true, src_xyz = test_sampler.sample(1)
+        z_true, src_xyz = z_true.to(device), src_xyz.to(device)
+
+        # --- Create a sparse observation set on the fly ---
+        M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
+        obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
+        obs_xyz_abs = grid_xyz[obs_indices]
+        obs_coords_rel = obs_xyz_abs - src_xyz
+
+        z_flat = z_true.view(z_true.shape[1], -1)
+        obs_values = z_flat[:, obs_indices].transpose(0, 1)
+
+        # Batchify for the set encoder
+        obs_coords_rel = obs_coords_rel.unsqueeze(0)
+        obs_values = obs_values.unsqueeze(0)
+        obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
+
+        # --- Plot Ground Truth and Sparse Input ---
+        z_true_denorm = (z_true * spec_std + spec_mean)
+        gt_slice_to_plot = z_true_denorm[0, freq_idx_to_plot].cpu().numpy()
+        vmin, vmax = np.min(gt_slice_to_plot), np.max(gt_slice_to_plot)
+
+        axes[row, 0].imshow(gt_slice_to_plot.mean(axis=0), origin='lower', cmap='viridis', vmin=vmin,
+                            vmax=vmax)  # show a projection
+        axes[row, 0].set_title("Ground Truth (Z-projection)" if row == 0 else "")
+        axes[row, 0].axis('off')
+
+        axes[row, 1].text(0.5, 0.5, f'Input:\n{M} random mics', ha='center', va='center', fontsize=12)
+        axes[row, 1].set_title(f"Sparse Input (M={M})" if row == 0 else "")
+        axes[row, 1].axis('off')
+
+        # --- Generate for each guidance scale ---
+        for g_idx, w in enumerate(guidance_scales):
+            # Start from pure noise
+            xt = torch.randn_like(z_true)
+
+            # Get conditioning tokens
+            y_tokens, _ = set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+            # Create null tokens for CFG
+            null_tokens = set_encoder.y_null_token.expand(1, y_tokens.shape[1], -1)
+
+            # Simulation loop
+            for i in range(num_timesteps):
+                t = torch.tensor([i / num_timesteps], device=device)
+
+                # Get both guided and unguided predictions
+                guided_drift = unet_3d(xt, t, context=y_tokens, context_mask=obs_mask)
+                unguided_drift = unet_3d(xt, t, context=null_tokens, context_mask=obs_mask)
+
+                # Combine using CFG formula
+                drift = (1 - w) * unguided_drift + w * guided_drift
+
+                # Euler step
+                xt = xt + (1 / num_timesteps) * drift
+
+            # De-normalize and plot
+            x1_recon_denorm = (xt * spec_std + spec_mean)
+            recon_slice_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
+
+            im = axes[row, g_idx + 2].imshow(recon_slice_to_plot.mean(axis=0), origin='lower', cmap='viridis',
+                                             vmin=vmin, vmax=vmax)
+            axes[row, g_idx + 2].set_title(f"w={w}" if row == 0 else "")
+            axes[row, g_idx + 2].axis('off')
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+# if __name__ == '__main__':
+#     main()
