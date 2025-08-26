@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, List, Type, Tuple, Dict
 import math
 import os
-
+import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
 import torch
@@ -2546,7 +2546,7 @@ class ConvBlock3D(nn.Module):
 # Second version with dynamic parametric channel unet
 
 class CrossAttentionUNet3D(nn.Module):
-    def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4):
+    def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11):
         super().__init__()
 
         # Ensure channel dimensions are divisible by the number of attention heads
@@ -2554,6 +2554,23 @@ class CrossAttentionUNet3D(nn.Module):
 
         self.pad = nn.ConstantPad3d((0, 1, 0, 1, 0, 1), 0.0)
         self.time_embedder = FourierEncoder(d_model)
+
+        num_levels = len(channels) - 1
+        divisor = 2 ** num_levels
+
+        # Calculate the smallest target size divisible by the divisor
+        self.target_size = math.ceil(input_size / divisor) * divisor
+        total_pad = self.target_size - input_size
+
+        # Distribute padding (e.g., for 5 total, pad with 2 on left, 3 on right)
+        pad_front = total_pad // 2
+        pad_back = total_pad - pad_front
+        self.padding_tuple = (pad_front, pad_back, pad_front, pad_back, pad_front, pad_back)
+
+        # Store the crop indices
+        self.crop_start = pad_front
+        self.crop_end = pad_front + input_size
+
 
         # --- DYNAMICALLY BUILD THE U-NET ---
 
@@ -2587,8 +2604,9 @@ class CrossAttentionUNet3D(nn.Module):
         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
 
     def forward(self, x, t, context, context_mask):
+        # x: [B, C, 11, 11, 11]
         B = x.size(0)
-        x = self.pad(x)
+        x = F.pad(x, self.padding_tuple, mode='reflect')
 
         # Initial conv
         x = self.init_conv(x)
@@ -2617,4 +2635,7 @@ class CrossAttentionUNet3D(nn.Module):
 
         # --- Final Output ---
         out = self.final_conv(x)
-        return out[..., :11, :11, :11]  # Crop back to original size
+        s = self.crop_start
+        e = self.crop_end
+        print(s, e, out.shape)
+        return out[..., s:e, s:e, s:e]  # Crop back to original size

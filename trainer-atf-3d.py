@@ -235,7 +235,7 @@ if __name__ == '__main__':
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[10, 50])
     parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, default=0.0, help='Probability for CFG dropout.')
-    parser.add_argument('--sigma', type=float, default=0.0, help='Sigma for noise in the path.')
+    parser.add_argument('--sigma', type=float, default=1e-3, help='Sigma for noise in the path.')
     parser.add_argument('--checkpoint_interval', type=int, default=20000)
     parser.add_argument('--validation_interval', type=int, default=1000)
 
