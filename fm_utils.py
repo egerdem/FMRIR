@@ -14,6 +14,7 @@ import wandb
 # matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
 # import matplotlib.pyplot as plt
 import random
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 # early stopping taken from: https://github.com/sigsep/open-unmix-pytorch/blob/master/openunmix/utils.py#L72
 
@@ -633,6 +634,12 @@ class Trainer(ABC):
 
         # Start
         opt = self.get_optimizer(lr)
+
+        # --- NEW: Create the Learning Rate Scheduler ---
+        # It will anneal the LR from its starting value down to nearly zero
+        # over the total number of training iterations.
+        scheduler = CosineAnnealingLR(opt, T_max=num_iterations, eta_min=1e-7)
+
         # NEW: Initialize the EarlyStopping monitor
         early_stopper = EarlyStopping(patience=early_stopping_patience)
         # --- State Tracking ---
@@ -728,6 +735,7 @@ class Trainer(ABC):
             best_val_loss = resume_checkpoint_state.get('best_val_loss', best_val_loss)
             best_iteration = resume_checkpoint_state.get('best_iteration', best_iteration)
             print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss:.5f} at iteration {best_iteration}")
+            scheduler.last_epoch = start_iteration - 1
 
         # --- TRAINING LOOP ---
         batch_size = kwargs.get('batch_size')
@@ -743,10 +751,12 @@ class Trainer(ABC):
             loss = self.get_train_loss(**kwargs)
             loss.backward()
             opt.step()
+            scheduler.step()
 
-            # **MODIFICATION: Calculate and display the current epoch number**
+            # Calculate and display the current epoch number**
+            current_lr = scheduler.get_last_lr()[0]
             current_epoch = (iteration + 1) * batch_size / dataset_size
-            wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration})
+            wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration, "learning_rate": current_lr})
 
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
@@ -848,7 +858,7 @@ class Trainer(ABC):
 
         self.model.eval()
         print(f"--- Training finished. Best validation loss was {best_val_loss:.5f} at iteration {best_iteration}. ---")
-
+        return best_val_loss, best_iteration
 
 class MNISTSampler(nn.Module, Sampleable):
     """
