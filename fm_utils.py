@@ -2637,5 +2637,5 @@ class CrossAttentionUNet3D(nn.Module):
         out = self.final_conv(x)
         s = self.crop_start
         e = self.crop_end
-        print(s, e, out.shape)
+        # print(s, e, out.shape)
         return out[..., s:e, s:e, s:e]  # Crop back to original size
