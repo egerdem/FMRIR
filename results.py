@@ -37,22 +37,22 @@ for i, model_path in enumerate(available_models):
     # You can choose which model to load by index
     # For now, let's use the first one as an example
     MODEL_LOAD_PATH = available_models[i]  # Change index to select different model
-
-    # Load the checkpoint
-    try:
-        checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
-        all.append(checkpoint)
-        print(f"\n{i}: model: {MODEL_LOAD_PATH[35:]}")
-        # print(f"Checkpoint keys: {list(checkpoint.keys()) if isinstance(checkpoint, dict) else 'Not a dictionary'}")
-
+    if MODEL_LOAD_PATH[36:41] == "ATF3D":
+        # Load the checkpoint
         try:
-            it = checkpoint["config"]["training"].get("num_iterations")
-            print(f"Total iter: {it}")
-            print(f"Best val loss: {checkpoint.get('best_val_loss', 'N/A')} at iteration {checkpoint.get('best_iteration', 'N/A')}")
-        except (KeyError, AttributeError) as e:
-            print(f"Could not read training info: {e}")
-            
-    except Exception as e:
-        print(f"Error loading model {MODEL_LOAD_PATH}: {e}")
-        continue
+            checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+            all.append(checkpoint)
+            print(f"\n{i}: model: {MODEL_LOAD_PATH[35:]}")
+            # print(f"Checkpoint keys: {list(checkpoint.keys()) if isinstance(checkpoint, dict) else 'Not a dictionary'}")
+
+            try:
+                it = checkpoint["config"]["training"].get("num_iterations")
+                print(f"Total iter: {it}")
+                print(f"Best val loss: {checkpoint.get('best_val_loss', 'N/A')} at iteration {checkpoint.get('best_iteration', 'N/A')}")
+            except (KeyError, AttributeError) as e:
+                print(f"Could not read training info: {e}")
+
+        except Exception as e:
+            print(f"Error loading model {MODEL_LOAD_PATH}: {e}")
+            continue
 

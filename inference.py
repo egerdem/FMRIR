@@ -13,7 +13,7 @@ import json
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-SEED = 22  # You can use any integer you like
+SEED = 42  # You can use any integer you like
 torch.manual_seed(SEED)
 torch.cuda.manual_seed_all(SEED)  # for GPU
 np.random.seed(SEED)
@@ -28,8 +28,10 @@ random.seed(SEED)
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/checkpoints/ckpt_300000.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/checkpoints/ckpt_350000.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/model.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET256_20250826-204300_iter100000/model.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET256_d512n6_20250826-204427_iter100000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET256_20250826-204300_iter100000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET256_d512n6_20250826-204427_iter100000/model.pt"
+
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e4_7_20250826-212533_iter100000/model.pt"
 
 MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
@@ -149,7 +151,7 @@ if is_3d_model:
 
     # --- 4. Inference & Visualization ---
     M_range = config['training'].get('M_range')
-    M_range = [5,15]
+    M_range = [30, 40]
     num_examples = 5
     num_timesteps = 10
     guidance_scales = [1.0, 2.0, 3.0, 5]
