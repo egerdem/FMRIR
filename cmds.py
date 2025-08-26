@@ -35,7 +35,7 @@ python trainer-atf-3d.py \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
-    --num_iterations 200000 \
+    --num_iterations 500000 \
     --lr 1e-4 \
     --freq_up_to 20 \
     --channels 32,64,128,256 \
@@ -50,21 +50,20 @@ python trainer-atf-3d.py \
 #resume
 
 python trainer-atf-3d.py \
-    --model_name "ATF3D-CrossAttn-v1-freq20_M5to50" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
-    --resume_from_checkpoint ~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/checkpoints/ckpt_final_200000.pt \
+    --resume_from_checkpoint ~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/checkpoints/ckpt_200000.pt \
     --batch_size 4 \
-    --num_iterations 300000 \
+    --num_iterations 500000 \
     --lr 1e-4 \
     --freq_up_to 20 \
-    --channels 32,64,128 \
+    --channels 32,64,128,256 \
     --d_model 256 \
     --nhead 4 \
     --num_encoder_layers 3 \
     --M_range 5,50 \
     --eta 0.1 \
-    --sigma 0.0 \
+    --sigma 1e-3 \
     --validation_interval 50 \
     --checkpoint_interval 50000
 
@@ -135,9 +134,11 @@ python trainer-atf-3d.py \
 scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments
 scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train_freqs30.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
 scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_valid_freqs30.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
+
+scp -r /Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/checkpoints/ckpt_200000_CONV.pt eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/checkpoints
 #LOCALDEN KCL Create'e
 scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/DATASET
 
 #ROSSINI'den locale
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE4_20250825-214233_iter200000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000 /Users/ege/Projects/FMRIR/artifacts
 

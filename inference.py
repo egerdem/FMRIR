@@ -23,8 +23,10 @@ random.seed(SEED)
 # --- Universal Setup ---
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-184335_iter200000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/model.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE4_20250825-214233_iter200000/model.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/model_CONVoldcheckpoint.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/modelCONVoldcheckpoint.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/model.pt"
+
 MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
 print(f"Model artifact: {MODEL_NAME}")
@@ -143,11 +145,11 @@ if is_3d_model:
 
     # --- 4. Inference & Visualization ---
     M_range = config['training'].get('M_range')
-    M_range = [40, 50]
+    M_range = [5, 15]
     num_examples = 5
     num_timesteps = 10
-    guidance_scales = [1.0, 2.0, 3.0]
-    freq_idx_to_plot = 16  # Pick a frequency channel to visualize
+    guidance_scales = [1.0, 2.0, 3.0, 5]
+    freq_idx_to_plot = 10  # Pick a frequency channel to visualize
     z_slice_idx_to_plot = 5
 
     # instance of your the ODE wrapper and the simulator
@@ -301,7 +303,7 @@ if is_3d_model:
         cbar_mag.set_label('Magnitude (dB)', size=8)
         cbar_mag.ax.tick_params(labelsize=7)
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95], h_pad=0.5, w_pad=1.5)
+    # plt.tight_layout(rect=[0, 0.03, 1, 0.95], h_pad=0.5, w_pad=1.5)
     plt.show()
 
     model_dir = os.path.dirname(MODEL_LOAD_PATH)
@@ -315,7 +317,6 @@ if is_3d_model:
     save_path = os.path.join(model_dir, outfile_name)
     print(f"Saving figure to: {save_path}")
     fig.savefig(save_path, dpi=200, bbox_inches='tight')
-    plt.show()
 
 # if __name__ == '__main__':
 #     main()

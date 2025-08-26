@@ -727,7 +727,7 @@ class Trainer(ABC):
             start_iteration = resume_checkpoint_state.get('iteration', start_iteration)
             best_val_loss = resume_checkpoint_state.get('best_val_loss', best_val_loss)
             best_iteration = resume_checkpoint_state.get('best_iteration', best_iteration)
-            print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss:.5f}")
+            print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss:.5f} at iteration {best_iteration}")
 
         # --- TRAINING LOOP ---
         batch_size = kwargs.get('batch_size')
