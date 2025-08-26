@@ -31,14 +31,14 @@ python trainer-unet-ATF-CMD.py \
         --experiments_dir ~/FMRIR_experiments
 #3D UNET
 python trainer-atf-3d.py \
-    --model_name "ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3" \
+    --model_name "ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 200000 \
     --lr 1e-4 \
     --freq_up_to 20 \
-    --channels 32,64,128 \
+    --channels 32,64,128,256 \
     --d_model 256 \
     --nhead 4 \
     --num_encoder_layers 3 \

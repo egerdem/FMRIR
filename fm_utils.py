@@ -2463,80 +2463,158 @@ class ConvBlock3D(nn.Module):
 
 
 # The full U-Net architecture with Pad-and-Crop and GroupNorm
+
+# First version with non-dynamic fixed 3 channel unet
+# class CrossAttentionUNet3D(nn.Module):
+#     def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4):
+#         super().__init__()
+#         self.channels = channels
+#
+#         # Sanity check: embed_dim must be divisible by nhead for each attn block
+#         assert all(c % nhead == 0 for c in channels), "Channel dimensions must be divisible by nhead"
+#
+#         # Pad to (D,H,W)=(12,12,12) and crop back to (11,11,11)
+#         self.pad = nn.ConstantPad3d((0, 1, 0, 1, 0, 1), 0.0)
+#
+#         # --- Time Embedding ---
+#         self.time_embedder = FourierEncoder(d_model)
+#         self.time_mlp = nn.Linear(d_model, channels[-1])
+#
+#         # --- Initial Convolution ---
+#         self.init_conv = ConvBlock3D(in_channels, channels[0])
+#
+#         # --- Encoder ---
+#         self.down1 = nn.Sequential(ConvBlock3D(channels[0], channels[1]), nn.MaxPool3d(2))  # 12->6
+#         self.attn1 = CrossAttentionBlock3D(in_channels=channels[1], d_model=d_model, nhead=nhead)
+#
+#         self.down2 = nn.Sequential(ConvBlock3D(channels[1], channels[2]), nn.MaxPool3d(2))  # 6->3
+#         self.attn2 = CrossAttentionBlock3D(in_channels=channels[2], d_model=d_model, nhead=nhead)
+#
+#         # --- Bottleneck ---
+#         self.bottleneck = ConvBlock3D(channels[2], channels[2])
+#         self.attn_mid = CrossAttentionBlock3D(in_channels=channels[2], d_model=d_model, nhead=nhead)
+#
+#         # --- Decoder ---
+#         self.up1_trans = nn.ConvTranspose3d(channels[2], channels[1], kernel_size=2, stride=2)  # 3->6
+#         self.up1_conv = ConvBlock3D(channels[1] * 2, channels[1])
+#
+#         self.up2_trans = nn.ConvTranspose3d(channels[1], channels[0], kernel_size=2, stride=2)  # 6->12
+#         self.up2_conv = ConvBlock3D(channels[0] * 2, channels[0])
+#
+#         # --- Final ---
+#         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
+#
+#     def forward(self, x, t, context, context_mask):
+#         B = x.size(0)
+#
+#         # 0. Pad to 12x12x12
+#         x = self.pad(x)
+#
+#         # 1. Initial Convolution
+#         x1 = self.init_conv(x)
+#
+#         # 2. Encoder Path
+#         x2 = self.down1(x1)
+#         x2 = self.attn1(x2, context, context_mask)
+#
+#         x3 = self.down2(x2)
+#         x3 = self.attn2(x3, context, context_mask)
+#
+#         # 3. Bottleneck
+#         bn = self.bottleneck(x3)
+#
+#         # Add time embedding
+#         t_emb = self.time_mlp(self.time_embedder(t.unsqueeze(-1)))
+#         bn = bn + t_emb.view(B, self.channels[-1], 1, 1, 1)
+#
+#         # Add cross-attention in the bottleneck
+#         bn = self.attn_mid(bn, context, context_mask)
+#
+#         # 4. Decoder Path
+#         d1 = self.up1_trans(bn)
+#         d1 = torch.cat([d1, x2], dim=1)  # Skip connection
+#         d1 = self.up1_conv(d1)
+#
+#         d2 = self.up2_trans(d1)
+#         d2 = torch.cat([d2, x1], dim=1)  # Skip connection
+#         d2 = self.up2_conv(d2)
+#
+#         # 5. Final output and crop back to 11x11x11
+#         out = self.final_conv(d2)
+#         return out[..., :11, :11, :11]
+
+# Second version with dynamic parametric channel unet
+
 class CrossAttentionUNet3D(nn.Module):
     def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4):
         super().__init__()
-        self.channels = channels
 
-        # Sanity check: embed_dim must be divisible by nhead for each attn block
+        # Ensure channel dimensions are divisible by the number of attention heads
         assert all(c % nhead == 0 for c in channels), "Channel dimensions must be divisible by nhead"
 
-        # Pad to (D,H,W)=(12,12,12) and crop back to (11,11,11)
         self.pad = nn.ConstantPad3d((0, 1, 0, 1, 0, 1), 0.0)
-
-        # --- Time Embedding ---
         self.time_embedder = FourierEncoder(d_model)
-        self.time_mlp = nn.Linear(d_model, channels[-1])
 
-        # --- Initial Convolution ---
+        # --- DYNAMICALLY BUILD THE U-NET ---
+
+        # Initial convolution
         self.init_conv = ConvBlock3D(in_channels, channels[0])
 
-        # --- Encoder ---
-        self.down1 = nn.Sequential(ConvBlock3D(channels[0], channels[1]), nn.MaxPool3d(2))  # 12->6
-        self.attn1 = CrossAttentionBlock3D(in_channels=channels[1], d_model=d_model, nhead=nhead)
-
-        self.down2 = nn.Sequential(ConvBlock3D(channels[1], channels[2]), nn.MaxPool3d(2))  # 6->3
-        self.attn2 = CrossAttentionBlock3D(in_channels=channels[2], d_model=d_model, nhead=nhead)
+        # --- Encoder Path ---
+        self.encoders = nn.ModuleList()
+        self.encoder_attns = nn.ModuleList()
+        for i in range(len(channels) - 1):
+            self.encoders.append(nn.Sequential(ConvBlock3D(channels[i], channels[i + 1]), nn.MaxPool3d(2)))
+            self.encoder_attns.append(CrossAttentionBlock3D(in_channels=channels[i + 1], d_model=d_model, nhead=nhead))
 
         # --- Bottleneck ---
-        self.bottleneck = ConvBlock3D(channels[2], channels[2])
-        self.attn_mid = CrossAttentionBlock3D(in_channels=channels[2], d_model=d_model, nhead=nhead)
+        bottleneck_channels = channels[-1]
+        self.bottleneck = ConvBlock3D(bottleneck_channels, bottleneck_channels)
+        self.time_mlp = nn.Linear(d_model, bottleneck_channels)  # Projects time to the deepest channel dimension
+        self.attn_mid = CrossAttentionBlock3D(in_channels=bottleneck_channels, d_model=d_model, nhead=nhead)
 
-        # --- Decoder ---
-        self.up1_trans = nn.ConvTranspose3d(channels[2], channels[1], kernel_size=2, stride=2)  # 3->6
-        self.up1_conv = ConvBlock3D(channels[1] * 2, channels[1])
+        # --- Decoder Path ---
+        self.decoders = nn.ModuleList()
+        reversed_channels = list(reversed(channels))
+        for i in range(len(reversed_channels) - 1):
+            # Upsampling transpose convolution
+            up_conv = nn.ConvTranspose3d(reversed_channels[i], reversed_channels[i + 1], kernel_size=2, stride=2)
+            # Convolutional block after concatenating with skip connection
+            conv = ConvBlock3D(reversed_channels[i + 1] * 2, reversed_channels[i + 1])
+            self.decoders.append(nn.ModuleDict({'up_conv': up_conv, 'conv': conv}))
 
-        self.up2_trans = nn.ConvTranspose3d(channels[1], channels[0], kernel_size=2, stride=2)  # 6->12
-        self.up2_conv = ConvBlock3D(channels[0] * 2, channels[0])
-
-        # --- Final ---
+        # --- Final Convolution ---
         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
 
     def forward(self, x, t, context, context_mask):
         B = x.size(0)
-
-        # 0. Pad to 12x12x12
         x = self.pad(x)
 
-        # 1. Initial Convolution
-        x1 = self.init_conv(x)
+        # Initial conv
+        x = self.init_conv(x)
 
-        # 2. Encoder Path
-        x2 = self.down1(x1)
-        x2 = self.attn1(x2, context, context_mask)
+        # --- Encoder with Skip Connections ---
+        skip_connections = [x]
+        for encoder, attn in zip(self.encoders, self.encoder_attns):
+            x = encoder(x)
+            x = attn(x, context, context_mask)
+            skip_connections.append(x)
 
-        x3 = self.down2(x2)
-        x3 = self.attn2(x3, context, context_mask)
-
-        # 3. Bottleneck
-        bn = self.bottleneck(x3)
-
-        # Add time embedding
+        # --- Bottleneck ---
+        bn = self.bottleneck(x)
         t_emb = self.time_mlp(self.time_embedder(t.unsqueeze(-1)))
-        bn = bn + t_emb.view(B, self.channels[-1], 1, 1, 1)
-
-        # Add cross-attention in the bottleneck
+        bn = bn + t_emb.view(B, -1, 1, 1, 1)  # Use -1 to be fully dynamic
         bn = self.attn_mid(bn, context, context_mask)
 
-        # 4. Decoder Path
-        d1 = self.up1_trans(bn)
-        d1 = torch.cat([d1, x2], dim=1)  # Skip connection
-        d1 = self.up1_conv(d1)
+        # --- Decoder ---
+        # We iterate through decoders and the *reversed* skip connections
+        x = bn
+        for i, decoder_module in enumerate(self.decoders):
+            skip = skip_connections[-(i + 2)]  # Get corresponding skip connection
+            x = decoder_module['up_conv'](x)
+            x = torch.cat([x, skip], dim=1)
+            x = decoder_module['conv'](x)
 
-        d2 = self.up2_trans(d1)
-        d2 = torch.cat([d2, x1], dim=1)  # Skip connection
-        d2 = self.up2_conv(d2)
-
-        # 5. Final output and crop back to 11x11x11
-        out = self.final_conv(d2)
-        return out[..., :11, :11, :11]
+        # --- Final Output ---
+        out = self.final_conv(x)
+        return out[..., :11, :11, :11]  # Crop back to original size
