@@ -1,31 +1,30 @@
 import matplotlib
-matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
+
+matplotlib.use('Qt5Agg', force=True)  # or 'TkAgg'
 from matplotlib import pyplot as plt
 import torch
-from torchvision import datasets, transforms
 import os
 import numpy as np
 import random
-from fm_utils import (ATF3DSampler, FreqConditionalATFSampler, CFGVectorFieldODE, EulerSimulator,
-                      ATFUNet, SetEncoder, CrossAttentionUNet3D, ATF3DTrainer)
+from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator,
+                      SetEncoder, CrossAttentionUNet3D)
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import json
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-SEED = 420  # You can use any integer you like
+SEED = 42  # You can use any integer you like
 torch.manual_seed(SEED)
-torch.cuda.manual_seed_all(SEED) # for GPU
+torch.cuda.manual_seed_all(SEED)  # for GPU
 np.random.seed(SEED)
 random.seed(SEED)
 
 # def main():
 # --- Universal Setup ---
-# (Your argparse and model loading logic)
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-184335_iter200000/model.pt"
-
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/model.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/checkpoints/ckpt_final_200000.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/model.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE4_20250825-214233_iter200000/model.pt"
 MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
 print(f"Model artifact: {MODEL_NAME}")
@@ -34,7 +33,6 @@ checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
 
 config = checkpoint.get('config', {})  # Use .get for safety
 training_params = config.get('training', {})
-# FLAG_GAUSSIAN_MASK = False
 sigma_train = training_params.get('sigma')
 
 print("\n--- Automatically Configured from Loaded Model ---")
@@ -72,6 +70,7 @@ if is_3d_model:
     room_dim = data_config.get('room_dim')
     center = data_config.get('center')
 
+
     # Helper function to plot a 3D box
     def plot_room_box(ax, dimensions):
         w, d, h = dimensions  # width, depth, height
@@ -98,6 +97,7 @@ if is_3d_model:
         ax.set_xlim(0, w);
         ax.set_ylim(0, d);
         ax.set_zlim(0, h)
+
 
     # --- 1. Data Loading ---
     # Create train sampler to get normalization stats and grid coordinates
@@ -143,13 +143,16 @@ if is_3d_model:
 
     # --- 4. Inference & Visualization ---
     M_range = config['training'].get('M_range')
-    M_range = [5,20]
+    M_range = [40, 50]
     num_examples = 5
-    num_timesteps = 50
+    num_timesteps = 10
     guidance_scales = [1.0, 2.0, 3.0]
-    freq_idx_to_plot = 5  # Pick a frequency channel to visualize
-    z_slice_idx_to_plot = 0
+    freq_idx_to_plot = 16  # Pick a frequency channel to visualize
+    z_slice_idx_to_plot = 5
 
+    # instance of your the ODE wrapper and the simulator
+    ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
+    simulator = EulerSimulator(ode=ode_3d)
     # --- SETUP THE PLOT GRID ---
     # Add an extra column at the far left for a 3D snapshot view
     num_cols = 3 + len(guidance_scales)
@@ -157,10 +160,6 @@ if is_3d_model:
     fig.suptitle(
         f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}, Z-Slice={z_slice_idx_to_plot}) | {MODEL_NAME}",
         fontsize=16)
-
-    # fig, axes = plt.subplots(num_examples, 2 + len(guidance_scales),
-    #                          figsize=(4 * (2 + len(guidance_scales)), 4 * num_examples), squeeze=False)
-    # fig.suptitle(f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}) | {MODEL_NAME}", fontsize=16)
 
     center_np = np.array(center)
 
@@ -215,7 +214,7 @@ if is_3d_model:
         pos_sc = axes[row, 2].get_position(fig)
         x_mid_M = (pos_gt.x1 + pos_sc.x0) * 0.5
         y_mid_row = (pos_gt.y0 + pos_gt.y1) * 0.5
-        fig.text(x_mid_M-0.03, y_mid_row, f"M={M}", ha='center', va='center', fontsize=9)
+        fig.text(x_mid_M - 0.03, y_mid_row, f"M={M}", ha='center', va='center', fontsize=9)
 
         # Annotate source coordinates between 3D and GT columns (no matching needed)
         # src_xyz_global = (src_xyz.cpu().numpy() + center_np)[0]
@@ -224,8 +223,6 @@ if is_3d_model:
         # x_mid_src = (pos_3d.x1 + pos_gt.x0) * 0.5
         # fig.text(x_mid_src-0.060, y_mid_row, src_label, ha='center', va='center', fontsize=8)
 
-        # --- NEW: Inline 3D snapshot in the first column ---
-        # Replace the placeholder 2D axis with a 3D axis in the same GridSpec cell
         gs = axes[row, 0].get_gridspec()
         axes[row, 0].remove()
         ax3d_inline = fig.add_subplot(gs[row, 0], projection='3d')
@@ -248,41 +245,40 @@ if is_3d_model:
         )
 
         # Labels and limits
-        ax3d_inline.set_xlabel('X (m)'); ax3d_inline.set_ylabel('Y (m)'); ax3d_inline.set_zlabel('Z (m)')
+        ax3d_inline.set_xlabel('X (m)');
+        ax3d_inline.set_ylabel('Y (m)');
+        ax3d_inline.set_zlabel('Z (m)')
         ax3d_inline.set_title('Room (3D)' if row == 0 else '')
-
-        # axes[row, 1].text(0.5, 0.5, f'Input:\n{M} random mics', ha='center', va='center', fontsize=12)
-        # axes[row, 1].set_title(f"Sparse Input (M={M})" if row == 0 else "")
-        # axes[row, 1].axis('off')
 
         # --- Generate for each guidance scale ---
 
         for g_idx, w in enumerate(guidance_scales):
-            # Start from pure noise
-            xt = torch.randn_like(z_true)
 
+            # Start from pure noise
+            x0 = torch.randn_like(z_true)
+            xt = x0.clone()  # The simulation starts from x0
             # Get conditioning tokens
             y_tokens, _ = set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-            # Create null tokens for CFG
-            null_tokens = set_encoder.y_null_token.expand(1, y_tokens.shape[1], -1)
+            ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
+            ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
+
+            # Set the guidance scale on the ODE object
+            simulator.ode.guidance_scale = w
 
             # Simulation loop
-            for i in range(num_timesteps):
-                t = torch.tensor([i / num_timesteps], device=device)
-
-                # Get both guided and unguided predictions
-                guided_drift = unet_3d(xt, t, context=y_tokens, context_mask=obs_mask)
-                unguided_drift = unet_3d(xt, t, context=null_tokens, context_mask=obs_mask)
-
-                # Combine using CFG formula
-                drift = (1 - w) * unguided_drift + w * guided_drift
-
-                # Euler step
-                xt = xt + (1 / num_timesteps) * drift
+            x1_recon = simulator.simulate(xt,
+                                          ts,
+                                          x0=x0,
+                                          z_true=z_true,
+                                          y_tokens=y_tokens,
+                                          obs_mask=obs_mask,
+                                          paste_observations=False,
+                                          obs_indices=obs_indices
+                                          )
 
             # De-normalize and plot
-            x1_recon_denorm = (xt * spec_std + spec_mean)
+            x1_recon_denorm = (x1_recon * spec_std + spec_mean)
             recon_cube_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
             mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
             print(f"MSE: {mse:.4f}")
@@ -291,7 +287,7 @@ if is_3d_model:
 
             recon_slice = recon_cube_to_plot[z_slice_idx_to_plot, :, :]  # Select the same slice
             im = axes[row, col_idx].imshow(recon_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(),
-                                             vmax=gt_slice.max())
+                                           vmax=gt_slice.max())
 
             axes[row, col_idx].set_title(f"w={w}" if row == 0 else "")
             axes[row, col_idx].axis('off')
@@ -306,6 +302,19 @@ if is_3d_model:
         cbar_mag.ax.tick_params(labelsize=7)
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95], h_pad=0.5, w_pad=1.5)
+    plt.show()
+
+    model_dir = os.path.dirname(MODEL_LOAD_PATH)
+    outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}.png"
+
+    if os.path.exists(os.path.join("artifacts", outfile_name)):
+        # rand = np.random.randint(1000)
+        rand = 5
+        outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}_{rand}.png"
+
+    save_path = os.path.join(model_dir, outfile_name)
+    print(f"Saving figure to: {save_path}")
+    fig.savefig(save_path, dpi=200, bbox_inches='tight')
     plt.show()
 
 # if __name__ == '__main__':

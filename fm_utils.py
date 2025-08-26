@@ -471,15 +471,53 @@ class EulerSimulator(Simulator):
         # Get the model's output (the "drift"), which has 20 channels
         drift = self.ode.drift_coefficient(xt, t, **kwargs)
 
+        # Case 1: Standard models where input and output shapes match.
+        if xt.shape == drift.shape:
+            # If shapes match, apply the Euler update to all channels
+            x_next = xt + drift * h
+
+        # Case 2: Inpainting models where the input `xt` has one extra channel (the mask).
+        # for ATF 2D inpainting model.
         # Separate the current state `xt` into its data and mask components
-        xt_data = xt[:, :-1]  # The first 20 channels (frequencies)
-        xt_mask = xt[:, -1:]  # The last channel (the mask)
+        elif xt.shape[1] == drift.shape[1] + 1:
+            xt_data = xt[:, :-1]  # The first 20 channels (frequencies)
+            xt_mask = xt[:, -1:]  # The last channel (the mask)
 
-        # Apply the Euler update ONLY to the data channels
-        updated_xt_data = xt_data + drift * h
+            # Apply the Euler update ONLY to the data channels
+            updated_xt_data = xt_data + drift * h
 
-        # Re-combine the updated data with the original, unchanged mask
-        return torch.cat([updated_xt_data, xt_mask], dim=1)
+            # Re-combine the updated data with the original, unchanged mask
+            x_next = torch.cat([updated_xt_data, xt_mask], dim=1)
+
+        else:# Case 3: The shapes are incompatible.
+            raise ValueError(
+                f"Incompatible shapes for Euler. `xt` is {xt.shape} "
+                f"output `drift` is {drift.shape}."
+            )
+
+        # --- NEW: Optional Data Consistency ("Pasting") Step ---
+        if kwargs.get('paste_observations', False):
+            z_true = kwargs.get('z_true')
+            x0 = kwargs.get('x0')
+            obs_indices = kwargs.get('obs_indices')
+
+            if z_true is not None and x0 is not None:
+                # Create the mask for pasting
+                full_mask_3d = torch.zeros_like(z_true)
+                # Flatten view to use flat indices
+                full_mask_flat = full_mask_3d.view(1, -1)
+                full_mask_flat[:, obs_indices] = 1
+
+                paste_mask = full_mask_flat.view(*z_true.shape)
+                # Get the correct value for the known data on the straight noise-to-data path
+                t_next = t + h
+                known_path_slice = (1 - t_next) * x0 + t_next * z_true
+
+            # Replace the values at the M known locations
+                x_next = x_next * (1 - paste_mask) + known_path_slice * paste_mask
+
+        return x_next
+
 
     @torch.no_grad()
     def simulate_trajectory(self, x: torch.Tensor, max_timesteps: int, y: torch.Tensor):
@@ -1562,6 +1600,7 @@ class ConditionalVectorField(nn.Module, ABC):
 
 #
 class CFGVectorFieldODE(ODE):
+    # Used in 2d UNET ATFSliceGenerator, and original MNIST
     def __init__(self, net: ConditionalVectorField, guidance_scale: float = 1.0, y_dim: int = 6, y_embed_dim: int = 40):
         self.net = net
         self.guidance_scale = guidance_scale
@@ -1585,8 +1624,6 @@ class CFGVectorFieldODE(ODE):
 
         combined_field = (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
 
-        # return (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
-
         # --- ADD THIS CHECK TO HANDLE OLD MODELS ---
         # The data part of the input state `x` has x.shape[1] - 1 channels.
         # If the model's output has more channels than that, it's an old model.
@@ -1594,6 +1631,34 @@ class CFGVectorFieldODE(ODE):
         if combined_field.shape[1] > num_data_channels:
             # Slice off the extra, meaningless channel(s) to match the data.
             return combined_field[:, :num_data_channels]
+
+        return combined_field
+
+
+class CFGVectorFieldODE_3D(ODE):
+    """
+    An ODE wrapper for the 3D U-Net and SetEncoder for the ATF_3D.
+    """
+
+    def __init__(self, unet, set_encoder, guidance_scale=1.0):
+        self.unet = unet
+        self.set_encoder = set_encoder
+        self.guidance_scale = guidance_scale
+
+    def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
+        # The simulator will pass 'y_tokens' and 'obs_mask' through kwargs
+        y_tokens = kwargs['y_tokens']
+        obs_mask = kwargs['obs_mask']
+
+        # 1. Get the guided prediction
+        guided_vector_field = self.unet(xt, t.squeeze(), context=y_tokens, context_mask=obs_mask)
+
+        # 2. Get the unguided prediction
+        null_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], y_tokens.shape[1], -1)
+        unguided_vector_field = self.unet(xt, t.squeeze(), context=null_tokens, context_mask=obs_mask)
+
+        # 3. Combine using the CFG formula and return a single DRIFT tensor
+        combined_field = (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
 
         return combined_field
 

@@ -212,7 +212,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="3D ATF Trainer CMD")
 
     # --- Resuming ---
-    parser.add_argument('--resume_from_checkpoint', default= "~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/checkpoints/ckpt_final_200000.pt", type=str, help='Path to a checkpoint to resume from.')
+    parser.add_argument('--resume_from_checkpoint', type=str, help='Path to a checkpoint to resume from.')
 
     # --- WandB ---
     parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=True)

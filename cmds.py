@@ -31,7 +31,7 @@ python trainer-unet-ATF-CMD.py \
         --experiments_dir ~/FMRIR_experiments
 #3D UNET
 python trainer-atf-3d.py \
-    --model_name "ATF3D-CrossAttn-v1-freq20_M5to50" \
+    --model_name "ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
@@ -44,7 +44,7 @@ python trainer-atf-3d.py \
     --num_encoder_layers 3 \
     --M_range 5,50 \
     --eta 0.1 \
-    --sigma 0.0 \
+    --sigma 1e-3 \
     --validation_interval 50 \
     --checkpoint_interval 50000
 #resume
@@ -127,7 +127,7 @@ python trainer-atf-3d.py \
     --num_encoder_layers 3 \
     --M_range 30,50 \
     --eta 0.1 \
-    --sigma 0.0 \
+    --sigma 1e-4 \
     --validation_interval 50 \
     --checkpoint_interval 20000
 
@@ -139,5 +139,5 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/pro
 scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/DATASET
 
 #ROSSINI'den locale
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE4_20250825-214233_iter200000 /Users/ege/Projects/FMRIR/artifacts
 
