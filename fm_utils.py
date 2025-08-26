@@ -2040,8 +2040,11 @@ class ATF3DTrainer(Trainer):
         # 4. Define the Flow Matching path from noise to data
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
         x0 = torch.randn_like(x1)
-        xt = (1 - t) * x0 + t * x1
-        ut_ref = x1 - x0
+
+        # xt = (1 - t) * x0 + t * x1
+        xt = (1 - (1 - self.sigma) * t) * x0 + t * x1
+        # ut_ref = x1 - x0
+        ut_ref = x1 - (1 - self.sigma) * x0
 
         # 5. Apply Classifier-Free Guidance during training
         # With probability eta, replace conditioning tokens with the null token
@@ -2079,8 +2082,10 @@ class ATF3DTrainer(Trainer):
 
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
         x0 = torch.randn_like(x1)
-        xt = (1 - t) * x0 + t * x1
-        ut_ref = x1 - x0
+        # xt = (1 - t) * x0 + t * x1
+        xt = (1 - (1 - self.sigma) * t) * x0 + t * x1
+        # ut_ref = x1 - x0
+        ut_ref = x1 - (1 - self.sigma) * x0
 
         # For validation, we are always conditional
         ut_theta = self.model(xt, t.squeeze(), context=y_tokens, context_mask=obs_mask)
