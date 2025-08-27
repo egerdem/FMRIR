@@ -135,7 +135,7 @@ if __name__ == "__main__":
     parser.add_argument('--wandb_key', type=str, default="ec2cf1718868be26a8055412b556d952681ee0b6")
 
     # --- Data ---
-    parser.add_argument('--data_dir', type=str, default="~/DATA")
+    parser.add_argument('--data_dir', type=str, default="ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
     parser.add_argument('--model_name', default="TUNA_ATF-3D-CrossAttn-UNet", type=str)
