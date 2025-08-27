@@ -135,7 +135,7 @@ if __name__ == "__main__":
     parser.add_argument('--wandb_key', type=str, default="ec2cf1718868be26a8055412b556d952681ee0b6")
 
     # --- Data ---
-    parser.add_argument('--data_dir', type=str, default="/DATA")
+    parser.add_argument('--data_dir', type=str, default="~/DATA")
 
     # --- Model ---
     parser.add_argument('--model_name', default="TUNA_ATF-3D-CrossAttn-UNet", type=str)
@@ -154,7 +154,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_trials', type=int, default=20, help='Number of optimization trials')
     
     # --- Paths ---
-    parser.add_argument('--experiments_dir', type=str, default="/FMRIR_experiments")
+    parser.add_argument('--experiments_dir', type=str, default="~/FMRIR_experiments")
 
     args = parser.parse_args()
     
