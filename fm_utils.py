@@ -858,7 +858,7 @@ class Trainer(ABC):
 
         self.model.eval()
         print(f"--- Training finished. Best validation loss was {best_val_loss:.5f} at iteration {best_iteration}. ---")
-        return best_val_loss, best_iteration
+        return best_val_loss
 
 class MNISTSampler(nn.Module, Sampleable):
     """
