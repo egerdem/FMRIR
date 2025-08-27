@@ -2649,3 +2649,20 @@ class CrossAttentionUNet3D(nn.Module):
         e = self.crop_end
         # print(s, e, out.shape)
         return out[..., s:e, s:e, s:e]  # Crop back to original size
+
+#EVAL
+
+class LSD(nn.Module):
+    def __init__(self):
+        super().__init__()
+    def forward(self, data, target, dim=2, data_type='atf_mag', mean=True):
+        '''
+        :param data:   (B,2,L,S) complex (or float) tensor
+        :param target: (B,2,L,S) complex (or float) tensor
+        :return: a scalar or (B,2,S) tensor
+        '''
+        #print(data.shape, target.shape)
+        LSD = torch.sqrt(mean((data - target).pow(2), dim=dim))
+        if mean:
+            LSD = mean(LSD)
+        return LSD

@@ -13,7 +13,7 @@ matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
 import matplotlib.pyplot as plt
 
 data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
-processed_file = os.path.join(data_path, f'processed_atf_test.pt')
+processed_file = os.path.join(data_path, f'processed_atf3d_test_freqsNone.pt')
 data_from_pt = torch.load(processed_file)
 
 src_splits = {

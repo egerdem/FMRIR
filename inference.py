@@ -31,7 +31,11 @@ random.seed(SEED)
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET256_20250826-204300_iter100000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET256_d512n6_20250826-204427_iter100000/model.pt"
 
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e4_7_20250826-212533_iter100000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e4_7_20250826-212533_iter100000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-185835_iter400000/model.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-181013_iter400000/model.pt"
+
+data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
 
 MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
@@ -62,7 +66,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
 config = checkpoint.get('config', {})
 model_states_cfg = checkpoint['model_states']
-
 # --- KEY CHANGE: Detect Model Type ---
 # Check if the checkpoint has keys associated with the 3D model
 is_3d_model = 'set_encoder' in model_states_cfg
@@ -120,10 +123,10 @@ if is_3d_model:
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
 
     grid_xyz = train_sampler.grid_xyz.to(device)
-    spec_mean = train_sampler.mean.item()
-    spec_std = train_sampler.std.item()
+    mean = train_sampler.mean.item()
+    std = train_sampler.std.item()
 
-    print(f"Loaded Stats from 3D Training Set: Mean={spec_mean:.4f}, Std={spec_std:.4f}")
+    print(f"Loaded Stats from 3D Training Set: Mean={mean:.4f}, Std={std:.4f}")
 
     # --- 2. Re-create Models ---
     model_cfg = config['model']
@@ -151,8 +154,8 @@ if is_3d_model:
 
     # --- 4. Inference & Visualization ---
     M_range = config['training'].get('M_range')
-    M_range = [30, 40]
-    num_examples = 5
+    M_range = [40, 50]
+    num_examples = 1
     num_timesteps = 10
     guidance_scales = [1.0, 2.0, 3.0, 5]
     freq_idx_to_plot = 10  # Pick a frequency channel to visualize
@@ -173,13 +176,16 @@ if is_3d_model:
 
     for row in range(num_examples):
         # Get a random ground truth sample
+
         z_true, src_xyz = test_sampler.sample(1)
         z_true, src_xyz = z_true.to(device), src_xyz.to(device)
 
         # --- Create a sparse observation set on the fly ---
         M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
         obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
+        print("obs_indices:", obs_indices.shape, obs_indices)
         obs_xyz_abs = grid_xyz[obs_indices]
+        print("obs_xyz_abs:", obs_xyz_abs.shape, obs_xyz_abs)
         obs_coords_rel = obs_xyz_abs - src_xyz
 
         z_flat = z_true.view(z_true.shape[1], -1)
@@ -191,10 +197,10 @@ if is_3d_model:
         obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
 
         # --- Plot Ground Truth and Sparse Input ---
-        z_true_denorm = (z_true * spec_std + spec_mean)
-        gt_cube_to_plot = z_true_denorm[0, freq_idx_to_plot].cpu().numpy()  # This is the (11, 11, 11) cube
+        z_true_denorm = (z_true * std + mean)
+        gt_cube_raw = z_true_denorm[0, freq_idx_to_plot].cpu().numpy()  # This is the (11, 11, 11) cube
 
-        gt_slice = gt_cube_to_plot[z_slice_idx_to_plot, :, :]  # Select the specific slice
+        gt_slice = gt_cube_raw[z_slice_idx_to_plot, :, :]  # Select the specific slice
 
         axes[row, 1].imshow(gt_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(), vmax=gt_slice.max())
         axes[row, 1].set_title("True (Z-projection)" if row == 0 else "")
@@ -286,7 +292,7 @@ if is_3d_model:
                                           )
 
             # De-normalize and plot
-            x1_recon_denorm = (x1_recon * spec_std + spec_mean)
+            x1_recon_denorm = (x1_recon * std + mean)
             recon_cube_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
             mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
             print(f"MSE: {mse:.4f}")

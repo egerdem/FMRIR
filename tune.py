@@ -22,12 +22,14 @@ def objective(trial: optuna.trial.Trial, args):
 
     # --- A. Define the Hyperparameter Search Space ---
     # Optuna will suggest a value for each of these in every trial
-    lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
-    d_model = trial.suggest_categorical("d_model", [128, 256, 512])
+    # lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
+    lr = 1e-4
+    # d_model = trial.suggest_categorical("d_model", [128, 256, 512])
     num_encoder_layers = trial.suggest_int("num_encoder_layers", 2, 6)
-
+    d_model = 256
     # Dynamically define U-Net depth and channels
-    num_unet_levels = trial.suggest_int("num_unet_levels", 3, 4)
+    # num_unet_levels = trial.suggest_int("num_unet_levels", 3, 4)
+    num_unet_levels = 3
     base_channels = [32, 64, 128, 256, 512]
     channels = base_channels[:num_unet_levels]
 
@@ -146,12 +148,12 @@ if __name__ == "__main__":
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
-    parser.add_argument('--model_name', default="TUNA_ATF-3D-CrossAttn-UNet", type=str)
+    parser.add_argument('--model_name', default="TUNA_SMALL_ATF-3D-CrossAttn-UNet", type=str)
     parser.add_argument('--nhead', type=int, default=4, help='Number of attention heads.')
     parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
 
     # --- Training ---
-    parser.add_argument('--num_iterations', type=int, default=50000)
+    parser.add_argument('--num_iterations', type=int, default=10000)
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
     parser.add_argument('--eta', type=float, default=0.1, help='Probability for CFG dropout.')

@@ -31,13 +31,13 @@ python trainer-unet-ATF-CMD.py \
         --experiments_dir ~/FMRIR_experiments
 #3D UNET
 python trainer-atf-3d.py \
-    --model_name "ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e5_7_d256" \
+    --model_name "ATF3D-CrossAttn-v1-freq64_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 400000 \
-    --lr 1e-4 \
-    --freq_up_to 20 \
+    --lr 6e-4 \
+    --freq_up_to 64 \
     --channels 32,64,128 \
     --d_model 256 \
     --nhead 4 \
@@ -140,5 +140,5 @@ scp -r /Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigm
 scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/DATASET
 
 #ROSSINI'den locale
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e4_7_20250826-212533_iter100000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-181013_iter400000 /Users/ege/Projects/FMRIR/artifacts
 
