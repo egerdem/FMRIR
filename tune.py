@@ -25,7 +25,7 @@ def objective(trial: optuna.trial.Trial, args):
     # lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
     lr = 1e-4
     # d_model = trial.suggest_categorical("d_model", [128, 256, 512])
-    num_encoder_layers = trial.suggest_int("num_encoder_layers", 2, 6)
+    num_encoder_layers = trial.suggest_int("num_encoder_layers", 3, 6)
     d_model = 256
     # Dynamically define U-Net depth and channels
     # num_unet_levels = trial.suggest_int("num_unet_levels", 3, 4)
