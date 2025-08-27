@@ -31,6 +31,14 @@ def objective(trial: optuna.trial.Trial, args):
     base_channels = [32, 64, 128, 256, 512]
     channels = base_channels[:num_unet_levels]
 
+    print("\n" + "=" * 50)
+    print(f"--- Starting Trial #{trial.number} ---")
+    print(f"  - Learning Rate: {lr:.2e}")
+    print(f"  - U-Net Depth: {num_unet_levels} levels -> Channels: {channels}")
+    print(f"  - SetEncoder d_model: {d_model}")
+    print(f"  - SetEncoder Layers: {num_encoder_layers}")
+    print("=" * 50 + "\n")
+
     # --- B. Standard Setup (copied from your trainer script) ---
     # This part is the same as your main() function, but uses the suggested params
 
