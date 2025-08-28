@@ -2657,12 +2657,27 @@ class LSD(nn.Module):
         super().__init__()
     def forward(self, data, target, dim=2, data_type='atf_mag', mean=True):
         '''
-        :param data:   (B,2,L,S) complex (or float) tensor
-        :param target: (B,2,L,S) complex (or float) tensor
+        :param data:   (B,2,L,S) complex (or float) tensor or 1D array
+        :param target: (B,2,L,S) complex (or float) tensor or 1D array
         :return: a scalar or (B,2,S) tensor
         '''
         #print(data.shape, target.shape)
-        LSD = torch.sqrt(mean((data - target).pow(2), dim=dim))
+        # Convert to numpy arrays if they're tensors
+        if hasattr(data, 'cpu'):
+            data = data.cpu().numpy()
+        if hasattr(target, 'cpu'):
+            target = target.cpu().numpy()
+            
+        # Handle dimension bounds checking
+        data_arr = np.asarray(data)
+        target_arr = np.asarray(target)
+        
+        # If dim is out of bounds, use the last available dimension
+        if dim >= data_arr.ndim:
+            dim = data_arr.ndim - 1 if data_arr.ndim > 0 else 0
+            
+        # LSD = torch.sqrt(mean((data - target).pow(2), dim=dim))
+        LSD = np.sqrt(np.mean((data_arr - target_arr)**2, axis=dim))
         if mean:
-            LSD = mean(LSD)
+            LSD = np.mean(LSD)
         return LSD

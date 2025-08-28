@@ -30,7 +30,7 @@ available_models = find_model_files(results_dir)
 print("Found model files:")
 
 all = []
-
+losses = []
 # available_models = ["/Users/ege/Projects/FMRIR/experiments/TRIAL_20250815-142730_iter4/model.pt"]
 for i, model_path in enumerate(available_models):
 
@@ -49,6 +49,7 @@ for i, model_path in enumerate(available_models):
                 it = checkpoint["config"]["training"].get("num_iterations")
                 print(f"Total iter: {it}")
                 print(f"Best val loss: {checkpoint.get('best_val_loss', 'N/A')} at iteration {checkpoint.get('best_iteration', 'N/A')}")
+                losses.append((i, checkpoint.get('best_val_loss', float('inf'))))
             except (KeyError, AttributeError) as e:
                 print(f"Could not read training info: {e}")
 
@@ -56,3 +57,6 @@ for i, model_path in enumerate(available_models):
             print(f"Error loading model {MODEL_LOAD_PATH}: {e}")
             continue
 
+print("\nSummary of best validation losses:")
+for loss in losses:
+    print(f"it{loss[0]}: {loss[1]}")

@@ -24,19 +24,20 @@ def objective(trial: optuna.trial.Trial, args):
     # Optuna will suggest a value for each of these in every trial
     # lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
     lr = 1e-4
-    # d_model = trial.suggest_categorical("d_model", [128, 256, 512])
-    num_encoder_layers = trial.suggest_int("num_encoder_layers", 3, 6)
-    d_model = 256
+    d_model = trial.suggest_categorical("d_model", [128, 256])
+    nhead = trial.suggest_categorical("nhead", [4, 8])
+    num_encoder_layers = trial.suggest_int("num_encoder_layers", 3, 5)
     # Dynamically define U-Net depth and channels
     # num_unet_levels = trial.suggest_int("num_unet_levels", 3, 4)
-    num_unet_levels = 3
-    base_channels = [32, 64, 128, 256, 512]
-    channels = base_channels[:num_unet_levels]
+    # num_unet_levels = 3
+    # channels = base_channels[:num_unet_levels]
+    channels = [32, 64, 128]
+
 
     print("\n" + "=" * 50)
     print(f"--- Starting Trial #{trial.number} ---")
     print(f"  - Learning Rate: {lr:.2e}")
-    print(f"  - U-Net Depth: {num_unet_levels} levels -> Channels: {channels}")
+    print(f"  - U-Net Depth: Channels: {channels}")
     print(f"  - SetEncoder d_model: {d_model}")
     print(f"  - SetEncoder Layers: {num_encoder_layers}")
     print("=" * 50 + "\n")
@@ -60,7 +61,7 @@ def objective(trial: optuna.trial.Trial, args):
             "name": args.model_name,
             "channels": channels,
             "d_model": d_model,
-            "nhead": args.nhead,
+            "nhead": nhead,
             "num_encoder_layers": num_encoder_layers,
             "freq_up_to": args.freq_up_to},
         "training": {
@@ -148,12 +149,12 @@ if __name__ == "__main__":
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
-    parser.add_argument('--model_name', default="TUNA_SMALL_ATF-3D-CrossAttn-UNet", type=str)
-    parser.add_argument('--nhead', type=int, default=4, help='Number of attention heads.')
+    parser.add_argument('--model_name', default="TUNA_step1_ATF-3D-CrossAttn-UNet", type=str)
+    # parser.add_argument('--nhead', type=int, default=4, help='Number of attention heads.')
     parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
 
     # --- Training ---
-    parser.add_argument('--num_iterations', type=int, default=10000)
+    parser.add_argument('--num_iterations', type=int, default=800000)
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
     parser.add_argument('--eta', type=float, default=0.1, help='Probability for CFG dropout.')
@@ -161,7 +162,7 @@ if __name__ == "__main__":
     parser.add_argument('--validation_interval', type=int, default=1000)
 
     # --- Tuning ---
-    parser.add_argument('--n_trials', type=int, default=20, help='Number of optimization trials')
+    parser.add_argument('--n_trials', type=int, default=12, help='Number of optimization trials')
     
     # --- Paths ---
     parser.add_argument('--experiments_dir', type=str, default="~/FMRIR_experiments")

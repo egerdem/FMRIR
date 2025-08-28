@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 import matplotlib
-matplotlib.use('Qt5Agg', force=True)  # or 'TkAgg'
+matplotlib.use('Agg', force=True)  # Non-interactive backend for saving plots
 from matplotlib import pyplot as plt
 import os
 import json
@@ -9,7 +9,7 @@ import random
 
 # Import your necessary classes
 from fm_utils import (
-    ATF3DSampler,
+    ATF3DSampler, LSD,
     SetEncoder,
     CrossAttentionUNet3D, CFGVectorFieldODE_3D, EulerSimulator
 )
@@ -22,14 +22,22 @@ np.random.seed(SEED)
 random.seed(SEED)
 
 # Ensure deterministic behavior for CUDA operations
-# torch.backends.cudnn.deterministic = True
-# torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
 
 
-def plot_1d_atf_comparison(ax, freqs, gt_atf, gen_atf, title):
-    """Helper function to plot Ground Truth vs. Generated 1D ATF."""
-    ax.plot(freqs, gt_atf, label='Ground Truth')
-    ax.plot(freqs, gen_atf, label='Generated', linestyle='--')
+def plot_1d_atf_comparison_multi_guidance(ax, freqs, gt_atf, gen_atf_dict, title):
+    """Helper function to plot Ground Truth vs. Generated 1D ATF for multiple guidance levels."""
+    # Plot ground truth
+    ax.plot(freqs, gt_atf, label='Ground Truth', linewidth=2, color='black')
+    
+    # Plot generated ATFs for different guidance levels
+    colors = ['blue', 'red', 'green', 'orange', 'purple']
+    for i, (guidance, gen_atf) in enumerate(gen_atf_dict.items()):
+        color = colors[i % len(colors)]
+        ax.plot(freqs, gen_atf, label=f'Generated (w={guidance})', 
+                linestyle='--', linewidth=1.5, color=color)
+    
     ax.set_title(title)
     ax.set_xlabel("Frequency (Hz)")
     ax.set_ylabel("Magnitude (dB)")
@@ -40,8 +48,12 @@ def plot_1d_atf_comparison(ax, freqs, gt_atf, gen_atf, title):
 
 def main():
     # --- Configuration ---
-    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e4_7_20250826-212533_iter100000/model.pt"
-    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-185835_iter400000/model.pt"
+    # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e4_7_20250826-212533_iter100000/model.pt"
+    # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-185835_iter400000/model.pt"
+    # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/modelCONVoldcheckpoint.pt"
+    # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts//ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256_20250827-213218_iter500000/model.pt"
+
     data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -51,19 +63,23 @@ def main():
     config = checkpoint.get('config', {})  # Use .get for safety
     model_states_cfg = checkpoint['model_states']
 
-    # processed_file = os.path.join(data_path, f'processed_atf3d_test_freqsNone.pt')
-    # dataset = torch.load(processed_file)
-
     freq_up_to = config['model'].get('freq_up_to')
 
-    # --- Select which sample to analyze ---
-    SOURCE_ID_TO_PLOT = 922
-    SOURCE_ID_TO_PLOT = SOURCE_ID_TO_PLOT - 922
-    MIC_ID_TO_PLOT = 665
-    M = 50  # Or any number of conditioning mics
-
-    guidance = 1.0
+    # --- Evaluation Configuration ---
+    # 10 different sources from 922 to 1024 (indices 0 to 102 in test set)
+    # source_indices = [0, 11, 22, 33, 44, 55, 66, 77, 88, 99]  # 10 sources
+    source_indices = [0, 11, 22]  # 10 sources
+    # 5 different random microphone positions from 0 to 1330
+    mic_indices = [156, 423, 789, 1045, 1287, 665]  # 5 microphones
+    
+    M = 40  # Number of conditioning mics
+    guidance = [1.0]
     num_timesteps = 10
+    lsd = LSD()
+
+    # Create output directory
+    output_dir = "artifacts/eval"
+    os.makedirs(output_dir, exist_ok=True)
 
     # --- Load Data Sampler (to get data and metadata) ---
 
@@ -77,7 +93,7 @@ def main():
     mean = train_sampler.mean.item()
     std = train_sampler.std.item()
 
-    # We load the full test set to find our specific source ID
+    # Load the full test set for evaluation
     test_sampler = ATF3DSampler(
         data_path=data_path, mode='test',
         src_splits=config['data']['src_splits'],
@@ -88,11 +104,7 @@ def main():
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
 
     print(f"Loaded Stats from 3D Training Set: Mean={mean:.4f}, Std={std:.4f}")
-
-    # Get the ground truth cube and source position
-    z_true = test_sampler.cubes[SOURCE_ID_TO_PLOT].unsqueeze(0).to(device)
-    src_xyz = test_sampler.source_coords[SOURCE_ID_TO_PLOT].unsqueeze(0).to(device)
-    # xm, ym, zm = dataset.get("grid_xyz")[MIC_ID_TO_PLOT]
+    print(f"Test set contains {len(test_sampler.cubes)} samples")
 
     # --- Recreate and Load Models ---
     model_cfg = config['model']
@@ -120,59 +132,6 @@ def main():
     ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
     simulator = EulerSimulator(ode=ode_3d)
 
-    # --- Generate the Full 3D Cube (Inference) ---
-    obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
-
-    obs_xyz_abs = grid_xyz[obs_indices]
-    obs_coords_rel = obs_xyz_abs - src_xyz
-
-    z_flat = z_true.view(z_true.shape[1], -1)
-    obs_values = z_flat[:, obs_indices].transpose(0, 1)
-
-    # Batchify for the set encoder
-    obs_coords_rel = obs_coords_rel.unsqueeze(0)
-    obs_values = obs_values.unsqueeze(0)
-    obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
-
-    # z_true is already normalized from test_sampler.cubes
-    # For plotting comparison later, we need the denormalized version
-    z_true_denorm = (z_true * std + mean)
-
-    x0 = torch.randn_like(z_true)
-    xt = x0.clone()
-    # Get conditioning tokens
-    y_tokens, _ = set_encoder(obs_coords_rel, obs_values, obs_mask)
-
-    ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
-    ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
-
-    # Set the guidance scale on the ODE object
-    simulator.ode.guidance_scale = guidance
-
-    # Simulation loop
-    x1_recon = simulator.simulate(xt,
-                                  ts,
-                                  x0=x0,
-                                  z_true=z_true,
-                                  y_tokens=y_tokens,
-                                  obs_mask=obs_mask,
-                                  paste_observations=False,
-                                  obs_indices=obs_indices
-                                  )
-
-    # De-normalize
-    x1_recon_denorm = (x1_recon * std + mean)
-
-    # --- Extract and Plot the 1D ATFs ---
-    # iz, iy, ix = xm, ym, zm
-    nx, ny, nz = 11, 11, 11
-    iz, iy, ix = np.unravel_index(MIC_ID_TO_PLOT, (nz, ny, nx))
-
-    # Extract the 1D vector of frequencies for the chosen mic
-    # For comparison, both should be in the same scale (denormalized)
-    gt_atf_1d = z_true_denorm[0, :, iz, iy, ix].cpu().numpy()  # Use denormalized ground truth
-    gen_atf_1d_denorm = x1_recon_denorm[0, :, iz, iy, ix].cpu().numpy()  # Denormalized generated
-
     # Get the frequency axis values from your data generation config
     data_gen_config_path = os.path.join(data_path, "config.json")
     with open(data_gen_config_path, 'r') as f:
@@ -182,11 +141,104 @@ def main():
     freq_axis = np.arange(1, fftlen_algn // 2 + 1) / fftlen_algn * fs
     freq_axis = freq_axis[:freq_up_to]  # Ensure it matches model's frequency count
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-    plot_1d_atf_comparison(ax, freq_axis, gt_atf_1d, gen_atf_1d_denorm,
-                           title=f"ATF Comparison at Mic {MIC_ID_TO_PLOT} (Source {SOURCE_ID_TO_PLOT})")
-    plt.tight_layout()
-    plt.show()
+    # Fixed conditioning microphones for all evaluations
+    # obs_indices = torch.tensor([763, 654, 398, 823, 947])  # Use only M=5 microphones
+    obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
+
+    plot_count = 0
+    total_plots = len(source_indices) * len(mic_indices)
+    
+    print(f"Generating {total_plots} plots...")
+    
+    # Loop through all source and microphone combinations
+    for source_idx in source_indices:
+        # Get the ground truth cube and source position for this source
+        z_true = test_sampler.cubes[source_idx].unsqueeze(0).to(device)
+        src_xyz = test_sampler.source_coords[source_idx].unsqueeze(0).to(device)
+        
+        # z_true is already normalized from test_sampler.cubes
+        # For plotting comparison later, we need the denormalized version
+        z_true_denorm = (z_true * std + mean)
+        
+        # Prepare conditioning observations
+        obs_xyz_abs = grid_xyz[obs_indices]
+        obs_coords_rel = obs_xyz_abs - src_xyz
+        z_flat = z_true.view(z_true.shape[1], -1)
+        obs_values = z_flat[:, obs_indices].transpose(0, 1)
+        
+        # Batchify for the set encoder
+        obs_coords_rel_batch = obs_coords_rel.unsqueeze(0)
+        obs_values_batch = obs_values.unsqueeze(0)
+        obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
+        
+        # Get conditioning tokens (only need to compute once)
+        y_tokens, _ = set_encoder(obs_coords_rel_batch, obs_values_batch, obs_mask)
+        
+        ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
+        ts = ts.view(1, -1, 1, 1, 1, 1).expand(1, -1, -1, -1, -1, -1)
+        
+        # Generate ATFs for all guidance levels
+        # Use the same initial noise for all guidance levels for fair comparison
+        x0 = torch.randn_like(z_true)
+        
+        gen_cubes_denorm = {}
+        for guid in guidance:
+            xt = x0.clone()  # Start from the same initial noise
+            
+            # Set the guidance scale on the ODE object
+            simulator.ode.guidance_scale = guid
+            
+            # Simulation loop
+            x1_recon = simulator.simulate(xt,
+                                          ts,
+                                          x0=x0,
+                                          z_true=z_true,
+                                          y_tokens=y_tokens,
+                                          obs_mask=obs_mask,
+                                          paste_observations=False,
+                                          obs_indices=obs_indices
+                                          )
+            
+            # De-normalize generated result
+            gen_cubes_denorm[guid] = (x1_recon * std + mean)
+        
+        # Loop through all microphones for this source
+        for mic_idx in mic_indices:
+            # Convert flat microphone index to 3D coordinates
+            nx, ny, nz = 11, 11, 11
+            iz, iy, ix = np.unravel_index(mic_idx, (nz, ny, nx))
+            
+            # Extract the 1D vector of frequencies for the chosen mic
+            # Ground truth (same for all guidance levels)
+            gt_atf_1d = z_true_denorm[0, :, iz, iy, ix].cpu().numpy()
+            
+            # Generated ATFs for all guidance levels
+            gen_atf_dict = {}
+            for guid in guidance:
+                gen_atf_dict[guid] = gen_cubes_denorm[guid][0, :, iz, iy, ix].cpu().numpy()
+
+                lsd_val = lsd(gt_atf_1d, gen_atf_dict[guid], dim=1, mean=False)
+                lsd_mean = lsd_val.mean()
+                lsd_std = lsd_val.std()
+                print(f'LSD: {lsd_mean:.4f} +- {lsd_std:.4f} dB')
+
+            if True:
+                # Create and save plot
+                fig, ax = plt.subplots(1, 1, figsize=(12, 8))
+                plot_1d_atf_comparison_multi_guidance(ax, freq_axis, gt_atf_1d, gen_atf_dict,
+                                                      title=f"ATF Comparison: Source {source_idx+922}, Mic {mic_idx}")
+                plt.tight_layout()
+
+                # Save plot
+                filename = f"src{source_idx+922:04d}_mic{mic_idx:04d}_multi_guidance.png"
+                filepath = os.path.join(output_dir, filename)
+                fig.savefig(filepath, dpi=150, bbox_inches='tight')
+                plt.close(fig)  # Close to save memory
+
+                plot_count += 1
+                print(f"Saved plot {plot_count}/{total_plots}: {filename}")
+    
+    # print(f"All {total_plots} plots saved to {output_dir}/")
 
 
 if __name__ == '__main__':
