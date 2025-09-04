@@ -49,39 +49,56 @@ python trainer-atf-3d.py \
     --checkpoint_interval 50000
 #resume
 
+# python trainer-atf-3d.py \
+#     --data_dir ~/DATA \
+#     --experiments_dir ~/FMRIR_experiments \
+#     --resume_from_checkpoint ~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/checkpoints/ckpt_200000.pt \
+#     --batch_size 4 \
+#     --num_iterations 500000 \
+#     --lr 1e-4 \
+#     --freq_up_to 20 \
+#     --channels 32,64,128,256 \
+#     --d_model 256 \
+#     --nhead 4 \
+#     --num_encoder_layers 3 \
+#     --M_range 5,50 \
+#     --eta 0.1 \
+#     --sigma 1e-3 \
+#     --validation_interval 50 \
+#     --checkpoint_interval 50000
+
 python trainer-atf-3d.py \
+    --model_name "M5to50_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
-    --resume_from_checkpoint ~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/checkpoints/ckpt_200000.pt \
     --batch_size 4 \
-    --num_iterations 500000 \
+    --num_iterations 300000 \
     --lr 1e-4 \
-    --freq_up_to 20 \
-    --channels 32,64,128,256 \
-    --d_model 256 \
-    --nhead 4 \
+    --channels 32,64,128 \
+    --d_model 512 \
+    --nhead 8 \
     --num_encoder_layers 3 \
     --M_range 5,50 \
     --eta 0.1 \
-    --sigma 1e-3 \
-    --validation_interval 50 \
+    --sigma 0 \
+    --validation_interval 100 \
     --checkpoint_interval 50000
 
-python trainer-unet-ATF-CMD.py \
-    --model_mode "spatial" \
-    --flag_gaussian_mask False \
-    --sigma 0.0 \
-    --batch_size 250 \
-    --M 5 \
-    --validation_interval 20 \
-    --eta 0.1 \
-    --lr 1e-3 \
-    --num_iterations 350000 \
-    --resume_from_iteration 234579 \
-    --freq_up_to 20 \
-    --data_dir ~/DATA \
-    --experiments_dir ~/FMRIR_experiments \
-    --resume_from_checkpoint ~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/checkpoints/ckpt_final_200000.pt
+# python trainer-unet-ATF-CMD.py \
+#     --model_mode "spatial" \
+#     --flag_gaussian_mask False \
+#     --sigma 0.0 \
+#     --batch_size 250 \
+#     --M 5 \
+#     --validation_interval 20 \
+#     --eta 0.1 \
+#     --lr 1e-3 \
+#     --num_iterations 350000 \
+#     --resume_from_iteration 234579 \
+#     --freq_up_to 20 \
+#     --data_dir ~/DATA \
+#     --experiments_dir ~/FMRIR_experiments \
+#     --resume_from_checkpoint ~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/checkpoints/ckpt_final_200000.pt
 
 
 # --data_dir /home/eerdem/DATA
@@ -98,37 +115,22 @@ scp -r k24037994@hpc.create.kcl.ac.uk:~/FMRIR_experiments/ATF3D-CrossAttn-v1_202
 # --experiments_dir ~/FMRIR_experiments
 # source ~/fmvenv/bin/activate
 
-python trainer-unet-ATF-CMD.py \
-       --model_name ATFUNet_M5_holeloss_GaussFalse_LR5e3_n05 \
-        --model_mode "spatial" \
-        --flag_gaussian_mask False \
-        --sigma 0. \
-        --batch_size 250 \
-        --M 5 \
-        --validation_interval 20 \
-        --eta 0.05 \
-        --lr 5e-3 \
-        --num_iterations 500000 \
-        --freq_up_to 30 \
-        --data_dir ~/DATASET \
-        --experiments_dir ~/FMRIR_experiments
+# python trainer-unet-ATF-CMD.py \
+#        --model_name ATFUNet_M5_holeloss_GaussFalse_LR5e3_n05 \
+#         --model_mode "spatial" \
+#         --flag_gaussian_mask False \
+#         --sigma 0. \
+#         --batch_size 250 \
+#         --M 5 \
+#         --validation_interval 20 \
+#         --eta 0.05 \
+#         --lr 5e-3 \
+#         --num_iterations 500000 \
+#         --freq_up_to 30 \
+#         --data_dir ~/DATASET \
+#         --experiments_dir ~/FMRIR_experiments
 
-python trainer-atf-3d.py \
-    --model_name "ATF3D-CrossAttn-v1_freq64_origdata_m30to50" \
-    --data_dir ~/DATASET \
-    --experiments_dir ~/FMRIR_experiments \
-    --batch_size 4 \
-    --num_iterations 100000 \
-    --lr 1e-4 \
-    --channels 32,64,128 \
-    --d_model 256 \
-    --nhead 4 \
-    --num_encoder_layers 3 \
-    --M_range 30,50 \
-    --eta 0.1 \
-    --sigma 1e-4 \
-    --validation_interval 50 \
-    --checkpoint_interval 20000
+
 
 #LOCALDEN ROSSINIYE
 scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments
@@ -140,5 +142,5 @@ scp -r /Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigm
 scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/DATASET
 
 #ROSSINI'den locale
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256_20250827-213218_iter500000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000 /Users/ege/Projects/FMRIR/artifacts
 

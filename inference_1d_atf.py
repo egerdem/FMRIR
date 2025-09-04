@@ -52,7 +52,19 @@ def main():
     # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-185835_iter400000/model.pt"
     # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/modelCONVoldcheckpoint.pt"
     # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/model.pt"
-    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts//ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256_20250827-213218_iter500000/model.pt"
+    # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts//ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256_20250827-213218_iter500000/model.pt"
+    # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/model_CONVoldcheckpoint.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-185835_iter400000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to100_sigmaE3_lr1e3to_e7_unet3_layer3_head3_d256_20250828-190043_iter300000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_lr1e3to_e7_unet3_layer3_head8_d256_20250828-233343_iter50000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to6_freq20_layer3_d256_head8_sigmaE3_lr1e3to_e7_unet3_20250903-144259_iter300000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/Loss169e3_M5to50_freq20_layer3_d256_head8_sigmaE3_lr1e3to_e7_unet3_20250904-191320_iter300000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e3to_e7_unet3_20250904-203305_iter300000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e3to_e7_unet3_20250904-203305_iter300000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head4_sigma0ZERO_lr1e4to_e7_unet3_20250904-214817_iter300000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt"
+
+    MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
     data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
 
@@ -72,13 +84,14 @@ def main():
     # 5 different random microphone positions from 0 to 1330
     mic_indices = [156, 423, 789, 1045, 1287, 665]  # 5 microphones
     
-    M = 40  # Number of conditioning mics
-    guidance = [1.0]
+    M = 5  # Number of conditioning mics
+    guidance = [1.0, 2.0]
     num_timesteps = 10
     lsd = LSD()
 
     # Create output directory
     output_dir = "artifacts/eval"
+    output_dir = os.path.join(output_dir, MODEL_NAME)
     os.makedirs(output_dir, exist_ok=True)
 
     # --- Load Data Sampler (to get data and metadata) ---
@@ -216,7 +229,7 @@ def main():
             gen_atf_dict = {}
             for guid in guidance:
                 gen_atf_dict[guid] = gen_cubes_denorm[guid][0, :, iz, iy, ix].cpu().numpy()
-
+                print(f"\n len gt_atf_1d {len(gt_atf_1d)}, len gen_atf_dict[guid] {len(gen_atf_dict[guid])}")
                 lsd_val = lsd(gt_atf_1d, gen_atf_dict[guid], dim=1, mean=False)
                 lsd_mean = lsd_val.mean()
                 lsd_std = lsd_val.std()
@@ -238,7 +251,7 @@ def main():
                 plot_count += 1
                 print(f"Saved plot {plot_count}/{total_plots}: {filename}")
     
-    # print(f"All {total_plots} plots saved to {output_dir}/")
+    print(f"All {total_plots} plots saved to {output_dir}/")
 
 
 if __name__ == '__main__':

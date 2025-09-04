@@ -37,7 +37,8 @@ for i, model_path in enumerate(available_models):
     # You can choose which model to load by index
     # For now, let's use the first one as an example
     MODEL_LOAD_PATH = available_models[i]  # Change index to select different model
-    if MODEL_LOAD_PATH[36:41] == "ATF3D":
+    # if MODEL_LOAD_PATH[36:41] == "ATF3D":
+    if True:
         # Load the checkpoint
         try:
             checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)

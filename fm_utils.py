@@ -481,6 +481,7 @@ class EulerSimulator(Simulator):
         # for ATF 2D inpainting model.
         # Separate the current state `xt` into its data and mask components
         elif xt.shape[1] == drift.shape[1] + 1:
+            print("2D inpaint: Applying Euler update to data channels only, preserving the mask channel.")
             xt_data = xt[:, :-1]  # The first 20 channels (frequencies)
             xt_mask = xt[:, -1:]  # The last channel (the mask)
 
@@ -497,7 +498,8 @@ class EulerSimulator(Simulator):
             )
 
         # --- NEW: Optional Data Consistency ("Pasting") Step ---
-        if kwargs.get('paste_observations', False):
+        if kwargs.get('paste_observations'):
+            print("Pasting known observations into the state after the Euler step.")
             z_true = kwargs.get('z_true')
             x0 = kwargs.get('x0')
             obs_indices = kwargs.get('obs_indices')
@@ -516,6 +518,8 @@ class EulerSimulator(Simulator):
 
             # Replace the values at the M known locations
                 x_next = x_next * (1 - paste_mask) + known_path_slice * paste_mask
+            else:
+                assert False, "For pasting, z_true and x0 must be provided in kwargs."
 
         return x_next
 
@@ -1609,40 +1613,40 @@ class ConditionalVectorField(nn.Module, ABC):
 
 
 #
-class CFGVectorFieldODE(ODE):
-    # Used in 2d UNET ATFSliceGenerator, and original MNIST
-    def __init__(self, net: ConditionalVectorField, guidance_scale: float = 1.0, y_dim: int = 6, y_embed_dim: int = 40):
-        self.net = net
-        self.guidance_scale = guidance_scale
-        # A learned embedding for the unconditional (null) case
-        self.y_null = nn.Parameter(torch.randn(y_embed_dim))
-
-    def drift_coefficient(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-        - x: (bs, c, h, w)
-        - t: (bs, 1, 1, 1)
-        - y: (bs, y_dim)
-        """
-        # For CFG, we need both the conditional and unconditional outputs
-        guided_vector_field = self.net(x, t, y)
-
-        # Create a batch of null embeddings for the unguided field
-        bs = x.shape[0]
-        unguided_y = self.y_null.repeat(bs, 1)  # was: unguided_y = torch.ones_like(y) * 10
-        unguided_vector_field = self.net(x, t, unguided_y)
-
-        combined_field = (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
-
-        # --- ADD THIS CHECK TO HANDLE OLD MODELS ---
-        # The data part of the input state `x` has x.shape[1] - 1 channels.
-        # If the model's output has more channels than that, it's an old model.
-        num_data_channels = x.shape[1] - 1
-        if combined_field.shape[1] > num_data_channels:
-            # Slice off the extra, meaningless channel(s) to match the data.
-            return combined_field[:, :num_data_channels]
-
-        return combined_field
+# class CFGVectorFieldODE(ODE):
+#     # Used in 2d UNET ATFSliceGenerator, and original MNIST
+#     def __init__(self, net: ConditionalVectorField, guidance_scale: float = 1.0, y_dim: int = 6, y_embed_dim: int = 40):
+#         self.net = net
+#         self.guidance_scale = guidance_scale
+#         # A learned embedding for the unconditional (null) case
+#         self.y_null = nn.Parameter(torch.randn(y_embed_dim))
+#
+#     def drift_coefficient(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+#         """
+#         Args:
+#         - x: (bs, c, h, w)
+#         - t: (bs, 1, 1, 1)
+#         - y: (bs, y_dim)
+#         """
+#         # For CFG, we need both the conditional and unconditional outputs
+#         guided_vector_field = self.net(x, t, y)
+#
+#         # Create a batch of null embeddings for the unguided field
+#         bs = x.shape[0]
+#         unguided_y = self.y_null.repeat(bs, 1)  # was: unguided_y = torch.ones_like(y) * 10
+#         unguided_vector_field = self.net(x, t, unguided_y)
+#
+#         combined_field = (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
+#
+#         # --- ADD THIS CHECK TO HANDLE OLD MODELS ---
+#         # The data part of the input state `x` has x.shape[1] - 1 channels.
+#         # If the model's output has more channels than that, it's an old model.
+#         num_data_channels = x.shape[1] - 1
+#         if combined_field.shape[1] > num_data_channels:
+#             # Slice off the extra, meaningless channel(s) to match the data.
+#             return combined_field[:, :num_data_channels]
+#
+#         return combined_field
 
 
 class CFGVectorFieldODE_3D(ODE):
@@ -1650,7 +1654,7 @@ class CFGVectorFieldODE_3D(ODE):
     An ODE wrapper for the 3D U-Net and SetEncoder for the ATF_3D.
     """
 
-    def __init__(self, unet, set_encoder, guidance_scale=1.0):
+    def __init__(self, unet, set_encoder, guidance_scale=1):
         self.unet = unet
         self.set_encoder = set_encoder
         self.guidance_scale = guidance_scale
@@ -1666,6 +1670,12 @@ class CFGVectorFieldODE_3D(ODE):
         # 2. Get the unguided prediction
         null_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], y_tokens.shape[1], -1)
         unguided_vector_field = self.unet(xt, t.squeeze(), context=null_tokens, context_mask=obs_mask)
+
+        # Calculate the Mean Squared Error between the two predictions
+        drift_difference = torch.mean((guided_vector_field - unguided_vector_field) ** 2).item()
+        print("---------------------\n")
+        print(f"Drift Difference (MSE) for: {drift_difference:.12f}")
+        print("---------------------\n")
 
         # 3. Combine using the CFG formula and return a single DRIFT tensor
         combined_field = (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
@@ -2663,10 +2673,10 @@ class LSD(nn.Module):
         '''
         #print(data.shape, target.shape)
         # Convert to numpy arrays if they're tensors
-        if hasattr(data, 'cpu'):
-            data = data.cpu().numpy()
-        if hasattr(target, 'cpu'):
-            target = target.cpu().numpy()
+        # if hasattr(data, 'cpu'):
+        #     data = data.cpu().numpy()
+        # if hasattr(target, 'cpu'):
+        #     target = target.cpu().numpy()
             
         # Handle dimension bounds checking
         data_arr = np.asarray(data)
@@ -2674,10 +2684,12 @@ class LSD(nn.Module):
         
         # If dim is out of bounds, use the last available dimension
         if dim >= data_arr.ndim:
+            # print(f"dim is out of bounds: {dim}, data_arr.ndim: {data_arr.ndim}")
             dim = data_arr.ndim - 1 if data_arr.ndim > 0 else 0
+            # print("Using dim:", dim)
             
         # LSD = torch.sqrt(mean((data - target).pow(2), dim=dim))
-        LSD = np.sqrt(np.mean((data_arr - target_arr)**2, axis=dim))
+        LSD = np.sqrt(np.mean((data - target)**2, axis=dim))
         if mean:
             LSD = np.mean(LSD)
         return LSD

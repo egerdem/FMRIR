@@ -223,19 +223,19 @@ if __name__ == '__main__':
 
     # --- Model ---
     parser.add_argument('--model_name', default="ZZZATF-3D-CrossAttn-UNet", type=str)
-    parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128])
+    parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')])
     parser.add_argument('--d_model', type=int, default=256, help='Dimension for tokens and context.')
     parser.add_argument('--nhead', type=int, default=4, help='Number of attention heads.')
     parser.add_argument('--num_encoder_layers', type=int, default=3, help='Layers in the SetEncoder.')
 
     # --- Training ---
-    parser.add_argument('--num_iterations', type=int, default=100)
+    parser.add_argument('--num_iterations', type=int)
     parser.add_argument('--batch_size', type=int, default=4)  # NOTE: Must be small for 3D models
-    parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[10, 50])
+    parser.add_argument('--lr', type=float)
+    parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')])
     parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
-    parser.add_argument('--eta', type=float, default=0.0, help='Probability for CFG dropout.')
-    parser.add_argument('--sigma', type=float, default=1e-3, help='Sigma for noise in the path.')
+    parser.add_argument('--eta', type=float, help='Probability for CFG dropout.')
+    parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.')
     parser.add_argument('--checkpoint_interval', type=int, default=20000)
     parser.add_argument('--validation_interval', type=int, default=1000)
 

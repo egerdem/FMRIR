@@ -22,12 +22,11 @@ random.seed(SEED)
 # def main():
 # --- Universal Setup ---
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-184335_iter200000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/model_CONVoldcheckpoint.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/modelCONVoldcheckpoint.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/modelCONVoldcheckpoint.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/checkpoints/ckpt_300000.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/checkpoints/ckpt_350000.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET256_20250826-204300_iter100000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET256_d512n6_20250826-204427_iter100000/model.pt"
 
@@ -35,6 +34,11 @@ MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-185835_iter400000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-181013_iter400000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256_20250827-213218_iter500000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to100_sigmaE3_lr1e3to_e7_unet3_layer3_head3_20250828-190043_iter300000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to100_sigmaE3_lr1e3to_e7_unet3_layer3_head8_20250828-233343_iter50000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256_20250827-213218_iter500000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head4_sigma0ZERO_lr1e4to_e7_unet3_20250904-214817_iter300000/model.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt"
 
 data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
 
@@ -155,9 +159,10 @@ if is_3d_model:
 
     # --- 4. Inference & Visualization ---
     M_range = config['training'].get('M_range')
-    num_examples = 8
+    M_range = [5,50]
+    num_examples = 5
     num_timesteps = 10
-    guidance_scales = [1.0, 2.0, 3.0, 5]
+    guidance_scales = [0, 1.0, 3, 5]
     freq_idx_to_plot = 10  # Pick a frequency channel to visualize
     z_slice_idx_to_plot = 5
 
@@ -171,6 +176,11 @@ if is_3d_model:
     fig.suptitle(
         f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}, Z-Slice={z_slice_idx_to_plot}) | {MODEL_NAME}",
         fontsize=16)
+    #add another subtitle at the next line
+    best_val_loss = checkpoint.get('best_val_loss', {})
+    best_iteration = checkpoint.get('best_iteration', {})
+    fig.text(0.5, 0.92, f"Best Val Loss: {best_val_loss:.4f} at Iteration {best_iteration}", ha='center', fontsize=12)
+
 
     center_np = np.array(center)
 
@@ -183,9 +193,9 @@ if is_3d_model:
         # --- Create a sparse observation set on the fly ---
         M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
         obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
-        print("obs_indices:", obs_indices.shape, obs_indices)
+        # print("obs_indices:", obs_indices.shape, obs_indices)
         obs_xyz_abs = grid_xyz[obs_indices]
-        print("obs_xyz_abs:", obs_xyz_abs.shape, obs_xyz_abs)
+        # print("obs_xyz_abs:", obs_xyz_abs.shape, obs_xyz_abs)
         obs_coords_rel = obs_xyz_abs - src_xyz
 
         z_flat = z_true.view(z_true.shape[1], -1)
@@ -268,6 +278,8 @@ if is_3d_model:
 
         for g_idx, w in enumerate(guidance_scales):
 
+
+            # --- END DEBUGGING BLOCK ---
             # Start from pure noise
             x0 = torch.randn_like(z_true)
             xt = x0.clone()  # The simulation starts from x0
@@ -276,6 +288,24 @@ if is_3d_model:
 
             ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
             ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
+
+            # if g_idx == 0:
+            #     with torch.no_grad():
+            #         # Use the initial noise state xt and t=0 for a clean test
+            #         t_debug = torch.tensor([0.0], device=device)
+            #
+            #         # Get the guided drift using the real microphone data
+            #         guided_drift = unet_3d(xt, t_debug, context=y_tokens, context_mask=obs_mask)
+            #
+            #         # Get the unguided drift using the generic null condition
+            #         null_tokens = set_encoder.y_null_token.expand(1, y_tokens.shape[1], -1)
+            #         unguided_drift = unet_3d(xt, t_debug, context=null_tokens, context_mask=obs_mask)
+            #
+            #         # Calculate the Mean Squared Error between the two predictions
+            #         drift_difference = torch.mean((guided_drift - unguided_drift) ** 2).item()
+            #         print(f"\n--- ROW {row} DEBUG ---")
+            #         print(f"Drift Difference (MSE) for M={M}: {drift_difference:.12f}")
+            #         print("---------------------\n")
 
             # Set the guidance scale on the ODE object
             simulator.ode.guidance_scale = w

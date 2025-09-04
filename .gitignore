@@ -23,3 +23,7 @@ artifacts/ATFUNet_M20_holeloss_20250811-200617_iter100000/
 artifacts/ATFUNet_M30_holeloss_20250811-181215_iter100000/
 find64_holeloss_ATFUNet_M20_20250811-102034_iter60000/
 
+/AUTOENCODER/src
+/AUTOENCODER/outputs
+/AUTOENCODER
+
