@@ -192,6 +192,8 @@ def main(args):
     )
 
     # Handle resuming from a checkpoint state
+    training_cfg['warmup_iterations'] = args.warmup_iterations
+    training_cfg['min_lr'] = args.min_lr
 
     # --- Training ---
     print(f"\n--- Starting Training for experiment: {experiment_name} ---")
