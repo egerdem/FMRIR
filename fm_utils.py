@@ -14,7 +14,7 @@ import wandb
 # matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
 # import matplotlib.pyplot as plt
 import random
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
 # early stopping taken from: https://github.com/sigsep/open-unmix-pytorch/blob/master/openunmix/utils.py#L72
 
@@ -619,6 +619,8 @@ class Trainer(ABC):
         return self.optimizer
 
     def train(self, num_iterations: int, device: torch.device, lr: float,
+              warmup_iterations: Optional[int] = None,
+              min_lr: Optional[float] = None,
               valid_sampler: Optional[Sampleable] = None,
               save_path: str = "model.pt",
               checkpoint_path: str = "checkpoints",
@@ -640,9 +642,29 @@ class Trainer(ABC):
         opt = self.get_optimizer(lr)
 
         # --- NEW: Create the Learning Rate Scheduler ---
-        # It will anneal the LR from its starting value down to nearly zero
-        # over the total number of training iterations.
-        scheduler = CosineAnnealingLR(opt, T_max=num_iterations, eta_min=1e-7)
+        # --- MODIFIED: Create the new Learning Rate Scheduler with Warm-up ---
+        if warmup_iterations > 0:
+            print(f"Using LR schedule: Warm-up for {warmup_iterations} iterations, then Cosine Annealing.")
+            # Scheduler for the warm-up phase (min to max)
+            warmup_scheduler = LinearLR(opt, start_factor=0.01, end_factor=1.0, total_iters=warmup_iterations)
+
+            # Scheduler for the decay phase (max to min)
+            # T_max is the number of steps for the decay phase
+            cosine_t_max = num_iterations - warmup_iterations
+            cosine_scheduler = CosineAnnealingLR(opt, T_max=cosine_t_max, eta_min=min_lr)
+
+            # Chain them together
+            scheduler = SequentialLR(
+                opt,
+                schedulers=[warmup_scheduler, cosine_scheduler],
+                milestones=[warmup_iterations]
+            )
+        else:
+            # Fallback to the original scheduler if no warm-up is specified
+            # It will anneal the LR from its starting value down to nearly zero
+            # over the total number of training iterations.
+            print("Using LR schedule: Cosine Annealing without warm-up.")
+            scheduler = CosineAnnealingLR(opt, T_max=num_iterations, eta_min=min_lr)
 
         # NEW: Initialize the EarlyStopping monitor
         early_stopper = EarlyStopping(patience=early_stopping_patience)

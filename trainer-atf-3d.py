@@ -28,6 +28,7 @@ def main(args):
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
+                     # "warmup_iterations": args.warmup_iterations, "min_lr": args.min_lr,
                      "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma,
                      "validation_interval": args.validation_interval},
         "experiments_dir": args.experiments_dir
@@ -88,6 +89,8 @@ def main(args):
                 "num_iterations": args.num_iterations,
                 "batch_size": args.batch_size,
                 "lr": args.lr,
+                "warmup_iterations": args.warmup_iterations,
+                "min_lr": args.min_lr,
                 "M_range": args.M_range,
                 "eta": args.eta,
                 "sigma": args.sigma,
@@ -196,6 +199,8 @@ def main(args):
         num_iterations=training_cfg['num_iterations'],
         device=device,
         lr=training_cfg['lr'],
+        warmup_iterations=training_cfg['warmup_iterations'],
+        min_lr=training_cfg['min_lr'],
         batch_size=training_cfg['batch_size'],
         valid_sampler=atf_valid_sampler,
         save_path=MODEL_SAVE_PATH,
@@ -229,10 +234,14 @@ if __name__ == '__main__':
     parser.add_argument('--num_encoder_layers', type=int, default=3, help='Layers in the SetEncoder.')
 
     # --- Training ---
-    parser.add_argument('--num_iterations', type=int)
+    parser.add_argument('--num_iterations', type=int, default=30)
     parser.add_argument('--batch_size', type=int, default=4)  # NOTE: Must be small for 3D models
-    parser.add_argument('--lr', type=float)
-    parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')])
+    parser.add_argument('--lr', type=float, default=1e-4, help="now it is peak learning rate after warm-up.")
+    parser.add_argument('--warmup_iterations', type=int, default=5000,
+                        help="Number of iterations for linear LR warm-up.")
+    parser.add_argument('--min_lr', type=float, default=1e-7,
+                        help="The minimum learning rate at the end of the cosine decay.")
+    parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
     parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.')
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.')
