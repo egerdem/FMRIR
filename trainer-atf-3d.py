@@ -230,9 +230,9 @@ if __name__ == '__main__':
 
     # --- Model ---
     parser.add_argument('--model_name', default="ZZZATF-3D-CrossAttn-UNet", type=str)
-    parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')])
-    parser.add_argument('--d_model', type=int, default=256, help='Dimension for tokens and context.')
-    parser.add_argument('--nhead', type=int, default=4, help='Number of attention heads.')
+    parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128])
+    parser.add_argument('--d_model', type=int, default=512, help='Dimension for tokens and context.')
+    parser.add_argument('--nhead', type=int, default=8, help='Number of attention heads.')
     parser.add_argument('--num_encoder_layers', type=int, default=3, help='Layers in the SetEncoder.')
 
     # --- Training ---
@@ -245,8 +245,8 @@ if __name__ == '__main__':
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
     parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
-    parser.add_argument('--eta', type=float, help='Probability for CFG dropout.')
-    parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.')
+    parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
+    parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--checkpoint_interval', type=int, default=20000)
     parser.add_argument('--validation_interval', type=int, default=1000)
 

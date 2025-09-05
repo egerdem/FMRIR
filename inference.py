@@ -39,28 +39,205 @@ random.seed(SEED)
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to100_sigmaE3_lr1e3to_e7_unet3_layer3_head8_20250828-233343_iter50000/model.pt"
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256_20250827-213218_iter500000/model.pt"
 
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head4_sigma0ZERO_lr1e4to_e7_unet3_20250904-214817_iter300000/model.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt"
+# --- Multi-Model Configuration ---
+# Set SINGLE_MODEL_MODE = True for single model visualization (original behavior)
+# Set SINGLE_MODEL_MODE = False for multi-model MSE comparison only
+# Set BOTH_MODES = True to show both single model visualization AND multi-model comparison
+SINGLE_MODEL_MODE = True  # Change to False for multi-model MSE comparison only
+BOTH_MODES = False  # Set to True to show both plots simultaneously
 
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-225845_iter300000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/TRR_M5to6_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-233424_iter300000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to10_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-140802_iter300000/model.pt"
+# Single model path (used when SINGLE_MODEL_MODE = True)
+MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204240_iter300000/model.pt"
+MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204124_iter500000/model.pt"
+
+
+# Multiple model paths for MSE comparison (used when SINGLE_MODEL_MODE = False)
+# MULTI_MODEL_PATHS = [
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head4_sigma0ZERO_lr1e4to_e7_unet3_20250904-214817_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-225845_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to10_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-140802_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-154234_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lrWARM5k_e4_toe7_unet3_20250905-165351_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lrWARM5k_e4_toe7_unet3_20250905-173800_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lrWARM5k_e4_toe5_unet3_20250905-182733_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204124_iter500000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to150_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204240_iter300000/model.pt"
+# ]
+
+# Custom model names for legends (optional, will auto-generate if None)
+MODEL_NAMES = [
+    # "214817_L3_d256_h4",
+    # "222356_L3_d256_h8_e4_toe7",
+    # "225845_L3_d512_h8",
+    # "140802_M5to10_L3_d512_h8",
+    # "154234_L4_d256_h8",
+    # "16535_L3_d256_h8_warm5k_e7",
+    # "173800_L3_d512_h8_warm5k_e7",
+    # "182733_L3_d512_h8_warm5k_e6",
+    # "193258_L3_d512_h8_warm5k_e6_sigma1e3",
+]
 
 M_range = None
 # M_range = [5, 10]
-num_examples = 5
+num_examples = 7
 num_timesteps = 10
-guidance_scales = [0, 1.0, 2, 3, 5]
-freq_idx_to_plot = 5  # Pick a frequency channel to visualize
+guidance_scales = [1.0, 2]
+freq_idx_to_plot = 15  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
 
 data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
 
-MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
+def get_model_name(model_path):
+    """Extract model name from path"""
+    return model_path.split("artifacts/")[1].split("/")[0]
 
-print(f"Model artifact: {MODEL_NAME}")
+def load_model_and_config(model_path, device):
+    """Load model checkpoint and extract configuration"""
+    checkpoint = torch.load(model_path, map_location=device)
+    config = checkpoint.get('config', {})
+    model_states_cfg = checkpoint['model_states']
+    return checkpoint, config, model_states_cfg
+
+def create_models(config, train_sampler, device):
+    """Create and return model instances"""
+    model_cfg = config['model']
+    set_encoder = SetEncoder(
+        num_freqs=train_sampler.cubes.shape[1],
+        d_model=model_cfg['d_model'],
+        nhead=model_cfg['nhead'],
+        num_layers=model_cfg['num_encoder_layers']
+    ).to(device)
+
+    unet_3d = CrossAttentionUNet3D(
+        in_channels=train_sampler.cubes.shape[1],
+        out_channels=train_sampler.cubes.shape[1],
+        channels=model_cfg['channels'],
+        d_model=model_cfg['d_model'],
+        nhead=model_cfg['nhead']
+    ).to(device)
+    
+    return set_encoder, unet_3d
+
+def run_single_inference(set_encoder, unet_3d, z_true, src_xyz, grid_xyz, M_range, 
+                        guidance_scales, num_timesteps, mean, std, device):
+    """Run inference for a single example and return MSE results"""
+    # Create a sparse observation set
+    M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
+    obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
+    obs_xyz_abs = grid_xyz[obs_indices]
+    obs_coords_rel = obs_xyz_abs - src_xyz
+
+    z_flat = z_true.view(z_true.shape[1], -1)
+    obs_values = z_flat[:, obs_indices].transpose(0, 1)
+
+    # Batchify for the set encoder
+    obs_coords_rel = obs_coords_rel.unsqueeze(0)
+    obs_values = obs_values.unsqueeze(0)
+    obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
+
+    # Ground truth for comparison
+    z_true_denorm = (z_true * std + mean)
+    
+    # Instance of ODE wrapper and simulator
+    ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
+    simulator = EulerSimulator(ode=ode_3d)
+    
+    mse_results = []
+    
+    for w in guidance_scales:
+        # Start from pure noise
+        x0 = torch.randn_like(z_true)
+        xt = x0.clone()
+        
+        # Get conditioning tokens
+        y_tokens, _ = set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+        ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
+        ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
+
+        # Set the guidance scale
+        simulator.ode.guidance_scale = w
+
+        # Run simulation
+        x1_recon = simulator.simulate(xt, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
+                                     obs_mask=obs_mask, paste_observations=False,
+                                     obs_indices=obs_indices)
+
+        # Calculate MSE
+        x1_recon_denorm = (x1_recon * std + mean)
+        mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
+        mse_results.append(mse)
+    
+    return mse_results, M
+
+def plot_mse_comparison(all_mse_results, model_names, guidance_scales, save_path=None, block=True):
+    """Create MSE comparison line plot across multiple models"""
+    plt.figure(figsize=(12, 8))
+    
+    # Calculate mean and std across examples for each model
+    colors = plt.cm.tab10(np.linspace(0, 1, len(model_names)))
+    
+    for i, (model_name, mse_data) in enumerate(zip(model_names, all_mse_results)):
+        mse_array = np.array(mse_data)  # Shape: (num_examples, num_guidance_scales)
+        mean_mse = np.mean(mse_array, axis=0)
+        std_mse = np.std(mse_array, axis=0)
+        
+        plt.plot(guidance_scales, mean_mse, 'o-', label=model_name, color=colors[i], linewidth=2, markersize=6)
+        plt.fill_between(guidance_scales, mean_mse - std_mse, mean_mse + std_mse, 
+                        alpha=0.2, color=colors[i])
+    
+    plt.xlabel('Guidance Scale (w)', fontsize=12)
+    plt.ylabel('MSE (Full Cube)', fontsize=12)
+    plt.title('MSE Comparison Across Models and Guidance Scales', fontsize=14, fontweight='bold')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, alpha=0.3)
+    plt.yscale('log')  # Log scale for better visualization of MSE differences
+    
+    # Add text box with statistics
+    textstr = f'Averaged over {len(all_mse_results[0])} examples\nShaded areas show ±1 std deviation'
+    props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
+    plt.text(0.02, 0.98, textstr, transform=plt.gca().transAxes, fontsize=10,
+            verticalalignment='top', bbox=props)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=200, bbox_inches='tight')
+        print(f"MSE comparison plot saved to: {save_path}")
+    
+    plt.show(block=block)
+
+# --- Main Execution Logic ---
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+
+if BOTH_MODES:
+    print(f"=== BOTH MODES: SINGLE MODEL VISUALIZATION + MULTI-MODEL MSE COMPARISON ===")
+    MODEL_NAME = get_model_name(MODEL_LOAD_PATH)
+    print(f"Single model: {MODEL_NAME}")
+    print(f"Comparing {len(MULTI_MODEL_PATHS)} models:")
+    for i, path in enumerate(MULTI_MODEL_PATHS):
+        model_name = MODEL_NAMES[i] if MODEL_NAMES and i < len(MODEL_NAMES) else get_model_name(path)
+        print(f"  {i+1}. {model_name}")
+    print()
+    checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+elif SINGLE_MODEL_MODE:
+    MODEL_NAME = get_model_name(MODEL_LOAD_PATH)
+    print(f"=== SINGLE MODEL MODE ===")
+    print(f"Model artifact: {MODEL_NAME}")
+    checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+else:
+    print(f"=== MULTI-MODEL MSE COMPARISON MODE ===")
+    print(f"Comparing {len(MULTI_MODEL_PATHS)} models:")
+    for i, path in enumerate(MULTI_MODEL_PATHS):
+        model_name = MODEL_NAMES[i] if MODEL_NAMES and i < len(MODEL_NAMES) else get_model_name(path)
+        print(f"  {i+1}. {model_name}")
+    print()
+    
+    # For multi-model mode, we'll process each model separately
+    # First, let's load the first model to get shared configuration
+    checkpoint = torch.load(MULTI_MODEL_PATHS[0], map_location=device)
 
 config = checkpoint.get('config', {})  # Use .get for safety
 training_params = config.get('training', {})
@@ -129,7 +306,7 @@ if is_3d_model:
         ax.set_zlim(0, h)
 
 
-    # --- 1. Data Loading ---
+    # --- 1. Data Loading (Shared for both modes) ---
     # Create train sampler to get normalization stats and grid coordinates
     train_sampler = ATF3DSampler(
         data_path=data_dir, mode='train', src_splits=src_split, normalize=True, freq_up_to=freq_up_to
@@ -147,227 +324,285 @@ if is_3d_model:
 
     print(f"Loaded Stats from 3D Training Set: Mean={mean:.4f}, Std={std:.4f}")
 
-    # --- 2. Re-create Models ---
-    model_cfg = config['model']
-    set_encoder = SetEncoder(
-        num_freqs=train_sampler.cubes.shape[1],
-        d_model=model_cfg['d_model'],
-        nhead=model_cfg['nhead'],
-        num_layers=model_cfg['num_encoder_layers']
-    ).to(device)
-
-    unet_3d = CrossAttentionUNet3D(
-        in_channels=train_sampler.cubes.shape[1],
-        out_channels=train_sampler.cubes.shape[1],
-        channels=model_cfg['channels'],
-        d_model=model_cfg['d_model'],
-        nhead=model_cfg['nhead']
-    ).to(device)
-
-    # --- 3. Load Weights ---
-    set_encoder.load_state_dict(model_states_cfg['set_encoder'])
-    unet_3d.load_state_dict(model_states_cfg['unet'])
-    set_encoder.eval()
-    unet_3d.eval()
-    print("--- Loaded 3D U-Net and SetEncoder models for inference ---")
-
-    # --- 4. Inference & Visualization ---
+    # --- Set M_range ---
     if M_range is None:
         M_range = config['training'].get('M_range')
 
-    # instance of your the ODE wrapper and the simulator
-    ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
-    simulator = EulerSimulator(ode=ode_3d)
-    # --- SETUP THE PLOT GRID ---
-    # Add an extra column at the far left for a 3D snapshot view
-    num_cols = 3 + len(guidance_scales)
-    fig, axes = plt.subplots(num_examples, num_cols, figsize=(4.5 * num_cols, 4 * num_examples), squeeze=False)
-    fig.suptitle(
-        f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}, Z-Slice={z_slice_idx_to_plot}) | {MODEL_NAME}",
-        fontsize=16)
-    #add another subtitle at the next line
-    best_val_loss = checkpoint.get('best_val_loss', {})
-    best_iteration = checkpoint.get('best_iteration', {})
-    fig.text(0.5, 0.92, f"Best Val Loss: {best_val_loss:.4f} at Iteration {best_iteration}", ha='center', fontsize=12)
+    if SINGLE_MODEL_MODE or BOTH_MODES:
+        # --- SINGLE MODEL MODE: Original Visualization ---
+        # --- 2. Re-create Models ---
+        set_encoder, unet_3d = create_models(config, train_sampler, device)
 
+        # --- 3. Load Weights ---
+        set_encoder.load_state_dict(model_states_cfg['set_encoder'])
+        unet_3d.load_state_dict(model_states_cfg['unet'])
+        set_encoder.eval()
+        unet_3d.eval()
+        print("--- Loaded 3D U-Net and SetEncoder models for inference ---")
 
-    center_np = np.array(center)
+        # --- 4. Original Inference & Visualization ---
+        # instance of your the ODE wrapper and the simulator
+        ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
+        simulator = EulerSimulator(ode=ode_3d)
+        
+        # --- SETUP THE PLOT GRID ---
+        # Add an extra column at the far left for a 3D snapshot view
+        num_cols = 3 + len(guidance_scales)
+        fig, axes = plt.subplots(num_examples, num_cols, figsize=(4.5 * num_cols, 4 * num_examples), squeeze=False)
+        fig.suptitle(
+            f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}, Z-Slice={z_slice_idx_to_plot}) | {MODEL_NAME}",
+            fontsize=16)
+        #add another subtitle at the next line
+        best_val_loss = checkpoint.get('best_val_loss', {})
+        best_iteration = checkpoint.get('best_iteration', {})
+        fig.text(0.5, 0.92, f"Best Val Loss: {best_val_loss:.4f} at Iteration {best_iteration}", ha='center', fontsize=12)
 
-    for row in range(num_examples):
+        center_np = np.array(center)
+
+        for row in range(num_examples):
         # Get a random ground truth sample
 
-        z_true, src_xyz = test_sampler.sample(1)
-        z_true, src_xyz = z_true.to(device), src_xyz.to(device)
+            z_true, src_xyz = test_sampler.sample(1)
+            z_true, src_xyz = z_true.to(device), src_xyz.to(device)
 
-        # --- Create a sparse observation set on the fly ---
-        M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
-        obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
-        # print("obs_indices:", obs_indices.shape, obs_indices)
-        obs_xyz_abs = grid_xyz[obs_indices]
-        # print("obs_xyz_abs:", obs_xyz_abs.shape, obs_xyz_abs)
-        obs_coords_rel = obs_xyz_abs - src_xyz
+            # --- Create a sparse observation set on the fly ---
+            M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
+            obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
+            # print("obs_indices:", obs_indices.shape, obs_indices)
+            obs_xyz_abs = grid_xyz[obs_indices]
+            # print("obs_xyz_abs:", obs_xyz_abs.shape, obs_xyz_abs)
+            obs_coords_rel = obs_xyz_abs - src_xyz
 
-        z_flat = z_true.view(z_true.shape[1], -1)
-        obs_values = z_flat[:, obs_indices].transpose(0, 1)
+            z_flat = z_true.view(z_true.shape[1], -1)
+            obs_values = z_flat[:, obs_indices].transpose(0, 1)
 
-        # Batchify for the set encoder
-        obs_coords_rel = obs_coords_rel.unsqueeze(0)
-        obs_values = obs_values.unsqueeze(0)
-        obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
+            # Batchify for the set encoder
+            obs_coords_rel = obs_coords_rel.unsqueeze(0)
+            obs_values = obs_values.unsqueeze(0)
+            obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
 
-        # --- Plot Ground Truth and Sparse Input ---
-        z_true_denorm = (z_true * std + mean)
-        gt_cube_raw = z_true_denorm[0, freq_idx_to_plot].cpu().numpy()  # This is the (11, 11, 11) cube
+            # --- Plot Ground Truth and Sparse Input ---
+            z_true_denorm = (z_true * std + mean)
+            gt_cube_raw = z_true_denorm[0, freq_idx_to_plot].cpu().numpy()  # This is the (11, 11, 11) cube
 
-        gt_slice = gt_cube_raw[z_slice_idx_to_plot, :, :]  # Select the specific slice
+            gt_slice = gt_cube_raw[z_slice_idx_to_plot, :, :]  # Select the specific slice
 
-        axes[row, 1].imshow(gt_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(), vmax=gt_slice.max())
-        axes[row, 1].set_title("True (Z-projection)" if row == 0 else "")
-        axes[row, 1].axis('off')
+            axes[row, 1].imshow(gt_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(), vmax=gt_slice.max())
+            axes[row, 1].set_title("True (Z-projection)" if row == 0 else "")
+            axes[row, 1].axis('off')
 
-        # --- NEW: Plot Sparse Input (2D Scatter Projection) ---
-        ax_scatter = axes[row, 2]
-        obs_xyz_plot = obs_xyz_abs.cpu().numpy()
-        # Plot X vs Y, and use Z for the color
-        sc = ax_scatter.scatter(obs_xyz_plot[:, 0], obs_xyz_plot[:, 1], c=obs_xyz_plot[:, 2], cmap='coolwarm', s=20,
-                                vmin=-0.5, vmax=0.5)
-        ax_scatter.set_title(f"Input Mics" if row == 0 else "")
-        ax_scatter.set_aspect('equal', adjustable='box')
-        ax_scatter.set_xlim(-0.6, 0.6);
-        ax_scatter.set_ylim(-0.6, 0.6)  # Example limits
-        ax_scatter.set_xticks([]);
-        ax_scatter.set_yticks([])
+            # --- NEW: Plot Sparse Input (2D Scatter Projection) ---
+            ax_scatter = axes[row, 2]
+            obs_xyz_plot = obs_xyz_abs.cpu().numpy()
+            # Plot X vs Y, and use Z for the color
+            sc = ax_scatter.scatter(obs_xyz_plot[:, 0], obs_xyz_plot[:, 1], c=obs_xyz_plot[:, 2], cmap='coolwarm', s=20,
+                                    vmin=-0.5, vmax=0.5)
+            ax_scatter.set_title(f"Input Mics" if row == 0 else "")
+            ax_scatter.set_aspect('equal', adjustable='box')
+            ax_scatter.set_xlim(-0.6, 0.6);
+            ax_scatter.set_ylim(-0.6, 0.6)  # Example limits
+            ax_scatter.set_xticks([]);
+            ax_scatter.set_yticks([])
 
-        cbar_z = fig.colorbar(sc, ax=ax_scatter, fraction=0.046, pad=0.04)
-        cbar_z.set_label('Z-height (m)', size=8)
-        cbar_z.ax.tick_params(labelsize=7)
+            cbar_z = fig.colorbar(sc, ax=ax_scatter, fraction=0.046, pad=0.04)
+            cbar_z.set_label('Z-height (m)', size=8)
+            cbar_z.ax.tick_params(labelsize=7)
 
-        # Show per-row microphone count BETWEEN GT and scatter columns
-        pos_gt = axes[row, 1].get_position(fig)
-        pos_sc = axes[row, 2].get_position(fig)
-        x_mid_M = (pos_gt.x1 + pos_sc.x0) * 0.5
-        y_mid_row = (pos_gt.y0 + pos_gt.y1) * 0.5
-        fig.text(x_mid_M - 0.03, y_mid_row, f"M={M}", ha='center', va='center', fontsize=9)
+            # Show per-row microphone count BETWEEN GT and scatter columns
+            pos_gt = axes[row, 1].get_position(fig)
+            pos_sc = axes[row, 2].get_position(fig)
+            x_mid_M = (pos_gt.x1 + pos_sc.x0) * 0.5
+            y_mid_row = (pos_gt.y0 + pos_gt.y1) * 0.5
+            fig.text(x_mid_M - 0.03, y_mid_row, f"M={M}", ha='center', va='center', fontsize=9)
 
-        # Annotate source coordinates between 3D and GT columns (no matching needed)
-        # src_xyz_global = (src_xyz.cpu().numpy() + center_np)[0]
-        # src_label = f"Src: ({src_xyz_global[0]:.2f}, {src_xyz_global[1]:.2f}, {src_xyz_global[2]:.2f})"
-        # pos_3d = axes[row, 0].get_position(fig)
-        # x_mid_src = (pos_3d.x1 + pos_gt.x0) * 0.5
-        # fig.text(x_mid_src-0.060, y_mid_row, src_label, ha='center', va='center', fontsize=8)
+            # Annotate source coordinates between 3D and GT columns (no matching needed)
+            # src_xyz_global = (src_xyz.cpu().numpy() + center_np)[0]
+            # src_label = f"Src: ({src_xyz_global[0]:.2f}, {src_xyz_global[1]:.2f}, {src_xyz_global[2]:.2f})"
+            # pos_3d = axes[row, 0].get_position(fig)
+            # x_mid_src = (pos_3d.x1 + pos_gt.x0) * 0.5
+            # fig.text(x_mid_src-0.060, y_mid_row, src_label, ha='center', va='center', fontsize=8)
 
-        gs = axes[row, 0].get_gridspec()
-        axes[row, 0].remove()
-        ax3d_inline = fig.add_subplot(gs[row, 0], projection='3d')
+            gs = axes[row, 0].get_gridspec()
+            axes[row, 0].remove()
+            ax3d_inline = fig.add_subplot(gs[row, 0], projection='3d')
 
-        # Room box
-        plot_room_box(ax3d_inline, room_dim)
+            # Room box
+            plot_room_box(ax3d_inline, room_dim)
 
-        # Global positions for plotting
-        obs_xyz_global = obs_xyz_abs.cpu().numpy() + center_np
-        src_xyz_global = src_xyz.cpu().numpy() + center_np
+            # Global positions for plotting
+            obs_xyz_global = obs_xyz_abs.cpu().numpy() + center_np
+            src_xyz_global = src_xyz.cpu().numpy() + center_np
 
-        # Scatter microphones and source
-        ax3d_inline.scatter(
-            obs_xyz_global[:, 0], obs_xyz_global[:, 1], obs_xyz_global[:, 2],
-            s=20, c='b'
-        )
-        ax3d_inline.scatter(
-            src_xyz_global[0, 0], src_xyz_global[0, 1], src_xyz_global[0, 2],
-            s=60, c='r', marker='*'
-        )
+            # Scatter microphones and source
+            ax3d_inline.scatter(
+                obs_xyz_global[:, 0], obs_xyz_global[:, 1], obs_xyz_global[:, 2],
+                s=20, c='b'
+            )
+            ax3d_inline.scatter(
+                src_xyz_global[0, 0], src_xyz_global[0, 1], src_xyz_global[0, 2],
+                s=60, c='r', marker='*'
+            )
 
-        # Labels and limits
-        ax3d_inline.set_xlabel('X (m)');
-        ax3d_inline.set_ylabel('Y (m)');
-        ax3d_inline.set_zlabel('Z (m)')
-        ax3d_inline.set_title('Room (3D)' if row == 0 else '')
+            # Labels and limits
+            ax3d_inline.set_xlabel('X (m)');
+            ax3d_inline.set_ylabel('Y (m)');
+            ax3d_inline.set_zlabel('Z (m)')
+            ax3d_inline.set_title('Room (3D)' if row == 0 else '')
 
-        # --- Generate for each guidance scale ---
+            # --- Generate for each guidance scale ---
 
-        for g_idx, w in enumerate(guidance_scales):
+            for g_idx, w in enumerate(guidance_scales):
 
+                # Start from pure noise
+                x0 = torch.randn_like(z_true)
+                xt = x0.clone()  # The simulation starts from x0
+                # Get conditioning tokens
+                y_tokens, _ = set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-            # --- END DEBUGGING BLOCK ---
-            # Start from pure noise
-            x0 = torch.randn_like(z_true)
-            xt = x0.clone()  # The simulation starts from x0
-            # Get conditioning tokens
-            y_tokens, _ = set_encoder(obs_coords_rel, obs_values, obs_mask)
+                ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
+                ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
 
-            ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
-            ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
+                # if g_idx == 0:
+                #     with torch.no_grad():
+                #         # Use the initial noise state xt and t=0 for a clean test
+                #         t_debug = torch.tensor([0.0], device=device)
+                #
+                #         # Get the guided drift using the real microphone data
+                #         guided_drift = unet_3d(xt, t_debug, context=y_tokens, context_mask=obs_mask)
+                #
+                #         # Get the unguided drift using the generic null condition
+                #         null_tokens = set_encoder.y_null_token.expand(1, y_tokens.shape[1], -1)
+                #         unguided_drift = unet_3d(xt, t_debug, context=null_tokens, context_mask=obs_mask)
+                #
+                #         # Calculate the Mean Squared Error between the two predictions
+                #         drift_difference = torch.mean((guided_drift - unguided_drift) ** 2).item()
+                #         print(f"\n--- ROW {row} DEBUG ---")
+                #         print(f"Drift Difference (MSE) for M={M}: {drift_difference:.12f}")
+                #         print("---------------------\n")
 
-            # if g_idx == 0:
-            #     with torch.no_grad():
-            #         # Use the initial noise state xt and t=0 for a clean test
-            #         t_debug = torch.tensor([0.0], device=device)
-            #
-            #         # Get the guided drift using the real microphone data
-            #         guided_drift = unet_3d(xt, t_debug, context=y_tokens, context_mask=obs_mask)
-            #
-            #         # Get the unguided drift using the generic null condition
-            #         null_tokens = set_encoder.y_null_token.expand(1, y_tokens.shape[1], -1)
-            #         unguided_drift = unet_3d(xt, t_debug, context=null_tokens, context_mask=obs_mask)
-            #
-            #         # Calculate the Mean Squared Error between the two predictions
-            #         drift_difference = torch.mean((guided_drift - unguided_drift) ** 2).item()
-            #         print(f"\n--- ROW {row} DEBUG ---")
-            #         print(f"Drift Difference (MSE) for M={M}: {drift_difference:.12f}")
-            #         print("---------------------\n")
+                # Set the guidance scale on the ODE object
+                simulator.ode.guidance_scale = w
 
-            # Set the guidance scale on the ODE object
-            simulator.ode.guidance_scale = w
+                # Simulation loop
+                x1_recon = simulator.simulate(xt,
+                                              ts,
+                                              x0=x0,
+                                              z_true=z_true,
+                                              y_tokens=y_tokens,
+                                              obs_mask=obs_mask,
+                                              paste_observations=False,
+                                              obs_indices=obs_indices
+                                              )
 
-            # Simulation loop
-            x1_recon = simulator.simulate(xt,
-                                          ts,
-                                          x0=x0,
-                                          z_true=z_true,
-                                          y_tokens=y_tokens,
-                                          obs_mask=obs_mask,
-                                          paste_observations=False,
-                                          obs_indices=obs_indices
-                                          )
+                # De-normalize and plot
+                x1_recon_denorm = (x1_recon * std + mean)
+                recon_cube_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
+                mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
+                print(f"Row {row}, w={w}: MSE (full cube) = {mse:.4f}")
 
-            # De-normalize and plot
-            x1_recon_denorm = (x1_recon * std + mean)
-            recon_cube_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
-            mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
-            print(f"MSE: {mse:.4f}")
+                col_idx = g_idx + 3
 
-            col_idx = g_idx + 3
+                recon_slice = recon_cube_to_plot[z_slice_idx_to_plot, :, :]  # Select the same slice
+                im = axes[row, col_idx].imshow(recon_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(),
+                                               vmax=gt_slice.max())
 
-            recon_slice = recon_cube_to_plot[z_slice_idx_to_plot, :, :]  # Select the same slice
-            im = axes[row, col_idx].imshow(recon_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(),
-                                           vmax=gt_slice.max())
+                # Set title and add MSE text under the plot
+                axes[row, col_idx].set_title(f"w={w}" if row == 0 else "")
+                axes[row, col_idx].axis('off')
 
-            axes[row, col_idx].set_title(f"w={w}" if row == 0 else "")
-            axes[row, col_idx].axis('off')
+                # Add MSE text under the plot
+                axes[row, col_idx].text(0.5, -0.1, f"MSE: {mse:.4f}",
+                                       transform=axes[row, col_idx].transAxes,
+                                       ha='center', va='top', fontsize=8)
 
-        # Shared colorbar for GT and generated columns (exclude scatter input)
-        ax_list = [axes[row, 1]] + [axes[row, i + 3] for i in range(len(guidance_scales))]
-        mappable = matplotlib.cm.ScalarMappable(
-            norm=matplotlib.colors.Normalize(vmin=gt_slice.min(), vmax=gt_slice.max()), cmap='viridis'
-        )
-        cbar_mag = fig.colorbar(mappable, ax=ax_list, fraction=0.046, pad=0.04)
-        cbar_mag.set_label('Magnitude (dB)', size=8)
-        cbar_mag.ax.tick_params(labelsize=7)
+            # Shared colorbar for GT and generated columns (exclude scatter input)
+            ax_list = [axes[row, 1]] + [axes[row, i + 3] for i in range(len(guidance_scales))]
+            mappable = matplotlib.cm.ScalarMappable(
+                norm=matplotlib.colors.Normalize(vmin=gt_slice.min(), vmax=gt_slice.max()), cmap='viridis'
+            )
+            cbar_mag = fig.colorbar(mappable, ax=ax_list, fraction=0.046, pad=0.04)
+            cbar_mag.set_label('Magnitude (dB)', size=8)
+            cbar_mag.ax.tick_params(labelsize=7)
 
-    # plt.tight_layout(rect=[0, 0.03, 1, 0.95], h_pad=0.5, w_pad=1.5)
-    plt.show()
+         # plt.tight_layout(rect=[0, 0.03, 1, 0.95], h_pad=0.5, w_pad=1.5)
+        if BOTH_MODES:
+            plt.show(block=False)  # Non-blocking show for both modes
+        else:
+            plt.show()  # Blocking show for single model only
 
-    model_dir = os.path.dirname(MODEL_LOAD_PATH)
-    outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}.png"
+        model_dir = os.path.dirname(MODEL_LOAD_PATH)
+        outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}.png"
 
-    if os.path.exists(os.path.join("artifacts", outfile_name)):
-        # rand = np.random.randint(1000)
-        rand = 5
-        outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}_{rand}.png"
+        if os.path.exists(os.path.join("artifacts", outfile_name)):
+             # rand = np.random.randint(1000)
+             rand = 5
+             outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}_{rand}.png"
 
-    save_path = os.path.join(model_dir, outfile_name)
-    print(f"Saving figure to: {save_path}")
-    fig.savefig(save_path, dpi=200, bbox_inches='tight')
+        save_path = os.path.join(model_dir, outfile_name)
+        print(f"Saving figure to: {save_path}")
+        fig.savefig(save_path, dpi=200, bbox_inches='tight')
+        
+    if not SINGLE_MODEL_MODE or BOTH_MODES:
+        # --- MULTI-MODEL MSE COMPARISON MODE ---
+        print("Running MSE comparison across multiple models...")
+        
+        # Prepare to collect MSE results for all models
+        all_mse_results = []
+        model_names_used = []
+        
+        # Process each model
+        for model_idx, model_path in enumerate(MULTI_MODEL_PATHS):
+            print(f"\nProcessing model {model_idx + 1}/{len(MULTI_MODEL_PATHS)}: {get_model_name(model_path)}")
+            
+            # Load model
+            checkpoint, config, model_states_cfg = load_model_and_config(model_path, device)
+            
+            # Create and load models
+            set_encoder, unet_3d = create_models(config, train_sampler, device)
+            set_encoder.load_state_dict(model_states_cfg['set_encoder'])
+            unet_3d.load_state_dict(model_states_cfg['unet'])
+            set_encoder.eval()
+            unet_3d.eval()
+            
+            # Get model name
+            model_name = MODEL_NAMES[model_idx] if MODEL_NAMES and model_idx < len(MODEL_NAMES) else get_model_name(model_path)
+            model_names_used.append(model_name)
+            
+            # Run inference for multiple examples
+            model_mse_results = []
+            for example_idx in range(num_examples):
+                print(f"  Example {example_idx + 1}/{num_examples}")
+                
+                # Get a random ground truth sample (using same seed for consistency)
+                torch.manual_seed(SEED + example_idx)  # Consistent samples across models
+                z_true, src_xyz = test_sampler.sample(1)
+                z_true, src_xyz = z_true.to(device), src_xyz.to(device)
+                
+                # Run inference for this example
+                mse_results, M = run_single_inference(
+                    set_encoder, unet_3d, z_true, src_xyz, grid_xyz, M_range,
+                    guidance_scales, num_timesteps, mean, std, device
+                )
+                model_mse_results.append(mse_results)
+                print(f"\n    M={M}, MSEs: {[f'{mse:.4f}' for mse in mse_results]}")
+            
+            all_mse_results.append(model_mse_results)
+        
+        # Create MSE comparison plot
+        print(f"\nCreating MSE comparison plot...")
+        block_mse_plot = not BOTH_MODES  # Don't block if showing both modes
+        plot_mse_comparison(all_mse_results, model_names_used, guidance_scales, 
+                           save_path=os.path.join("artifacts", "mse_comparison.png"),
+                           block=block_mse_plot)
+
+    # Keep both plots open when in BOTH_MODES
+    if BOTH_MODES:
+        print("\n=== Both plots are now displayed ===")
+        print("Close the plot windows or press Ctrl+C to exit.")
+        try:
+            plt.show(block=True)  # This will keep both plots open
+        except KeyboardInterrupt:
+            print("\nExiting...")
 
 # if __name__ == '__main__':
 #     main()

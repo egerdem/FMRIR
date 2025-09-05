@@ -65,6 +65,8 @@ def main():
     MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt"
     MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-225845_iter300000/model.pt"
     MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to10_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-140802_iter300000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lrWARM5k_e4_toe6_unet3_20250905-182733_iter300000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204240_iter300000/model.pt"
 
     MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
@@ -86,7 +88,7 @@ def main():
     # 5 different random microphone positions from 0 to 1330
     mic_indices = [156, 423, 789, 1045, 1287, 665]  # 5 microphones
     
-    M = 5  # Number of conditioning mics
+    M = 50  # Number of conditioning mics
     guidance = [1.0, 2.0]
     num_timesteps = 10
     lsd = LSD()
