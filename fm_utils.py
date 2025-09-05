@@ -1672,10 +1672,10 @@ class CFGVectorFieldODE_3D(ODE):
         unguided_vector_field = self.unet(xt, t.squeeze(), context=null_tokens, context_mask=obs_mask)
 
         # Calculate the Mean Squared Error between the two predictions
-        drift_difference = torch.mean((guided_vector_field - unguided_vector_field) ** 2).item()
-        print("---------------------\n")
-        print(f"Drift Difference (MSE) for: {drift_difference:.12f}")
-        print("---------------------\n")
+        # drift_difference = torch.mean((guided_vector_field - unguided_vector_field) ** 2).item()
+        # print("---------------------\n")
+        # print(f"Drift Difference (MSE) for: {drift_difference:.12f}")
+        # print("---------------------\n")
 
         # 3. Combine using the CFG formula and return a single DRIFT tensor
         combined_field = (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field

@@ -68,16 +68,16 @@ python trainer-atf-3d.py \
 #     --checkpoint_interval 50000
 
 python trainer-atf-3d.py \
-    --model_name "M5to50_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3" \
+    --model_name "M5to50_freq20_layer4_d256_head8_sigma0ZERO_lr1e4to_e7_unet3" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 300000 \
     --lr 1e-4 \
     --channels 32,64,128 \
-    --d_model 512 \
+    --d_model 256 \
     --nhead 8 \
-    --num_encoder_layers 3 \
+    --num_encoder_layers 4 \
     --M_range 5,50 \
     --eta 0.1 \
     --sigma 0 \
@@ -142,5 +142,5 @@ scp -r /Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigm
 scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/DATASET
 
 #ROSSINI'den locale
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to10_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-140802_iter300000 /Users/ege/Projects/FMRIR/artifacts
 

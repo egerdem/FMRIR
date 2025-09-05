@@ -63,6 +63,8 @@ def main():
     MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e3to_e7_unet3_20250904-203305_iter300000/model.pt"
     MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head4_sigma0ZERO_lr1e4to_e7_unet3_20250904-214817_iter300000/model.pt"
     MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-225845_iter300000/model.pt"
+    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to10_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-140802_iter300000/model.pt"
 
     MODEL_NAME = MODEL_LOAD_PATH.split("artifacts/")[1].split("/")[0]
 
@@ -229,7 +231,7 @@ def main():
             gen_atf_dict = {}
             for guid in guidance:
                 gen_atf_dict[guid] = gen_cubes_denorm[guid][0, :, iz, iy, ix].cpu().numpy()
-                print(f"\n len gt_atf_1d {len(gt_atf_1d)}, len gen_atf_dict[guid] {len(gen_atf_dict[guid])}")
+                # print(f"\n len gt_atf_1d {len(gt_atf_1d)}, len gen_atf_dict[guid] {len(gen_atf_dict[guid])}")
                 lsd_val = lsd(gt_atf_1d, gen_atf_dict[guid], dim=1, mean=False)
                 lsd_mean = lsd_val.mean()
                 lsd_std = lsd_val.std()

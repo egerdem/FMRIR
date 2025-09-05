@@ -7,7 +7,7 @@ results_dir = "/Users/ege/Projects/FMRIR/artifacts"
 
 # Navigate in the directories under results_dir and load all file names starting with "model", don't traverse the nested folders, only do first level
 def find_model_files(results_dir):
-    """Find all model files starting with 'model' in first-level subdirectories"""
+    """Find all model files starting with 'model' in first-level subdirectories, sorted by creation date"""
     model_files = []
     
     # Get all subdirectories in results_dir
@@ -21,6 +21,9 @@ def find_model_files(results_dir):
                 if file.startswith("model") and file.endswith(".pt"):
                     full_path = os.path.join(item_path, file)
                     model_files.append(full_path)
+    
+    # Sort by creation time (oldest first)
+    model_files.sort(key=lambda x: os.path.getctime(x), reverse=True)
     
     return model_files
 
