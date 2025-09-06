@@ -20,8 +20,8 @@ def main(args):
         "data": {"data_dir": args.data_dir,
                  "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
-                  "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to
-                  "architecture_version": args.version },
+                  "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
+                  "architecture_version": args.version},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "min_lr": args.min_lr,
                      "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma,
