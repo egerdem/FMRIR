@@ -67,7 +67,7 @@ python trainer-atf-3d.py \
     --checkpoint_interval 50000
 
 python trainer-atf-3d.py \
-    --model_name "M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6" \
+    --model_name "M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
@@ -79,7 +79,7 @@ python trainer-atf-3d.py \
     --channels 32,64,128,256 \
     --d_model 512 \
     --nhead 8 \
-    --num_encoder_layers 6 \
+    --num_encoder_layers 3 \
     --M_range 5,50 \
     --eta 0.1 \
     --sigma 0 \

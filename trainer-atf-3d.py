@@ -186,7 +186,8 @@ def main(args):
         eta=training_cfg['eta'],
         M_range=training_cfg['M_range'],
         sigma=training_cfg['sigma'],
-        grid_xyz=atf_train_sampler.grid_xyz
+        grid_xyz=atf_train_sampler.grid_xyz,
+        version=model_cfg.get("architecture_version")
     )
 
     training_cfg['warmup_iterations'] = args.warmup_iterations

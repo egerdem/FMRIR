@@ -2085,7 +2085,7 @@ class ATFInpaintingTrainer(Trainer):
 
 
 class ATF3DTrainer(Trainer):
-    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, **kwargs):
+    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, version: bool, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
         self.path = path
         self.set_encoder = set_encoder
@@ -2094,6 +2094,7 @@ class ATF3DTrainer(Trainer):
         self.sigma = sigma
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
 
+        self.version = version
         # A learnable embedding for the unconditional (null) case
         d_model = set_encoder.d_model
 
@@ -2190,10 +2191,15 @@ class ATF3DTrainer(Trainer):
         final_obs_mask = obs_mask
 
         # 6. Get the model's prediction for the velocity field
+        model_kwargs = {
+            'context': final_tokens,
+            'context_mask': final_obs_mask
+        }
+
+        if self.version == "v2_residual_context":
+            model_kwargs['pooled_context'] = final_pooled_context
         # The 3D U-Net's forward pass must accept `context` and `context_mask`
-        ut_theta = self.model(xt, t, context=final_tokens,
-                              context_mask=final_obs_mask,
-                              pooled_context=final_pooled_context)
+        ut_theta = self.model(xt, t, **model_kwargs)
 
         # 7. Compute the loss
         loss = torch.mean(torch.square(ut_theta - ut_ref))
@@ -2221,10 +2227,16 @@ class ATF3DTrainer(Trainer):
         # ut_ref = x1 - x0
         ut_ref = x1 - (1 - self.sigma) * x0
 
+        model_kwargs = {
+            'context': y_tokens,
+            'context_mask': obs_mask
+        }
+
+        if self.version == "v2_residual_context":
+            model_kwargs['pooled_context'] = pooled_context
         # For validation, we are always conditional
         # ut_theta = self.model(xt, t.squeeze(), context=y_tokens, context_mask=obs_mask)
-        ut_theta = self.model(xt, t.squeeze(), context=y_tokens, context_mask=obs_mask,
-                              pooled_context=pooled_context)
+        ut_theta = self.model(xt, t.squeeze(), **model_kwargs)
 
         loss = torch.mean(torch.square(ut_theta - ut_ref))
 
