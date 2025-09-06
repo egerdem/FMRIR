@@ -6,16 +6,10 @@ import time
 import wandb
 import argparse
 
-from fm_utils import (
-    ATF3DSampler,
-    GaussianConditionalProbabilityPath,
-    LinearAlpha,
-    LinearBeta,
-    SetEncoder,
-    CrossAttentionUNet3D,
-    ATF3DTrainer
-)
-
+from fm_utils import (ATF3DSampler, GaussianConditionalProbabilityPath,
+    LinearAlpha, LinearBeta,
+    SetEncoder, CrossAttentionUNet3D,ATF3DTrainer
+                      )
 
 def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -26,9 +20,10 @@ def main(args):
         "data": {"data_dir": args.data_dir,
                  "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
-                  "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to},
+                  "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to
+                  "architecture_version": "v2_residual_context" },
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
-                     # "warmup_iterations": args.warmup_iterations, "min_lr": args.min_lr,
+                     "warmup_iterations": args.warmup_iterations, "min_lr": args.min_lr,
                      "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma,
                      "validation_interval": args.validation_interval},
         "experiments_dir": args.experiments_dir
@@ -124,7 +119,6 @@ def main(args):
     model_cfg = config['model']
     training_cfg = config['training']
 
-
     # 1. Create the training sampler. It will calculate and apply its own normalization.
     print("--- Loading Training Data ---")
     atf_train_sampler = ATF3DSampler(
@@ -191,7 +185,6 @@ def main(args):
         grid_xyz=atf_train_sampler.grid_xyz
     )
 
-    # Handle resuming from a checkpoint state
     training_cfg['warmup_iterations'] = args.warmup_iterations
     training_cfg['min_lr'] = args.min_lr
 
@@ -239,8 +232,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_iterations', type=int, default=30)
     parser.add_argument('--batch_size', type=int, default=4)  # NOTE: Must be small for 3D models
     parser.add_argument('--lr', type=float, default=1e-4, help="now it is peak learning rate after warm-up.")
-    parser.add_argument('--warmup_iterations', type=int, default=5000,
-                        help="Number of iterations for linear LR warm-up.")
+    parser.add_argument('--warmup_iterations', type=int, default=5000, help="Number of iterations for linear LR warm-up.")
     parser.add_argument('--min_lr', type=float, default=1e-7,
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
