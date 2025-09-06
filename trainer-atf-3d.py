@@ -6,9 +6,10 @@ import time
 import wandb
 import argparse
 
-from fm_utils import (ATF3DSampler, GaussianConditionalProbabilityPath,
-    LinearAlpha, LinearBeta,
-    SetEncoder, CrossAttentionUNet3D,ATF3DTrainer, CrossAttentionUNet3D_RED3d
+from fm_utils import (model_factory,
+                      ATF3DSampler, GaussianConditionalProbabilityPath,
+                      LinearAlpha, LinearBeta,
+                      SetEncoder, CrossAttentionUNet3D, ATF3DTrainer, CrossAttentionUNet3D_RED3d
                       )
 
 def main(args):
@@ -160,28 +161,23 @@ def main(args):
     ).to(device)
 
     # Instantiate the two models
-    set_encoder = SetEncoder(
-        num_freqs=cube_shape[0],  # 64
-        d_model=model_cfg['d_model'],
-        nhead=model_cfg['nhead'],
-        num_layers=model_cfg['num_encoder_layers']
-    ).to(device)
-
-    unet_3d = CrossAttentionUNet3D_RED3d(
-        in_channels=cube_shape[0],
-        out_channels=cube_shape[0],
-        channels=model_cfg['channels'],
-        d_model=model_cfg['d_model'],
-        nhead=model_cfg['nhead']
-    ).to(device)
+    # set_encoder = SetEncoder(
+    #     num_freqs=cube_shape[0],
+    #     d_model=model_cfg['d_model'],
+    #     nhead=model_cfg['nhead'],
+    #     num_layers=model_cfg['num_encoder_layers']
+    # ).to(device)
     #
-    # unet_3d = CrossAttentionUNet3D(
+    # unet_3d = CrossAttentionUNet3D_RED3d(
     #     in_channels=cube_shape[0],
     #     out_channels=cube_shape[0],
     #     channels=model_cfg['channels'],
     #     d_model=model_cfg['d_model'],
     #     nhead=model_cfg['nhead']
     # ).to(device)
+    #
+    # model_cfg
+    set_encoder, unet_3d = model_factory(config, device)
 
     trainer = ATF3DTrainer(
         path=path,

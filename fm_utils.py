@@ -16,6 +16,48 @@ import wandb
 import random
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
 
+def model_factory(config, device):
+    """
+    Reads the config and returns the correctly instantiated and loaded models.
+    """
+    model_cfg = config['model']
+    # Use the presence of the version key to decide which architecture to build
+    architecture = model_cfg.get('architecture_version')
+
+    # --- Instantiate models based on version ---
+    set_encoder = SetEncoder(
+        num_freqs=model_cfg['freq_up_to'],
+        # num_freqs=train_sampler.cubes.shape[1],
+        d_model=model_cfg['d_model'],
+        nhead=model_cfg['nhead'],
+        num_layers=model_cfg['num_encoder_layers']
+    ).to(device)
+
+    if architecture == "v2_residual_context":
+        print("--- Creating (v2) architecture ---")
+        unet_3d = CrossAttentionUNet3D_RED3d(
+            in_channels=model_cfg['freq_up_to'],
+            out_channels=model_cfg['freq_up_to'],
+            channels=model_cfg['channels'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead']
+        ).to(device)
+        ode_3d = CFGVectorFieldODE_3D_V2(unet=unet_3d, set_encoder=set_encoder)
+
+    elif architecture == "v1_legacy" or architecture is None:
+        print("--- Creating v1 architecture: standard 3d unet ---")
+        # Instantiate the old U-Net and ODE wrapper for old checkpoints
+        unet_3d = CrossAttentionUNet3D(
+            in_channels=model_cfg['freq_up_to'],
+            out_channels=model_cfg['freq_up_to'],
+            channels=model_cfg['channels'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead']
+        ).to(device)
+        ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
+
+    return set_encoder, unet_3d
+
 # early stopping taken from: https://github.com/sigsep/open-unmix-pytorch/blob/master/openunmix/utils.py#L72
 
 class EarlyStopping(object):
@@ -1749,79 +1791,79 @@ class CFGVectorFieldODE_3D_V2(ODE):
 
         return combined_field
 
-# class CFGTrainer(Trainer):
-#     def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, y_dim: int,
-#                  **kwargs):
-#         assert eta > 0 and eta < 1
-#         super().__init__(model, **kwargs)
-#         self.eta = eta
-#         self.path = path
-#         self.y_dim = y_dim
-#
-#         # A learned embedding for the unconditional (null) case
-#         self.y_null = nn.Parameter(torch.randn(1, y_dim))
-#
-#     #
-#     def get_train_loss(self, batch_size: int) -> torch.Tensor:
-#         # Step 1: Sample z (spectrograms) and y (coordinates) from p_data#
-#         z, y = self.path.p_data.sample(batch_size)  # (bs, c, h, w), y:(bs, 6)
-#         # Ensure y is on the correct device
-#         y = y.to(z.device)
-#         self.y_null = self.y_null.to(z.device)
-#
-#         # Step 2: With probability eta, replace the coordinate vector with the null embedding
-#         is_conditional_mask = (torch.rand(y.shape[0], device=y.device) > self.eta)
-#         # Reshape for broadcasting: (bs,) -> (bs, 1)
-#         is_conditional_mask = is_conditional_mask.view(-1, 1)
-#
-#         # Create the final conditioning tensor for the batch
-#         y_cond = torch.where(is_conditional_mask, y, self.y_null)
-#
-#         # Step 3: Sample t (time) and x (noisy spectrogram)
-#         t = torch.rand(batch_size, 1, 1, 1).to(z.device)
-#         x = self.path.sample_conditional_path(z, t)
-#
-#         # Step 4: Regress the model's output against the ground truth vector field
-#         ut_theta = self.model(x, t, y_cond)
-#         ut_ref = self.path.conditional_vector_field(x, z, t)
-#
-#         error = torch.square(ut_theta - ut_ref)
-#         # Flatten error fr
-#         # om (bs, c, h, w) to (bs, -1) and sum over dimensions
-#         loss_per_sample = error.view(batch_size, -1).sum(dim=1)
-#
-#         # Apply the mask to compute the loss only on conditional samples
-#         masked_loss = loss_per_sample * is_conditional_mask.squeeze()
-#
-#         # Average the loss over the number of conditional samples
-#         # Add a small epsilon to avoid division by zero if no samples are conditional
-#         num_conditional_samples = is_conditional_mask.sum()
-#         mean_loss = masked_loss.sum() / (num_conditional_samples + 1e-8)
-#
-#         # error = torch.einsum('bchw -> b', torch.square(ut_theta - ut_ref))  # (bs,)
-#         return mean_loss
-#
-#     # **NEW: Validation loss implementation**
-#     @torch.no_grad()
-#     def get_valid_loss(self, valid_sampler: Sampleable, batch_size: int, **kwargs) -> torch.Tensor:
-#         # Step 1: Sample z and y from the validation data sampler
-#         z, y = valid_sampler.sample(batch_size)
-#         y = y.to(z.device)
-#
-#         # Step 2: For validation, we ONLY use conditional samples. No CFG masking.
-#         y_cond = y
-#
-#         # Step 3: Sample t and x
-#         t = torch.rand(batch_size, 1, 1, 1).to(z.device)
-#         x = self.path.sample_conditional_path(z, t)
-#
-#         # Step 4: Calculate loss
-#         ut_theta = self.model(x, t, y_cond)
-#         ut_ref = self.path.conditional_vector_field(x, z, t)
-#         error = torch.square(ut_theta - ut_ref)
-#         loss_per_sample = error.view(batch_size, -1).sum(dim=1)
-#
-#         return loss_per_sample.mean()
+class CFGTrainer(Trainer):
+    def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, y_dim: int,
+                 **kwargs):
+        assert eta > 0 and eta < 1
+        super().__init__(model, **kwargs)
+        self.eta = eta
+        self.path = path
+        self.y_dim = y_dim
+
+        # A learned embedding for the unconditional (null) case
+        self.y_null = nn.Parameter(torch.randn(1, y_dim))
+
+    #
+    def get_train_loss(self, batch_size: int) -> torch.Tensor:
+        # Step 1: Sample z (spectrograms) and y (coordinates) from p_data#
+        z, y = self.path.p_data.sample(batch_size)  # (bs, c, h, w), y:(bs, 6)
+        # Ensure y is on the correct device
+        y = y.to(z.device)
+        self.y_null = self.y_null.to(z.device)
+
+        # Step 2: With probability eta, replace the coordinate vector with the null embedding
+        is_conditional_mask = (torch.rand(y.shape[0], device=y.device) > self.eta)
+        # Reshape for broadcasting: (bs,) -> (bs, 1)
+        is_conditional_mask = is_conditional_mask.view(-1, 1)
+
+        # Create the final conditioning tensor for the batch
+        y_cond = torch.where(is_conditional_mask, y, self.y_null)
+
+        # Step 3: Sample t (time) and x (noisy spectrogram)
+        t = torch.rand(batch_size, 1, 1, 1).to(z.device)
+        x = self.path.sample_conditional_path(z, t)
+
+        # Step 4: Regress the model's output against the ground truth vector field
+        ut_theta = self.model(x, t, y_cond)
+        ut_ref = self.path.conditional_vector_field(x, z, t)
+
+        error = torch.square(ut_theta - ut_ref)
+        # Flatten error fr
+        # om (bs, c, h, w) to (bs, -1) and sum over dimensions
+        loss_per_sample = error.view(batch_size, -1).sum(dim=1)
+
+        # Apply the mask to compute the loss only on conditional samples
+        masked_loss = loss_per_sample * is_conditional_mask.squeeze()
+
+        # Average the loss over the number of conditional samples
+        # Add a small epsilon to avoid division by zero if no samples are conditional
+        num_conditional_samples = is_conditional_mask.sum()
+        mean_loss = masked_loss.sum() / (num_conditional_samples + 1e-8)
+
+        # error = torch.einsum('bchw -> b', torch.square(ut_theta - ut_ref))  # (bs,)
+        return mean_loss
+
+    # **NEW: Validation loss implementation**
+    @torch.no_grad()
+    def get_valid_loss(self, valid_sampler: Sampleable, batch_size: int, **kwargs) -> torch.Tensor:
+        # Step 1: Sample z and y from the validation data sampler
+        z, y = valid_sampler.sample(batch_size)
+        y = y.to(z.device)
+
+        # Step 2: For validation, we ONLY use conditional samples. No CFG masking.
+        y_cond = y
+
+        # Step 3: Sample t and x
+        t = torch.rand(batch_size, 1, 1, 1).to(z.device)
+        x = self.path.sample_conditional_path(z, t)
+
+        # Step 4: Calculate loss
+        ut_theta = self.model(x, t, y_cond)
+        ut_ref = self.path.conditional_vector_field(x, z, t)
+        error = torch.square(ut_theta - ut_ref)
+        loss_per_sample = error.view(batch_size, -1).sum(dim=1)
+
+        return loss_per_sample.mean()
 
 class ATFInpaintingTrainer(Trainer):
     def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField,
@@ -2735,7 +2777,6 @@ class ConvBlock3D(nn.Module):
 class CrossAttentionUNet3D(nn.Module):
     def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11):
         super().__init__()
-        print("alsdjfaoşıejrfoşıajerf")
         # Ensure channel dimensions are divisible by the number of attention heads
         assert all(c % nhead == 0 for c in channels), "Channel dimensions must be divisible by nhead"
 

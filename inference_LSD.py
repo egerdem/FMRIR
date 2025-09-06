@@ -3,12 +3,66 @@ import numpy as np
 import os
 import json
 from tqdm import tqdm
-from fm_utils import ATF3DSampler, SetEncoder, CrossAttentionUNet3D
+from fm_utils import (
+    ATF3DSampler, SetEncoder, 
+    CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d, 
+    CFGVectorFieldODE_3D, CFGVectorFieldODE_3D_V2, EulerSimulator
+)
 
 # Set a seed for reproducibility of the random microphone selection
 SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
+
+
+def model_factory(config, model_states_cfg, device):
+    """
+    Reads the config and returns the correctly instantiated and loaded models.
+    """
+    model_cfg = config['model']
+    print(f"Model Config: {model_cfg}")
+
+    # Use the presence of the version key to decide which architecture to build
+    architecture = model_cfg.get('architecture_version')
+
+    # --- Instantiate models based on version ---
+    set_encoder = SetEncoder(
+        num_freqs=model_cfg['freq_up_to'],
+        d_model=model_cfg['d_model'],
+        nhead=model_cfg['nhead'],
+        num_layers=model_cfg['num_encoder_layers']
+    ).to(device)
+
+    if architecture == "v2_residual_context":
+        print("--- Creating (v2) architecture ---")
+        unet_3d = CrossAttentionUNet3D_RED3d(
+            in_channels=model_cfg['freq_up_to'],
+            out_channels=model_cfg['freq_up_to'],
+            channels=model_cfg['channels'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead']
+        ).to(device)
+        ode_3d = CFGVectorFieldODE_3D_V2(unet=unet_3d, set_encoder=set_encoder)
+
+    else:
+        print("--- Creating v1 architecture: standard 3d unet ---")
+        # Instantiate the old U-Net and ODE wrapper for old checkpoints
+        unet_3d = CrossAttentionUNet3D(
+            in_channels=model_cfg['freq_up_to'],
+            out_channels=model_cfg['freq_up_to'],
+            channels=model_cfg['channels'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead']
+        ).to(device)
+        ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
+
+    # --- Load weights ---
+    set_encoder.load_state_dict(model_states_cfg['set_encoder'])
+    unet_3d.load_state_dict(model_states_cfg['unet'])
+    set_encoder.eval()
+    unet_3d.eval()
+
+    return set_encoder, unet_3d, ode_3d, architecture
 
 
 def calculate_lsd(estimation_norm, ground_truth_norm):
@@ -44,7 +98,7 @@ def main():
     # This section is adapted from your inference.py script.
     #
     # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE4_20250825-214233_iter200000/model.pt"
-    MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-184335_iter200000/model.pt"
+    MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt"
 
     MODEL_NAME = os.path.basename(os.path.dirname(MODEL_LOAD_PATH))
     print(f"Loading model: {MODEL_NAME}")
@@ -77,20 +131,9 @@ def main():
 
     print(f"Loaded Stats from 3D Training Set: Mean={spec_mean:.4f}, Std={spec_std:.4f}")
 
-    # Re-create and load models
-    model_cfg = config['model']
-    set_encoder = SetEncoder(
-        num_freqs=train_sampler.cubes.shape[1],
-        d_model=model_cfg['d_model'], nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers']
-    ).to(device)
-    unet_3d = CrossAttentionUNet3D(
-        in_channels=train_sampler.cubes.shape[1], out_channels=train_sampler.cubes.shape[1],
-        channels=model_cfg['channels'], d_model=model_cfg['d_model'], nhead=model_cfg['nhead']
-    ).to(device)
-    set_encoder.load_state_dict(model_states_cfg['set_encoder'])
-    unet_3d.load_state_dict(model_states_cfg['unet'])
-    set_encoder.eval()
-    unet_3d.eval()
+    # --- Use the factory to get the correct models ---
+    set_encoder, unet_3d, ode_3d, architecture = model_factory(config, model_states_cfg, device)
+    simulator = EulerSimulator(ode=ode_3d)
 
     # --- 2. EVALUATION PARAMETERS ---
     #
@@ -128,19 +171,23 @@ def main():
                 obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
 
                 # --- Perform Inference ---
-                xt = torch.randn_like(z_true)  # Start from pure noise
-                y_tokens, _ = set_encoder(obs_coords_rel, obs_values, obs_mask)
-                null_tokens = set_encoder.y_null_token.expand(1, y_tokens.shape[1], -1)
+                x0 = torch.randn_like(z_true)  # Start from pure noise
+                xt = x0.clone()
+                
+                # Get conditioning tokens
+                y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-                for t_step in range(num_timesteps):
-                    t = torch.tensor([t_step / num_timesteps], device=device)
-                    guided_drift = unet_3d(xt, t, context=y_tokens, context_mask=obs_mask)
-                    # For w=1.0, we don't need the unguided drift, simplifying the calculation.
-                    # drift = (1 - guidance_scale) * unguided_drift + guidance_scale * guided_drift
-                    drift = guided_drift
-                    xt = xt + (1 / num_timesteps) * drift
+                # Set up time steps
+                ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
+                ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
 
-                z_est = xt
+                # Set the guidance scale
+                simulator.ode.guidance_scale = guidance_scale
+
+                # Run simulation
+                z_est = simulator.simulate(xt, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
+                                         obs_mask=obs_mask, pooled_context=pooled_context,
+                                         paste_observations=False, obs_indices=obs_indices)
 
                 # --- Calculate and Store LSD ---
                 lsd_normalized = calculate_lsd(z_est.squeeze(0), z_true.squeeze(0))
