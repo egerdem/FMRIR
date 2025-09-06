@@ -8,7 +8,7 @@ import argparse
 
 from fm_utils import (ATF3DSampler, GaussianConditionalProbabilityPath,
     LinearAlpha, LinearBeta,
-    SetEncoder, CrossAttentionUNet3D,ATF3DTrainer
+    SetEncoder, CrossAttentionUNet3D,ATF3DTrainer, CrossAttentionUNet3D_RED3d
                       )
 
 def main(args):
@@ -167,13 +167,21 @@ def main(args):
         num_layers=model_cfg['num_encoder_layers']
     ).to(device)
 
-    unet_3d = CrossAttentionUNet3D(
+    unet_3d = CrossAttentionUNet3D_RED3d(
         in_channels=cube_shape[0],
         out_channels=cube_shape[0],
         channels=model_cfg['channels'],
         d_model=model_cfg['d_model'],
         nhead=model_cfg['nhead']
     ).to(device)
+    #
+    # unet_3d = CrossAttentionUNet3D(
+    #     in_channels=cube_shape[0],
+    #     out_channels=cube_shape[0],
+    #     channels=model_cfg['channels'],
+    #     d_model=model_cfg['d_model'],
+    #     nhead=model_cfg['nhead']
+    # ).to(device)
 
     trainer = ATF3DTrainer(
         path=path,
