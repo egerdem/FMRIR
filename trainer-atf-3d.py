@@ -21,7 +21,7 @@ def main(args):
                  "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to
-                  "architecture_version": "v2_residual_context" },
+                  "architecture_version": args.version },
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "min_lr": args.min_lr,
                      "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma,
@@ -241,6 +241,7 @@ if __name__ == '__main__':
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--checkpoint_interval', type=int, default=20000)
     parser.add_argument('--validation_interval', type=int, default=1000)
+    parser.add_argument('--version', type=str, default="None", help='Model architecture version, e.g. v1, v2, etc.')
 
     # --- Paths ---
     parser.add_argument('--experiments_dir', type=str, default="experiments_3d")
