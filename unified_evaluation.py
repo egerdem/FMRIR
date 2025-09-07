@@ -119,14 +119,12 @@ def load_reference_model(device, freq_up_to):
         atf_mag_est = torch.load(pt_path, weights_only=False)
         atf_mag_gt = data['test']['atf_mag'][dataset_name]
         
-        # Truncate to match your model's frequency range for fair comparison
-        atf_mag_est_truncated = atf_mag_est[:, :freq_up_to, :]
-        atf_mag_gt_truncated = atf_mag_gt[:, :freq_up_to, :]
+        print(f"Reference data loaded: {atf_mag_gt.shape} (Mic, Freq, Src)")
+        print(f"Full reference data: {atf_mag_gt.shape[1]} frequency bins")
+        print(f"Your model uses: {freq_up_to} frequency bins")
         
-        print(f"Reference data loaded: {atf_mag_gt_truncated.shape} (Mic, Freq, Src)")
-        print(f"Using first {freq_up_to} frequency bins for comparison")
-        
-        return atf_mag_est_truncated, atf_mag_gt_truncated, config, data
+        # Return FULL reference data (don't truncate here - let evaluation function handle it)
+        return atf_mag_est, atf_mag_gt, config, data
         
     except Exception as e:
         print(f"Error loading reference model: {e}")
@@ -204,14 +202,55 @@ def evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, 
                                          obs_mask=obs_mask, pooled_context=pooled_context,
                                          paste_observations=True, obs_indices=obs_indices)
                 
-                # Calculate LSD
+                # Calculate BOTH LSD and MSE for comprehensive comparison
+                # Full cube (all 1331 positions)
                 lsd_normalized = calculate_lsd_unified(z_est.squeeze(0), z_true.squeeze(0), freq_dim=0)
                 lsd_db = lsd_normalized.item() * spec_std
-                lsd_scores.append(lsd_db)
+                
+                # Calculate MSE in denormalized domain 
+                z_est_denorm = z_est * spec_std + train_sampler.mean.item()
+                z_true_denorm = z_true * spec_std + train_sampler.mean.item() 
+                mse = torch.mean((z_est_denorm - z_true_denorm) ** 2).item()
+                
+                # M_fundamental evaluation (5 specific positions: [0, 272, 665, 937, 1330])
+                m_fundamental_indices = [0, 272, 665, 937, 1330]
+                
+                # Convert 3D cube to flat format [freq, 1331] for indexing
+                z_est_flat = z_est_denorm.view(z_est_denorm.shape[1], -1)  # [freq, 1331]
+                z_true_flat = z_true_denorm.view(z_true_denorm.shape[1], -1)  # [freq, 1331]
+                z_est_norm_flat = z_est.squeeze(0).view(z_est.shape[1], -1)  # [freq, 1331] normalized
+                z_true_norm_flat = z_true.squeeze(0).view(z_true.shape[1], -1)  # [freq, 1331] normalized
+                
+                # Extract M_fundamental positions
+                lsd_m_fund_normalized = calculate_lsd_unified(
+                    z_est_norm_flat[:, m_fundamental_indices].T,  # [5, freq] 
+                    z_true_norm_flat[:, m_fundamental_indices].T,  # [5, freq]
+                    freq_dim=1  # frequency is now dim=1
+                )
+                lsd_m_fund_db = lsd_m_fund_normalized.item() * spec_std
+                
+                mse_m_fund = torch.mean((z_est_flat[:, m_fundamental_indices] - z_true_flat[:, m_fundamental_indices]) ** 2).item()
+                
+                lsd_scores.append({
+                    'lsd': lsd_db, 'mse': mse,
+                    'lsd_m_fund': lsd_m_fund_db, 'mse_m_fund': mse_m_fund
+                })
+        
+        # Extract LSD and MSE values
+        lsd_values = [score['lsd'] for score in lsd_scores]
+        mse_values = [score['mse'] for score in lsd_scores]
+        lsd_m_fund_values = [score['lsd_m_fund'] for score in lsd_scores]
+        mse_m_fund_values = [score['mse_m_fund'] for score in lsd_scores]
         
         results[M] = {
-            'mean': np.mean(lsd_scores), 
-            'std': np.std(lsd_scores),
+            'lsd_mean': np.mean(lsd_values),
+            'lsd_std': np.std(lsd_values), 
+            'mse_mean': np.mean(mse_values),
+            'mse_std': np.std(mse_values),
+            'lsd_mean_m_fund': np.mean(lsd_m_fund_values),
+            'lsd_std_m_fund': np.std(lsd_m_fund_values),
+            'mse_mean_m_fund': np.mean(mse_m_fund_values),
+            'mse_std_m_fund': np.std(mse_m_fund_values),
             'num_sources_eval': eval_sources
         }
     
@@ -236,13 +275,20 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         eval_sources = total_sources
         print(f"Evaluating on all {eval_sources} sources")
     
-    # Calculate LSD for full frequency range (64 bins)
+    # Calculate BOTH LSD and MSE for comprehensive comparison
     lsd_per_sample_full = []
-    # Calculate LSD for same frequency range as your model (first 20 bins)
     lsd_per_sample_matched = []
+    mse_per_sample_full = []
+    mse_per_sample_matched = []
+    # Add M_fundamental evaluation (5 specific positions)
+    lsd_per_sample_m_fund = []
+    mse_per_sample_m_fund = []
+    
+    # 5 fundamental positions for PDF evaluation
+    m_fundamental_indices = [0, 272, 665, 937, 1330]
     
     for src_idx in tqdm(range(eval_sources), desc="Reference Model"):
-        # Full frequency range LSD
+        # Full frequency range (64 bins)
         lsd_val_full = calculate_lsd_unified(
             atf_mag_est[:, :, src_idx], 
             atf_mag_gt[:, :, src_idx], 
@@ -250,7 +296,32 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         )
         lsd_per_sample_full.append(lsd_val_full.item())
         
-        # Matched frequency range LSD (first your_freq_up_to bins)
+        # MSE for full frequency range (now possible since reference predicts all 1331 positions!)
+        mse_val_full = torch.mean((atf_mag_est[:, :, src_idx] - atf_mag_gt[:, :, src_idx]) ** 2).item()
+        mse_per_sample_full.append(mse_val_full)
+        
+        # M_fundamental evaluation (5 specific positions) - USE MATCHED FREQUENCY RANGE
+        if your_freq_up_to is not None:
+            # Fair comparison: use same frequency range as your model
+            lsd_val_m_fund = calculate_lsd_unified(
+                atf_mag_est[m_fundamental_indices, :your_freq_up_to, src_idx], 
+                atf_mag_gt[m_fundamental_indices, :your_freq_up_to, src_idx], 
+                freq_dim=1
+            )
+            mse_val_m_fund = torch.mean((atf_mag_est[m_fundamental_indices, :your_freq_up_to, src_idx] - atf_mag_gt[m_fundamental_indices, :your_freq_up_to, src_idx]) ** 2).item()
+        else:
+            # Full frequency range if no matching needed
+            lsd_val_m_fund = calculate_lsd_unified(
+                atf_mag_est[m_fundamental_indices, :, src_idx], 
+                atf_mag_gt[m_fundamental_indices, :, src_idx], 
+                freq_dim=1
+            )
+            mse_val_m_fund = torch.mean((atf_mag_est[m_fundamental_indices, :, src_idx] - atf_mag_gt[m_fundamental_indices, :, src_idx]) ** 2).item()
+        
+        lsd_per_sample_m_fund.append(lsd_val_m_fund.item())
+        mse_per_sample_m_fund.append(mse_val_m_fund)
+        
+        # Matched frequency range (first your_freq_up_to bins)
         if your_freq_up_to is not None:
             lsd_val_matched = calculate_lsd_unified(
                 atf_mag_est[:, :your_freq_up_to, src_idx], 
@@ -258,20 +329,42 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
                 freq_dim=1
             )
             lsd_per_sample_matched.append(lsd_val_matched.item())
+            
+            # MSE for matched frequency range
+            mse_val_matched = torch.mean((atf_mag_est[:, :your_freq_up_to, src_idx] - atf_mag_gt[:, :your_freq_up_to, src_idx]) ** 2).item()
+            mse_per_sample_matched.append(mse_val_matched)
     
     result = {
-        'mean': np.mean(lsd_per_sample_full), 
-        'std': np.std(lsd_per_sample_full),
+        'lsd_mean': np.mean(lsd_per_sample_full), 
+        'lsd_std': np.std(lsd_per_sample_full),
+        'mse_mean': np.mean(mse_per_sample_full),
+        'mse_std': np.std(mse_per_sample_full),
+        'lsd_mean_m_fund': np.mean(lsd_per_sample_m_fund),
+        'lsd_std_m_fund': np.std(lsd_per_sample_m_fund),
+        'mse_mean_m_fund': np.mean(mse_per_sample_m_fund),
+        'mse_std_m_fund': np.std(mse_per_sample_m_fund),
         'num_mics': ref_M,
-        'num_sources_eval': eval_sources
+        'num_sources_eval': eval_sources,
+        # For backward compatibility
+        'mean': np.mean(lsd_per_sample_full),
+        'std': np.std(lsd_per_sample_full)
     }
     
     # Add matched frequency range results if available
     if your_freq_up_to is not None and lsd_per_sample_matched:
-        result['mean_matched_freq'] = np.mean(lsd_per_sample_matched)
-        result['std_matched_freq'] = np.std(lsd_per_sample_matched)
-        print(f"Reference LSD (full 64 bins): {result['mean']:.4f} ± {result['std']:.4f} dB")
-        print(f"Reference LSD (first {your_freq_up_to} bins): {result['mean_matched_freq']:.4f} ± {result['std_matched_freq']:.4f} dB")
+        result['lsd_mean_matched_freq'] = np.mean(lsd_per_sample_matched)
+        result['lsd_std_matched_freq'] = np.std(lsd_per_sample_matched)
+        result['mse_mean_matched_freq'] = np.mean(mse_per_sample_matched)
+        result['mse_std_matched_freq'] = np.std(mse_per_sample_matched)
+        result['mean_matched_freq'] = np.mean(lsd_per_sample_matched)  # For backward compatibility
+        
+        print(f"Reference LSD (full 64 bins): {result['lsd_mean']:.4f} ± {result['lsd_std']:.4f} dB")
+        print(f"Reference MSE (full 64 bins): {result['mse_mean']:.4f} ± {result['mse_std']:.4f}")
+        print(f"Reference LSD (first {your_freq_up_to} bins): {result['lsd_mean_matched_freq']:.4f} ± {result['lsd_std_matched_freq']:.4f} dB")
+        print(f"Reference MSE (first {your_freq_up_to} bins): {result['mse_mean_matched_freq']:.4f} ± {result['mse_std_matched_freq']:.4f}")
+        print(f"Reference LSD M_fund (first {your_freq_up_to} bins): {result['lsd_mean_m_fund']:.4f} ± {result['lsd_std_m_fund']:.4f} dB")
+        print(f"Reference MSE M_fund (first {your_freq_up_to} bins): {result['mse_mean_m_fund']:.4f} ± {result['mse_std_m_fund']:.4f}")
+        print(f"✅ FIXED: All reference metrics now use SAME {your_freq_up_to} frequency bins as your model!")
     
     return result
 
@@ -498,7 +591,7 @@ MODEL_LOAD_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000/model.pt", # 2.9339 dB
 
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt", # 2.8967 dB
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt", # 2.8967 dB
     # "/Users/ege/Projects/FMRIR/artifacts/M5to150_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-223838_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to10_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-140802_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204240_iter300000/model.pt",
@@ -508,8 +601,13 @@ MODEL_LOAD_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lrWARM5k_e4_toe7_unet3_20250905-165351_iter300000/model.pt",
 
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt", # 2.8743 dB
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt",
+    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq64_layer4_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_20250907-193657_iter500000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt", # 2.8593 dB
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_lossWeighted_20250907-204302_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt",
+
 ]
 
 
@@ -564,37 +662,48 @@ print("="*80)
 print(f"Your model freq range: 0-{your_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz ({your_freq_up_to} bins)")
 print(f"Reference freq range: 0-{ref_config['fs']//2} Hz ({ref_config['num_freq']} bins)")
 print(f"Sources evaluated: {ref_results['num_sources_eval']} (out of 102 total)")
-print("-"*100)
-print(f"{'Method':<40} | {'LSD Same Freq':<15} | {'LSD Full Range':<15} | {'Std Dev':<10}")
-print("-"*100)
+print()
+print("M_fundamental = 5 specific evaluation positions [0, 272, 665, 937, 1330] for PDFs")
+print("Full cube = All 1331 spatial positions")
+print(f"FAIR COMPARISON: Both models evaluated on same {your_freq_up_to} frequency bins (0-{your_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
+print("-"*140)
+print(f"{'Method':<35} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'Freq Range':<15}")
+print("-"*140)
 
-# Reference model - show both frequency ranges
-ref_same_freq = ref_results.get('mean_matched_freq', ref_results['mean'])
-ref_full_range = ref_results['mean']
-print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<40} | {ref_same_freq:.4f}        | {ref_full_range:.4f}        | {ref_results['std']:.4f}")
+# Reference model - USE MATCHED FREQUENCY RANGE for fair comparison
+ref_lsd_m_fund = ref_results['lsd_mean_m_fund']  # Now uses matched freq range
+ref_mse_m_fund = ref_results['mse_mean_m_fund']  # Now uses matched freq range
+# Use matched frequency range (first 20 bins) for fair comparison
+ref_lsd_full_fair = ref_results.get('lsd_mean_matched_freq', ref_results['lsd_mean'])
+ref_mse_full_fair = ref_results.get('mse_mean_matched_freq', ref_results['mse_mean'])
+
+print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<35} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {f'First {your_freq_up_to} bins':<15}")
 
 # All your models
 for model_name, model_results in all_your_results.items():
     for M in M_values:
         # Truncate long model names for better display
-        display_name = model_name[60:-5] + "..." if len(model_name) > 45 else model_name
-        your_lsd = model_results[M]['mean']
-        print(f"{display_name + f' (M={M})':<40} | {your_lsd:.4f}        | {your_lsd:.4f}        | {model_results[M]['std']:.4f}")
+        display_name = model_name[60:-5] + "..." if len(model_name) > 35 else model_name
+        your_lsd_m_fund = model_results[M]['lsd_mean_m_fund']
+        your_mse_m_fund = model_results[M]['mse_mean_m_fund']
+        your_lsd_full = model_results[M]['lsd_mean']
+        your_mse_full = model_results[M]['mse_mean']
         
-        # Show improvements for both comparisons
-        improvement_same = ref_same_freq - your_lsd
-        improvement_full = ref_full_range - your_lsd
-        print(f"{'→ vs Ref (same freq)':<40} | {improvement_same:+.4f}        | {'N/A':<15} | {'N/A':<10}")
-        print(f"{'→ vs Ref (full range)':<40} | {'N/A':<15} | {improvement_full:+.4f}        | {'N/A':<10}")
-        print("-"*100)
+        print(f"{display_name + f' (M={M})':<35} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {f'First {your_freq_up_to} bins':<15}")
+        
+        # Show improvements for fair comparison
+        lsd_improvement = ref_lsd_full_fair - your_lsd_full
+        mse_improvement = ref_mse_full_fair - your_mse_full
+        print(f"{'→ Improvement over Reference':<35} | {lsd_improvement:+.4f}     | {mse_improvement:+.4f}     | {lsd_improvement:+.4f}     | {mse_improvement:+.4f}     | {'FAIR comparison':<15}")
+        print("-"*140)
 
 # Find best model
 best_model = None
 best_lsd = float('inf')
 for model_name, model_results in all_your_results.items():
     for M in M_values:
-        if model_results[M]['mean'] < best_lsd:
-            best_lsd = model_results[M]['mean']
+        if model_results[M]['lsd_mean'] < best_lsd:
+            best_lsd = model_results[M]['lsd_mean']
             best_model = model_name
 
 print("="*80)

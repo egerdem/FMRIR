@@ -5,12 +5,45 @@ import json
 import time
 import wandb
 import argparse
+from tqdm import tqdm
 
 from fm_utils import (model_factory,
                       ATF3DSampler, GaussianConditionalProbabilityPath,
                       LinearAlpha, LinearBeta,
                       SetEncoder, CrossAttentionUNet3D, ATF3DTrainer, CrossAttentionUNet3D_RED3d
                       )
+
+
+def calculate_and_cache_coord_stats(train_sampler, cache_path="coord_stats.pt"):
+    """
+    Calculates and caches the mean and std of relative coordinates for the training set.
+    """
+    if os.path.exists(cache_path):
+        print(f"Loading cached coordinate stats from {cache_path}")
+        stats = torch.load(cache_path)
+        return stats['mean'], stats['std']
+
+    print("Calculating coordinate stats for the first time... (this may take a moment)")
+    all_rel_coords = []
+
+    # Iterate through all training sources to get all possible relative coordinates
+    for i in tqdm(range(len(train_sampler.source_coords)), desc="Calculating Stats"):
+        src_xyz = train_sampler.source_coords[i].unsqueeze(0)
+        rel_coords = train_sampler.grid_xyz - src_xyz  # Shape [1331, 3]
+        all_rel_coords.append(rel_coords)
+
+    # Concatenate all relative coordinates into a single large tensor
+    full_coords_tensor = torch.cat(all_rel_coords, dim=0)
+
+    # Calculate mean and std along the sample dimension (dim=0)
+    coord_mean = full_coords_tensor.mean(dim=0)
+    coord_std = full_coords_tensor.std(dim=0)
+
+    # Cache the results for future runs
+    print(f"Saving coordinate stats to {cache_path}")
+    torch.save({'mean': coord_mean, 'std': coord_std}, cache_path)
+
+    return coord_mean, coord_std
 
 def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -148,6 +181,11 @@ def main(args):
     atf_valid_sampler.mean = atf_train_sampler.mean
     atf_valid_sampler.std = atf_train_sampler.std
 
+    # ### <<< NEW: Calculate (or load) coordinate statistics
+    # The cache file will be created in the same directory you run the script from.
+    coord_mean, coord_std = calculate_and_cache_coord_stats(atf_train_sampler)
+    print(f"Using Coordinate Stats -> Mean: {coord_mean.numpy()}, Std: {coord_std.numpy()}")
+
     # --- Model and Trainer Initialization ---
 
     # Get cube shape from the sampler for the probability path
@@ -188,7 +226,9 @@ def main(args):
         sigma=training_cfg['sigma'],
         loss_type=training_cfg['loss_type'],
         grid_xyz=atf_train_sampler.grid_xyz,
-        version=model_cfg.get("architecture_version")
+        version=model_cfg.get("architecture_version"),
+        coord_mean = coord_mean,  # Pass the mean here
+        coord_std = coord_std  # Pass the std here
     )
 
     training_cfg['warmup_iterations'] = args.warmup_iterations

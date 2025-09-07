@@ -7,10 +7,32 @@ import numpy as np
 import random
 from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, CFGVectorFieldODE_3D_V2,
                       SetEncoder, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d)
+
+# Import unified LSD function for consistency with unified_evaluation.py
+def calculate_lsd_unified(estimation, ground_truth, freq_dim=1):
+    """
+    Unified LSD calculation that works for both 3D spatial and microphone-based data.
+    Same as unified_evaluation.py for consistency.
+    
+    Args:
+        estimation: Model prediction
+        ground_truth: Ground truth
+        freq_dim: Dimension along which frequency is stored (1 for [B,F,Z,Y,X], 0 for [F,Z,Y,X])
+    
+    Returns:
+        LSD value in dB (normalized domain)
+    """
+    squared_error = (estimation - ground_truth) ** 2
+    lsd_per_position = torch.sqrt(torch.mean(squared_error, dim=freq_dim))
+    return torch.mean(lsd_per_position)
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import json
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Note: Reference AUTOENCODER model cannot generate full 3D cubes for MSE comparison
+# It only predicts at sparse microphone positions, not full spatial grids
+# For reference comparison, use unified_evaluation.py instead
 
 SEED = 42  # You can use any integer you like
 torch.manual_seed(SEED)
@@ -40,7 +62,7 @@ random.seed(SEED)
 
 # --- Multi-Model Configuration ---
 VISUALIZE_slice = True  # Set to True to visualize a single model's slice
-COMPARE = True     # Set to True to show both plots simultaneously
+COMPARE = False     # Set to True to show both plots simultaneously
 
 # Single model path (used when SINGLE_MODEL_MODE = True)
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204240_iter300000/model.pt"
@@ -50,23 +72,26 @@ MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d51
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt"
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt"
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt"
+MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e3_toe4_ETA1e2_unet4_20250907-220148_iter300000/model.pt"
+MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-221902_iter300000/model.pt"
+
 
 
 # Multiple model paths for MSE comparison (used when SINGLE_MODEL_MODE = False)/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt
 MULTI_MODEL_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head4_sigma0ZERO_lr1e4to_e7_unet3_20250904-214817_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-225845_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to10_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-140802_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-154234_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lrWARM5k_e4_toe7_unet3_20250905-165351_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lrWARM5k_e4_toe7_unet3_20250905-173800_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lrWARM5k_e4_toe5_unet3_20250905-182733_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lrWARM5k_e4_toe5_unet3_20250905-182733_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204124_iter500000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204124_iter500000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt",
     "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt",
     "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt"]
 
 # Custom model names for legends (optional, will auto-generate if None)
@@ -83,11 +108,11 @@ MODEL_NAMES = [
 ]
 
 M_range = None
-M_range = [5, 10]
+M_range = [5,10]
 num_examples = 5
 num_timesteps = 10
-guidance_scales = [1.0, 2]
-freq_idx_to_plot = 10  # Pick a frequency channel to visualize
+guidance_scales = [1.0]
+freq_idx_to_plot = 5  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
 
 data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
@@ -212,48 +237,75 @@ def run_single_inference(set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz
                                       obs_mask=obs_mask, pooled_context=pooled_context,
                                       paste_observations=False, obs_indices=obs_indices)
 
-        # Calculate MSE
+        # Calculate BOTH MSE and LSD for comprehensive comparison
         x1_recon_denorm = (x1_recon * std + mean)
+        z_true_denorm = (z_true * std + mean)
+        
+        # MSE: Simple squared error (may favor your model)
         mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
-        mse_results.append(mse)
+        
+        # LSD: Log-spectral distortion (favors reference model)
+        lsd_normalized = calculate_lsd_unified(x1_recon, z_true, freq_dim=1)
+        lsd_db = lsd_normalized.item() * std
+        
+        # Return both metrics
+        mse_results.append({'mse': mse, 'lsd': lsd_db})
 
     return mse_results, M
 
 
-def plot_mse_comparison(all_mse_results, model_names, guidance_scales, save_path=None, block=True):
-    """Create MSE comparison line plot across multiple models"""
-    plt.figure(figsize=(12, 8))
-
-    # Calculate mean and std across examples for each model
+def plot_dual_metric_comparison(all_results, model_names, guidance_scales, save_path=None, block=True):
+    """Create dual MSE+LSD comparison plots across multiple models"""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
     colors = plt.cm.tab10(np.linspace(0, 1, len(model_names)))
 
-    for i, (model_name, mse_data) in enumerate(zip(model_names, all_mse_results)):
-        mse_array = np.array(mse_data)  # Shape: (num_examples, num_guidance_scales)
+    for i, (model_name, results_data) in enumerate(zip(model_names, all_results)):
+        # Extract MSE and LSD data
+        mse_data = [[result['mse'] for result in example] for example in results_data]
+        lsd_data = [[result['lsd'] for result in example] for example in results_data]
+        
+        mse_array = np.array(mse_data)
+        lsd_array = np.array(lsd_data)
+        
         mean_mse = np.mean(mse_array, axis=0)
         std_mse = np.std(mse_array, axis=0)
+        mean_lsd = np.mean(lsd_array, axis=0)
+        std_lsd = np.std(lsd_array, axis=0)
 
-        plt.plot(guidance_scales, mean_mse, 'o-', label=model_name, color=colors[i], linewidth=2, markersize=6)
-        plt.fill_between(guidance_scales, mean_mse - std_mse, mean_mse + std_mse,
-                         alpha=0.2, color=colors[i])
+        # MSE plot
+        ax1.plot(guidance_scales, mean_mse, 'o-', label=model_name, color=colors[i], linewidth=2, markersize=6)
+        ax1.fill_between(guidance_scales, mean_mse - std_mse, mean_mse + std_mse, alpha=0.2, color=colors[i])
+        
+        # LSD plot  
+        ax2.plot(guidance_scales, mean_lsd, 'o-', label=model_name, color=colors[i], linewidth=2, markersize=6)
+        ax2.fill_between(guidance_scales, mean_lsd - std_lsd, mean_lsd + std_lsd, alpha=0.2, color=colors[i])
 
-    plt.xlabel('Guidance Scale (w)', fontsize=12)
-    plt.ylabel('MSE (Full Cube)', fontsize=12)
-    plt.title('MSE Comparison Across Models and Guidance Scales', fontsize=14, fontweight='bold')
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.grid(True, alpha=0.3)
-    plt.yscale('log')  # Log scale for better visualization of MSE differences
+    # Configure MSE plot
+    ax1.set_xlabel('Guidance Scale (w)', fontsize=12)
+    ax1.set_ylabel('MSE (Full Cube)', fontsize=12)
+    ax1.set_title('MSE: May favor Your Model', fontsize=14, fontweight='bold')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    ax1.set_yscale('log')
+    
+    # Configure LSD plot
+    ax2.set_xlabel('Guidance Scale (w)', fontsize=12)
+    ax2.set_ylabel('LSD (Full Cube) [dB]', fontsize=12)
+    ax2.set_title('LSD: May favor Reference Model', fontsize=14, fontweight='bold')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+    ax2.set_yscale('log')
 
     # Add text box with statistics
-    textstr = f'Averaged over {len(all_mse_results[0])} examples\nShaded areas show ±1 std deviation'
+    textstr = f'Averaged over {len(all_results[0])} examples\nShaded areas show ±1 std deviation'
     props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-    plt.text(0.02, 0.98, textstr, transform=plt.gca().transAxes, fontsize=10,
-             verticalalignment='top', bbox=props)
+    fig.text(0.5, 0.02, textstr, ha='center', fontsize=10, bbox=props)
 
     plt.tight_layout()
 
     if save_path:
         plt.savefig(save_path, dpi=200, bbox_inches='tight')
-        print(f"MSE comparison plot saved to: {save_path}")
+        print(f"Dual metric comparison plot saved to: {save_path}")
 
     plt.show(block=block)
 
@@ -485,8 +537,12 @@ if VISUALIZE_slice:
             # De-normalize and plot
             x1_recon_denorm = (x1_recon * std + mean)
             recon_cube_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
+            
+            # Calculate BOTH metrics for comprehensive evaluation
+            lsd_normalized = calculate_lsd_unified(x1_recon, z_true, freq_dim=1)
+            lsd_db = lsd_normalized.item() * std
             mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
-            print(f"Row {row}, w={w}: MSE (full cube) = {mse:.4f}")
+            print(f"Row {row}, w={w}: MSE = {mse:.4f}, LSD = {lsd_db:.4f} dB")
 
             col_idx = g_idx + 3
 
@@ -498,8 +554,8 @@ if VISUALIZE_slice:
             axes[row, col_idx].set_title(f"w={w}" if row == 0 else "")
             axes[row, col_idx].axis('off')
 
-            # Add MSE text under the plot
-            axes[row, col_idx].text(0.5, -0.1, f"MSE: {mse:.4f}",
+            # Add both metrics under the plot
+            axes[row, col_idx].text(0.5, -0.1, f"MSE: {mse:.3f}\nLSD: {lsd_db:.3f} dB",
                                    transform=axes[row, col_idx].transAxes,
                                    ha='center', va='top', fontsize=8)
 
@@ -576,13 +632,15 @@ if COMPARE:
                 guidance_scales, num_timesteps, mean, std, device
             )
             model_mse_results.append(mse_results)
-            print(f"\n    M={M}, MSEs: {[f'{mse:.4f}' for mse in mse_results]}")
+            print(f"\n    M={M}")
+            for j, result in enumerate(mse_results):
+                print(f"      w={guidance_scales[j]}: MSE={result['mse']:.4f}, LSD={result['lsd']:.4f} dB")
 
         all_mse_results.append(model_mse_results)
 
-    # Create MSE comparison plot
-    print(f"\nCreating MSE comparison plot...")
-    plot_mse_comparison(all_mse_results, model_names_used, guidance_scales,
-                       save_path=os.path.join("artifacts", "mse_comparison.png"),
+    # Create dual metric comparison plot
+    print(f"\nCreating dual metric comparison plot...")
+    plot_dual_metric_comparison(all_mse_results, model_names_used, guidance_scales,
+                       save_path=os.path.join("artifacts", "dual_metric_comparison.png"),
                        )
 

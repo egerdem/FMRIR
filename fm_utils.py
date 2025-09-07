@@ -2085,7 +2085,8 @@ class ATFInpaintingTrainer(Trainer):
 
 
 class ATF3DTrainer(Trainer):
-    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, version: bool, **kwargs):
+    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, version: bool,
+                 coord_mean: torch.Tensor, coord_std: torch.Tensor, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
         self.path = path
         self.set_encoder = set_encoder
@@ -2095,6 +2096,10 @@ class ATF3DTrainer(Trainer):
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
 
         self.version = version
+
+        # ### <<< CHANGE 2: Store the coordinate statistics
+        self.coord_mean = coord_mean.to(next(model.parameters()).device)
+        self.coord_std = coord_std.to(next(model.parameters()).device)
 
         self.loss_type = loss_type
         if self.loss_type == 'weighted':
@@ -2127,6 +2132,10 @@ class ATF3DTrainer(Trainer):
             # 3. Gather coordinates and values
             obs_xyz = self.grid_xyz[obs_indices]  # [M, 3]
             obs_coords_rel = obs_xyz - src_xyz[i].unsqueeze(0)  # [M, 3]
+
+            # ### <<< CHANGE 3: Apply the normalization
+            # Use a small epsilon for numerical stability
+            obs_coords_rel = (obs_coords_rel - self.coord_mean) / (self.coord_std + 1e-8)
 
             # Flatten spatial dimensions of the cube to easily gather values
             z_flat = z_full[i].view(C, -1)  # [64, 1331]
