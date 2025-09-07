@@ -187,7 +187,7 @@ def main():
                 # Run simulation
                 z_est = simulator.simulate(xt, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                          obs_mask=obs_mask, pooled_context=pooled_context,
-                                         paste_observations=False, obs_indices=obs_indices)
+                                         paste_observations=True, obs_indices=obs_indices)
 
                 # --- Calculate and Store LSD ---
                 lsd_normalized = calculate_lsd(z_est.squeeze(0), z_true.squeeze(0))

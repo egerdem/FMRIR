@@ -541,7 +541,7 @@ class EulerSimulator(Simulator):
 
         # --- NEW: Optional Data Consistency ("Pasting") Step ---
         if kwargs.get('paste_observations'):
-            print("Pasting known observations into the state after the Euler step.")
+            # print("Pasting known observations into the state after the Euler step.")
             z_true = kwargs.get('z_true')
             x0 = kwargs.get('x0')
             obs_indices = kwargs.get('obs_indices')
@@ -2085,7 +2085,7 @@ class ATFInpaintingTrainer(Trainer):
 
 
 class ATF3DTrainer(Trainer):
-    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, version: bool, **kwargs):
+    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, version: bool, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
         self.path = path
         self.set_encoder = set_encoder
@@ -2095,8 +2095,15 @@ class ATF3DTrainer(Trainer):
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
 
         self.version = version
+
+        self.loss_type = loss_type
+        if self.loss_type == 'weighted':
+            print("--- Using PERCEPTUALLY WEIGHTED training loss. ---")
+        else:
+            print("--- Using STANDARD training loss. ---")
+
         # A learnable embedding for the unconditional (null) case
-        d_model = set_encoder.d_model
+        # d_model = set_encoder.d_model
 
     def make_observation_set(self, z_full, src_xyz):
         B, C, D, H, W = z_full.shape
@@ -2201,8 +2208,25 @@ class ATF3DTrainer(Trainer):
         # The 3D U-Net's forward pass must accept `context` and `context_mask`
         ut_theta = self.model(xt, t, **model_kwargs)
 
-        # 7. Compute the loss
-        loss = torch.mean(torch.square(ut_theta - ut_ref))
+        # 7. Compute the loss based on the selected type
+        if self.loss_type == 'weighted':
+            # --- Perceptually Weighted Loss ---
+            with torch.no_grad():
+                # Un-normalize to get approximate dB magnitudes
+                xt_denorm = xt * self.path.p_data.std + self.path.p_data.mean
+                # Convert from dB to a linear-like scale for weighting
+                xt_linear = 10 ** (xt_denorm / 20.0)
+
+                epsilon = 1e-6
+                weights = 1.0 / (xt_linear + epsilon)
+                weights = torch.clamp(weights, max=10.0)  # Prevent instability
+
+            weighted_error = weights * (ut_theta - ut_ref)
+            loss = torch.mean(torch.square(weighted_error))
+
+        elif self.loss_type == 'standard':  # Default to 'standard'
+            # --- Standard Loss ---
+            loss = torch.mean(torch.square(ut_theta - ut_ref))
 
         return loss
 

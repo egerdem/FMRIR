@@ -25,7 +25,7 @@ def main(args):
                   "architecture_version": args.version},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "min_lr": args.min_lr,
-                     "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma,
+                     "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
                      "validation_interval": args.validation_interval},
         "experiments_dir": args.experiments_dir
     }
@@ -186,6 +186,7 @@ def main(args):
         eta=training_cfg['eta'],
         M_range=training_cfg['M_range'],
         sigma=training_cfg['sigma'],
+        loss_type=training_cfg['loss_type'],
         grid_xyz=atf_train_sampler.grid_xyz,
         version=model_cfg.get("architecture_version")
     )
@@ -234,7 +235,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_encoder_layers', type=int, default=3, help='Layers in the SetEncoder.')
 
     # --- Training ---
-    parser.add_argument('--num_iterations', type=int, default=30)
+    parser.add_argument('--num_iterations', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=4)  # NOTE: Must be small for 3D models
     parser.add_argument('--lr', type=float, default=1e-4, help="now it is peak learning rate after warm-up.")
     parser.add_argument('--warmup_iterations', type=int, default=5000, help="Number of iterations for linear LR warm-up.")
@@ -244,9 +245,12 @@ if __name__ == '__main__':
     parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
+    parser.add_argument('--loss_type', type=str, default='weighted', choices=['standard', 'weighted'],
+                        help='Type of loss function for training: "standard" MSE or "weighted" perceptual MSE.')
     parser.add_argument('--checkpoint_interval', type=int, default=20000)
-    parser.add_argument('--validation_interval', type=int, default=1000)
-    parser.add_argument('--version', type=str, default="None", help='Model architecture version, e.g. v1, v2, etc.')
+    parser.add_argument('--validation_interval', type=int, default=20)
+    parser.add_argument('--version', type=str, default="v1_legacy", help='Model architecture version, e.g. v1, v2, etc.')
+
 
     # --- Paths ---
     parser.add_argument('--experiments_dir', type=str, default="experiments_3d")

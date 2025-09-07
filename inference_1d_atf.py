@@ -148,7 +148,8 @@ def main():
     # Support for multiple models - can be a single path or a list of paths
     MODEL_LOAD_PATH = [
         # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head4_sigma0ZERO_lr1e4to_e7_unet3_20250904-214817_iter300000/model.pt",
-        # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt",
+        "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt",
+        "/Users/ege/Projects/FMRIR/artifacts/M5to150_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-223838_iter300000/model.pt",
         # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-225845_iter300000/model.pt",
         # "/Users/ege/Projects/FMRIR/artifacts/M5to10_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-140802_iter300000/model.pt",
         # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-154234_iter300000/model.pt",
@@ -157,8 +158,9 @@ def main():
         "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lrWARM5k_e4_toe5_unet3_20250905-182733_iter300000/model.pt",
         # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000/model.pt",
         "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204124_iter500000/model.pt",
-        "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt",
-        "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt"
+        # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt",
+        "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt",
+        "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt"
     ]
     
     # Ensure MODEL_LOAD_PATH is always a list for uniform processing
@@ -192,7 +194,7 @@ def main():
     mic_indices = [156, 423, 789, 1045, 1287, 665]  # 5 microphones
     
     M = 5  # Number of conditioning mics
-    guidance = [1.0, 2.0]
+    guidance = [0.5, 1.0, 2.0]
     num_timesteps = 10
     lsd = LSD()
 

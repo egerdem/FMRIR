@@ -26,4 +26,7 @@ find64_holeloss_ATFUNet_M20_20250811-102034_iter60000/
 /AUTOENCODER/src
 /AUTOENCODER/outputs
 /AUTOENCODER
+/artifacts/eval
+*.pdf
+
 

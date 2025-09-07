@@ -39,7 +39,7 @@ random.seed(SEED)
 # MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256_20250827-213218_iter500000/model.pt"
 
 # --- Multi-Model Configuration ---
-VISUALIZE_slice = False  # Set to True to visualize a single model's slice
+VISUALIZE_slice = True  # Set to True to visualize a single model's slice
 COMPARE = True     # Set to True to show both plots simultaneously
 
 # Single model path (used when SINGLE_MODEL_MODE = True)
@@ -48,6 +48,8 @@ MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d51
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to150_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-223838_iter300000/model.pt"
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt"
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt"
+MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt"
+MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt"
 
 
 # Multiple model paths for MSE comparison (used when SINGLE_MODEL_MODE = False)/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt
@@ -63,8 +65,9 @@ MULTI_MODEL_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000/model.pt",
     "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204124_iter500000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt"
-    ]
+    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt",
+    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt",
+    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt"]
 
 # Custom model names for legends (optional, will auto-generate if None)
 MODEL_NAMES = [
@@ -84,8 +87,8 @@ M_range = [5, 10]
 num_examples = 5
 num_timesteps = 10
 guidance_scales = [1.0, 2]
-freq_idx_to_plot = 15  # Pick a frequency channel to visualize
-z_slice_idx_to_plot = 10
+freq_idx_to_plot = 10  # Pick a frequency channel to visualize
+z_slice_idx_to_plot = 5
 
 data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
 
