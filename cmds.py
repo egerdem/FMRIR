@@ -93,12 +93,12 @@ python trainer-atf-3d.py \
 # SCORE MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v2_setv3" \
+    --model_name "M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v1_setv3" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 300000 \
-    --version "v2_residual_context" \
+    --version "v1_legacy" \
     --freq_up_to 20 \
     --lr 1e-4 \
     --warmup_iterations 5000 \
