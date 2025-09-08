@@ -6,7 +6,7 @@ import os
 import numpy as np
 import random
 from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, CFGVectorFieldODE_3D_V2,
-                      SetEncoder, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d)
+                      SetEncoder, SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d)
 
 # Import unified LSD function for consistency with unified_evaluation.py
 def calculate_lsd_unified(estimation, ground_truth, freq_dim=1):
@@ -74,6 +74,7 @@ MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d51
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt"
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e3_toe4_ETA1e2_unet4_20250907-220148_iter300000/model.pt"
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-221902_iter300000/model.pt"
+MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt"
 
 
 
@@ -114,7 +115,7 @@ M_range = [5,10]
 num_examples = 5
 num_timesteps = 10
 guidance_scales = [1.0]
-freq_idx_to_plot = 10  # Pick a frequency channel to visualize
+freq_idx_to_plot = 19  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
 
 data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
@@ -126,15 +127,26 @@ def model_factory(config, model_states_cfg, device):
     model_cfg = config['model']
     # Use the presence of the version key to decide which architecture to build
     architecture = model_cfg.get('architecture_version')
+    setversion = model_cfg.get('setencoder_version')
 
-    # --- Instantiate models based on version ---
-    set_encoder = SetEncoder(
-        num_freqs=model_cfg['freq_up_to'],
-        # num_freqs=train_sampler.cubes.shape[1],
-        d_model=model_cfg['d_model'],
-        nhead=model_cfg['nhead'],
-        num_layers=model_cfg['num_encoder_layers']
-    ).to(device)
+    if setversion == "v3":
+        print("--- Creating set encoder v3 ---")
+        # --- Instantiate models based on version ---
+        set_encoder = SetEncoder(
+            num_freqs=model_cfg['freq_up_to'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead'],
+            num_layers=model_cfg['num_encoder_layers']
+        ).to(device)
+
+    elif setversion == "v12" or setversion is None:
+        print("--- Creating set encoder v12 ---")
+        set_encoder = SetEncoder_v12(
+            num_freqs=model_cfg['freq_up_to'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead'],
+            num_layers=model_cfg['num_encoder_layers']
+        ).to(device)
 
     if architecture == "v2_residual_context":
         print("--- Creating (v2) architecture ---")
@@ -342,307 +354,308 @@ def load_model_and_config(model_path, device):
 #
 #     return set_encoder, unet_3d
 
+if __name__ == '__main__':
 
-# --- Main Execution Logic ---
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # --- Main Execution Logic ---
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# --- Load minimal config for data samplers (needed for both modes) ---
-checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
-config = checkpoint.get('config', {})
-data_dir = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"  # Override with local
-src_split = config['data']['src_splits']
-freq_up_to = config['model'].get('freq_up_to')
+    # --- Load minimal config for data samplers (needed for both modes) ---
+    checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+    config = checkpoint.get('config', {})
+    data_dir = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"  # Override with local
+    src_split = config['data']['src_splits']
+    freq_up_to = config['model'].get('freq_up_to')
 
-if VISUALIZE_slice:
-    MODEL_NAME = get_model_name(MODEL_LOAD_PATH)
-    print(f"=== SINGLE MODEL MODE ===")
-    print(f"Model artifact: {MODEL_NAME}")
-    
-    training_params = config.get('training', {})
-    sigma_train = training_params.get('sigma')
-    model_mode = config["training"].get('model_mode', "spatial")
-    
-    print("\n--- Automatically Configured from Loaded Model ---")
-    print(f"  Training Sigma: {sigma_train:.4f}")
-    print("--------------------------------------------------\n")
+    if VISUALIZE_slice:
+        MODEL_NAME = get_model_name(MODEL_LOAD_PATH)
+        print(f"=== SINGLE MODEL MODE ===")
+        print(f"Model artifact: {MODEL_NAME}")
 
-model_states_cfg = checkpoint['model_states']
-# --- KEY CHANGE: Detect Model Type ---
-# Check if the checkpoint has keys associated with the 3D model
-# is_3d_model = 'set_encoder' in model_states_cfg
+        training_params = config.get('training', {})
+        sigma_train = training_params.get('sigma')
+        model_mode = config["training"].get('model_mode', "spatial")
 
-# if is_3d_model:
-print("--- Detected 3D Conditional Generation Model ---")
+        print("\n--- Automatically Configured from Loaded Model ---")
+        print(f"  Training Sigma: {sigma_train:.4f}")
+        print("--------------------------------------------------\n")
 
-# --- CONFIGURATION FOR VISUALIZATION ---
-PLOT_3D = True  # Set to True to generate a separate 3D scatter plot
-data_config_path = os.path.join(data_dir, "config.json")
-with open(data_config_path, 'r') as f:
-    data_config = json.load(f)
-room_dim = data_config.get('room_dim')
-center = data_config.get('center')
+    model_states_cfg = checkpoint['model_states']
+    # --- KEY CHANGE: Detect Model Type ---
+    # Check if the checkpoint has keys associated with the 3D model
+    # is_3d_model = 'set_encoder' in model_states_cfg
 
-# --- 1. Data Loading (Shared for both modes) ---
-# Create train sampler to get normalization stats and grid coordinates
-train_sampler = ATF3DSampler(
-    data_path=data_dir, mode='train', src_splits=src_split, normalize=True, freq_up_to=freq_up_to
-)
-# Create test sampler with raw data
-test_sampler = ATF3DSampler(
-    data_path=data_dir, mode='test', src_splits=src_split, normalize=False, freq_up_to=freq_up_to
-)
-# Normalize the test data using the stats from the training set
-test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
+    # if is_3d_model:
+    print("--- Detected 3D Conditional Generation Model ---")
 
-grid_xyz = train_sampler.grid_xyz.to(device)
-mean = train_sampler.mean.item()
-std = train_sampler.std.item()
+    # --- CONFIGURATION FOR VISUALIZATION ---
+    PLOT_3D = True  # Set to True to generate a separate 3D scatter plot
+    data_config_path = os.path.join(data_dir, "config.json")
+    with open(data_config_path, 'r') as f:
+        data_config = json.load(f)
+    room_dim = data_config.get('room_dim')
+    center = data_config.get('center')
 
-print(f"Loaded Stats from 3D Training Set: Mean={mean:.4f}, Std={std:.4f}")
+    # --- 1. Data Loading (Shared for both modes) ---
+    # Create train sampler to get normalization stats and grid coordinates
+    train_sampler = ATF3DSampler(
+        data_path=data_dir, mode='train', src_splits=src_split, normalize=True, freq_up_to=freq_up_to
+    )
+    # Create test sampler with raw data
+    test_sampler = ATF3DSampler(
+        data_path=data_dir, mode='test', src_splits=src_split, normalize=False, freq_up_to=freq_up_to
+    )
+    # Normalize the test data using the stats from the training set
+    test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
 
-if VISUALIZE_slice:
-    # --- Set M_range ---
-    if M_range is None:
-        M_range = config['training'].get('M_range')
+    grid_xyz = train_sampler.grid_xyz.to(device)
+    mean = train_sampler.mean.item()
+    std = train_sampler.std.item()
 
-    # --- 2. Use the factory to get the correct models ---
-    set_encoder, unet_3d, ode_3d, is_new_model = model_factory(config, model_states_cfg, device)
+    print(f"Loaded Stats from 3D Training Set: Mean={mean:.4f}, Std={std:.4f}")
 
-    # --- 4. Original Inference & Visualization ---
-    simulator = EulerSimulator(ode=ode_3d)
+    if VISUALIZE_slice:
+        # --- Set M_range ---
+        if M_range is None:
+            M_range = config['training'].get('M_range')
 
-    # --- SETUP THE PLOT GRID ---
-    # Add an extra column at the far left for a 3D snapshot view
-    num_cols = 3 + len(guidance_scales)
-    fig, axes = plt.subplots(num_examples, num_cols, figsize=(4.5 * num_cols, 4 * num_examples), squeeze=False)
-    fig.suptitle(
-        f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}, Z-Slice={z_slice_idx_to_plot}) | {MODEL_NAME}",
-        fontsize=16)
-    #add another subtitle at the next line
-    best_val_loss = checkpoint.get('best_val_loss', {})
-    best_iteration = checkpoint.get('best_iteration', {})
-    fig.text(0.5, 0.92, f"Best Val Loss: {best_val_loss:.4f} at Iteration {best_iteration}", ha='center', fontsize=12)
-
-    center_np = np.array(center)
-
-    for row in range(num_examples):
-    # Get a random ground truth sample
-
-        z_true, src_xyz = test_sampler.sample(1)
-        z_true, src_xyz = z_true.to(device), src_xyz.to(device)
-
-        # --- Create a sparse observation set on the fly ---
-        M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
-        obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
-        # print("obs_indices:", obs_indices.shape, obs_indices)
-        obs_xyz_abs = grid_xyz[obs_indices]
-        # print("obs_xyz_abs:", obs_xyz_abs.shape, obs_xyz_abs)
-        obs_coords_rel = obs_xyz_abs - src_xyz
-
-        z_flat = z_true.view(z_true.shape[1], -1)
-        obs_values = z_flat[:, obs_indices].transpose(0, 1)
-
-        # Batchify for the set encoder
-        obs_coords_rel = obs_coords_rel.unsqueeze(0)
-        obs_values = obs_values.unsqueeze(0)
-        obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
-
-        # --- Plot Ground Truth and Sparse Input ---
-        z_true_denorm = (z_true * std + mean)
-        gt_cube_raw = z_true_denorm[0, freq_idx_to_plot].cpu().numpy()  # This is the (11, 11, 11) cube
-
-        gt_slice = gt_cube_raw[z_slice_idx_to_plot, :, :]  # Select the specific slice
-
-        axes[row, 1].imshow(gt_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(), vmax=gt_slice.max())
-        axes[row, 1].set_title("True (Z-projection)" if row == 0 else "")
-        axes[row, 1].axis('off')
-
-        # --- NEW: Plot Sparse Input (2D Scatter Projection) ---
-        ax_scatter = axes[row, 2]
-        obs_xyz_plot = obs_xyz_abs.cpu().numpy()
-        # Plot X vs Y, and use Z for the color
-        sc = ax_scatter.scatter(obs_xyz_plot[:, 0], obs_xyz_plot[:, 1], c=obs_xyz_plot[:, 2], cmap='coolwarm', s=20,
-                                vmin=-0.5, vmax=0.5)
-        ax_scatter.set_title(f"Input Mics" if row == 0 else "")
-        ax_scatter.set_aspect('equal', adjustable='box')
-        ax_scatter.set_xlim(-0.6, 0.6);
-        ax_scatter.set_ylim(-0.6, 0.6)  # Example limits
-        ax_scatter.set_xticks([]);
-        ax_scatter.set_yticks([])
-
-        cbar_z = fig.colorbar(sc, ax=ax_scatter, fraction=0.046, pad=0.04)
-        cbar_z.set_label('Z-height (m)', size=8)
-        cbar_z.ax.tick_params(labelsize=7)
-
-        # Show per-row microphone count BETWEEN GT and scatter columns
-        pos_gt = axes[row, 1].get_position(fig)
-        pos_sc = axes[row, 2].get_position(fig)
-        x_mid_M = (pos_gt.x1 + pos_sc.x0) * 0.5
-        y_mid_row = (pos_gt.y0 + pos_gt.y1) * 0.5
-        fig.text(x_mid_M - 0.03, y_mid_row, f"M={M}", ha='center', va='center', fontsize=9)
-
-        gs = axes[row, 0].get_gridspec()
-        axes[row, 0].remove()
-        ax3d_inline = fig.add_subplot(gs[row, 0], projection='3d')
-
-        # Room box
-        plot_room_box(ax3d_inline, room_dim)
-
-        # Global positions for plotting
-        obs_xyz_global = obs_xyz_abs.cpu().numpy() + center_np
-        src_xyz_global = src_xyz.cpu().numpy() + center_np
-
-        # Scatter microphones and source
-        ax3d_inline.scatter(
-            obs_xyz_global[:, 0], obs_xyz_global[:, 1], obs_xyz_global[:, 2],
-            s=20, c='b'
-        )
-        ax3d_inline.scatter(
-            src_xyz_global[0, 0], src_xyz_global[0, 1], src_xyz_global[0, 2],
-            s=60, c='r', marker='*'
-        )
-
-        # Labels and limits
-        ax3d_inline.set_xlabel('X (m)');
-        ax3d_inline.set_ylabel('Y (m)');
-        ax3d_inline.set_zlabel('Z (m)')
-        ax3d_inline.set_title('Room (3D)' if row == 0 else '')
-
-        # --- Generate for each guidance scale ---
-
-        for g_idx, w in enumerate(guidance_scales):
-
-            # Start from pure noise
-            x0 = torch.randn_like(z_true)
-            xt = x0.clone()  # The simulation starts from x0
-            # Get conditioning tokens
-            y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
-
-            ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
-            ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
-
-            # Set the guidance scale on the ODE object
-            simulator.ode.guidance_scale = w
-
-            # Simulation loop
-            x1_recon = simulator.simulate(xt,
-                                          ts,
-                                          x0=x0,
-                                          z_true=z_true,
-                                          y_tokens=y_tokens,
-                                          obs_mask=obs_mask,
-                                          pooled_context=pooled_context,  # <<< ADD THIS LINE
-                                          paste_observations=False,
-                                          obs_indices=obs_indices
-                                          )
-
-            # De-normalize and plot
-            x1_recon_denorm = (x1_recon * std + mean)
-            recon_cube_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
-            
-            # Calculate BOTH metrics for comprehensive evaluation
-            lsd_normalized = calculate_lsd_unified(x1_recon, z_true, freq_dim=1)
-            lsd_db = lsd_normalized.item() * std
-            mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
-            print(f"Row {row}, w={w}: MSE = {mse:.4f}, LSD = {lsd_db:.4f} dB")
-
-            col_idx = g_idx + 3
-
-            recon_slice = recon_cube_to_plot[z_slice_idx_to_plot, :, :]  # Select the same slice
-            im = axes[row, col_idx].imshow(recon_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(),
-                                           vmax=gt_slice.max())
-
-            # Set title and add MSE text under the plot
-            axes[row, col_idx].set_title(f"w={w}" if row == 0 else "")
-            axes[row, col_idx].axis('off')
-
-            # Add both metrics under the plot
-            axes[row, col_idx].text(0.5, -0.1, f"MSE: {mse:.3f}\nLSD: {lsd_db:.3f} dB",
-                                   transform=axes[row, col_idx].transAxes,
-                                   ha='center', va='top', fontsize=8)
-
-        # Shared colorbar for GT and generated columns (exclude scatter input)
-        ax_list = [axes[row, 1]] + [axes[row, i + 3] for i in range(len(guidance_scales))]
-        mappable = matplotlib.cm.ScalarMappable(
-            norm=matplotlib.colors.Normalize(vmin=gt_slice.min(), vmax=gt_slice.max()), cmap='viridis'
-        )
-        cbar_mag = fig.colorbar(mappable, ax=ax_list, fraction=0.046, pad=0.04)
-        cbar_mag.set_label('Magnitude (dB)', size=8)
-        cbar_mag.ax.tick_params(labelsize=7)
-
-    # plt.tight_layout(rect=[0, 0.03, 1, 0.95], h_pad=0.5, w_pad=1.5)
-    plt.show()
-
-    model_dir = os.path.dirname(MODEL_LOAD_PATH)
-    outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}.png"
-
-    if os.path.exists(os.path.join("artifacts", outfile_name)):
-         rand = 5
-         outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}_{rand}.png"
-
-    save_path = os.path.join(model_dir, outfile_name)
-    print(f"Saving figure to: {save_path}")
-    fig.savefig(save_path, dpi=200, bbox_inches='tight')
-
-if COMPARE:
-    # --- Set M_range for comparison mode ---
-    if M_range is None:
-        M_range = config['training'].get('M_range')
-
-    print(f"=== MULTI-MODEL MSE COMPARISON ===")
-    MODEL_NAME = get_model_name(MODEL_LOAD_PATH)
-    print(f"Comparing {len(MULTI_MODEL_PATHS)} models:")
-    for i, path in enumerate(MULTI_MODEL_PATHS):
-        model_name = MODEL_NAMES[i] if MODEL_NAMES and i < len(MODEL_NAMES) else get_model_name(path)
-        print(f"  {i + 1}. {model_name}")
-    print()
-
-    # --- MULTI-MODEL MSE COMPARISON MODE ---
-    print("Running MSE comparison across multiple models...")
-
-    # Prepare to collect MSE results for all models
-    all_mse_results = []
-    model_names_used = []
-
-    # Process each model
-    for model_idx, model_path in enumerate(MULTI_MODEL_PATHS):
-        print(f"\nProcessing model {model_idx + 1}/{len(MULTI_MODEL_PATHS)}: {get_model_name(model_path)}")
-
-        # Load model
-        checkpoint, config, model_states_cfg = load_model_and_config(model_path, device)
-
-        # Create and load models
+        # --- 2. Use the factory to get the correct models ---
         set_encoder, unet_3d, ode_3d, is_new_model = model_factory(config, model_states_cfg, device)
 
-        # Get model name
-        model_name = MODEL_NAMES[model_idx] if MODEL_NAMES and model_idx < len(MODEL_NAMES) else get_model_name(model_path)
-        model_names_used.append(model_name)
+        # --- 4. Original Inference & Visualization ---
+        simulator = EulerSimulator(ode=ode_3d)
 
-        # Run inference for multiple examples
-        model_mse_results = []
-        for example_idx in range(num_examples):
-            print(f"  Example {example_idx + 1}/{num_examples}")
+        # --- SETUP THE PLOT GRID ---
+        # Add an extra column at the far left for a 3D snapshot view
+        num_cols = 3 + len(guidance_scales)
+        fig, axes = plt.subplots(num_examples, num_cols, figsize=(4.5 * num_cols, 4 * num_examples), squeeze=False)
+        fig.suptitle(
+            f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}, Z-Slice={z_slice_idx_to_plot}) | {MODEL_NAME}",
+            fontsize=16)
+        #add another subtitle at the next line
+        best_val_loss = checkpoint.get('best_val_loss', {})
+        best_iteration = checkpoint.get('best_iteration', {})
+        fig.text(0.5, 0.92, f"Best Val Loss: {best_val_loss:.4f} at Iteration {best_iteration}", ha='center', fontsize=12)
 
-            # Get a random ground truth sample (using same seed for consistency)
-            torch.manual_seed(SEED + example_idx)  # Consistent samples across models
+        center_np = np.array(center)
+
+        for row in range(num_examples):
+        # Get a random ground truth sample
+
             z_true, src_xyz = test_sampler.sample(1)
             z_true, src_xyz = z_true.to(device), src_xyz.to(device)
 
-            # Run inference for this example
-            mse_results, M = run_single_inference(
-                set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz, M_range,
-                guidance_scales, num_timesteps, mean, std, device
+            # --- Create a sparse observation set on the fly ---
+            M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
+            obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
+            # print("obs_indices:", obs_indices.shape, obs_indices)
+            obs_xyz_abs = grid_xyz[obs_indices]
+            # print("obs_xyz_abs:", obs_xyz_abs.shape, obs_xyz_abs)
+            obs_coords_rel = obs_xyz_abs - src_xyz
+
+            z_flat = z_true.view(z_true.shape[1], -1)
+            obs_values = z_flat[:, obs_indices].transpose(0, 1)
+
+            # Batchify for the set encoder
+            obs_coords_rel = obs_coords_rel.unsqueeze(0)
+            obs_values = obs_values.unsqueeze(0)
+            obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
+
+            # --- Plot Ground Truth and Sparse Input ---
+            z_true_denorm = (z_true * std + mean)
+            gt_cube_raw = z_true_denorm[0, freq_idx_to_plot].cpu().numpy()  # This is the (11, 11, 11) cube
+
+            gt_slice = gt_cube_raw[z_slice_idx_to_plot, :, :]  # Select the specific slice
+
+            axes[row, 1].imshow(gt_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(), vmax=gt_slice.max())
+            axes[row, 1].set_title("True (Z-projection)" if row == 0 else "")
+            axes[row, 1].axis('off')
+
+            # --- NEW: Plot Sparse Input (2D Scatter Projection) ---
+            ax_scatter = axes[row, 2]
+            obs_xyz_plot = obs_xyz_abs.cpu().numpy()
+            # Plot X vs Y, and use Z for the color
+            sc = ax_scatter.scatter(obs_xyz_plot[:, 0], obs_xyz_plot[:, 1], c=obs_xyz_plot[:, 2], cmap='coolwarm', s=20,
+                                    vmin=-0.5, vmax=0.5)
+            ax_scatter.set_title(f"Input Mics" if row == 0 else "")
+            ax_scatter.set_aspect('equal', adjustable='box')
+            ax_scatter.set_xlim(-0.6, 0.6);
+            ax_scatter.set_ylim(-0.6, 0.6)  # Example limits
+            ax_scatter.set_xticks([]);
+            ax_scatter.set_yticks([])
+
+            cbar_z = fig.colorbar(sc, ax=ax_scatter, fraction=0.046, pad=0.04)
+            cbar_z.set_label('Z-height (m)', size=8)
+            cbar_z.ax.tick_params(labelsize=7)
+
+            # Show per-row microphone count BETWEEN GT and scatter columns
+            pos_gt = axes[row, 1].get_position(fig)
+            pos_sc = axes[row, 2].get_position(fig)
+            x_mid_M = (pos_gt.x1 + pos_sc.x0) * 0.5
+            y_mid_row = (pos_gt.y0 + pos_gt.y1) * 0.5
+            fig.text(x_mid_M - 0.03, y_mid_row, f"M={M}", ha='center', va='center', fontsize=9)
+
+            gs = axes[row, 0].get_gridspec()
+            axes[row, 0].remove()
+            ax3d_inline = fig.add_subplot(gs[row, 0], projection='3d')
+
+            # Room box
+            plot_room_box(ax3d_inline, room_dim)
+
+            # Global positions for plotting
+            obs_xyz_global = obs_xyz_abs.cpu().numpy() + center_np
+            src_xyz_global = src_xyz.cpu().numpy() + center_np
+
+            # Scatter microphones and source
+            ax3d_inline.scatter(
+                obs_xyz_global[:, 0], obs_xyz_global[:, 1], obs_xyz_global[:, 2],
+                s=20, c='b'
             )
-            model_mse_results.append(mse_results)
-            print(f"\n    M={M}")
-            for j, result in enumerate(mse_results):
-                print(f"      w={guidance_scales[j]}: MSE={result['mse']:.4f}, LSD={result['lsd']:.4f} dB")
+            ax3d_inline.scatter(
+                src_xyz_global[0, 0], src_xyz_global[0, 1], src_xyz_global[0, 2],
+                s=60, c='r', marker='*'
+            )
 
-        all_mse_results.append(model_mse_results)
+            # Labels and limits
+            ax3d_inline.set_xlabel('X (m)');
+            ax3d_inline.set_ylabel('Y (m)');
+            ax3d_inline.set_zlabel('Z (m)')
+            ax3d_inline.set_title('Room (3D)' if row == 0 else '')
 
-    # Create dual metric comparison plot
-    print(f"\nCreating dual metric comparison plot...")
-    plot_dual_metric_comparison(all_mse_results, model_names_used, guidance_scales,
-                       save_path=os.path.join("artifacts", "dual_metric_comparison.png"),
-                       )
+            # --- Generate for each guidance scale ---
+
+            for g_idx, w in enumerate(guidance_scales):
+
+                # Start from pure noise
+                x0 = torch.randn_like(z_true)
+                xt = x0.clone()  # The simulation starts from x0
+                # Get conditioning tokens
+                y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+                ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
+                ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
+
+                # Set the guidance scale on the ODE object
+                simulator.ode.guidance_scale = w
+
+                # Simulation loop
+                x1_recon = simulator.simulate(xt,
+                                              ts,
+                                              x0=x0,
+                                              z_true=z_true,
+                                              y_tokens=y_tokens,
+                                              obs_mask=obs_mask,
+                                              pooled_context=pooled_context,  # <<< ADD THIS LINE
+                                              paste_observations=False,
+                                              obs_indices=obs_indices
+                                              )
+
+                # De-normalize and plot
+                x1_recon_denorm = (x1_recon * std + mean)
+                recon_cube_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
+
+                # Calculate BOTH metrics for comprehensive evaluation
+                lsd_normalized = calculate_lsd_unified(x1_recon, z_true, freq_dim=1)
+                lsd_db = lsd_normalized.item() * std
+                mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
+                print(f"Row {row}, w={w}: MSE = {mse:.4f}, LSD = {lsd_db:.4f} dB")
+
+                col_idx = g_idx + 3
+
+                recon_slice = recon_cube_to_plot[z_slice_idx_to_plot, :, :]  # Select the same slice
+                im = axes[row, col_idx].imshow(recon_slice, origin='lower', cmap='viridis', vmin=gt_slice.min(),
+                                               vmax=gt_slice.max())
+
+                # Set title and add MSE text under the plot
+                axes[row, col_idx].set_title(f"w={w}" if row == 0 else "")
+                axes[row, col_idx].axis('off')
+
+                # Add both metrics under the plot
+                axes[row, col_idx].text(0.5, -0.1, f"MSE: {mse:.3f}\nLSD: {lsd_db:.3f} dB",
+                                       transform=axes[row, col_idx].transAxes,
+                                       ha='center', va='top', fontsize=8)
+
+            # Shared colorbar for GT and generated columns (exclude scatter input)
+            ax_list = [axes[row, 1]] + [axes[row, i + 3] for i in range(len(guidance_scales))]
+            mappable = matplotlib.cm.ScalarMappable(
+                norm=matplotlib.colors.Normalize(vmin=gt_slice.min(), vmax=gt_slice.max()), cmap='viridis'
+            )
+            cbar_mag = fig.colorbar(mappable, ax=ax_list, fraction=0.046, pad=0.04)
+            cbar_mag.set_label('Magnitude (dB)', size=8)
+            cbar_mag.ax.tick_params(labelsize=7)
+
+        # plt.tight_layout(rect=[0, 0.03, 1, 0.95], h_pad=0.5, w_pad=1.5)
+        plt.show()
+
+        model_dir = os.path.dirname(MODEL_LOAD_PATH)
+        outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}.png"
+
+        if os.path.exists(os.path.join("artifacts", outfile_name)):
+             rand = 5
+             outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}_{rand}.png"
+
+        save_path = os.path.join(model_dir, outfile_name)
+        print(f"Saving figure to: {save_path}")
+        fig.savefig(save_path, dpi=200, bbox_inches='tight')
+
+    if COMPARE:
+        # --- Set M_range for comparison mode ---
+        if M_range is None:
+            M_range = config['training'].get('M_range')
+
+        print(f"=== MULTI-MODEL MSE COMPARISON ===")
+        MODEL_NAME = get_model_name(MODEL_LOAD_PATH)
+        print(f"Comparing {len(MULTI_MODEL_PATHS)} models:")
+        for i, path in enumerate(MULTI_MODEL_PATHS):
+            model_name = MODEL_NAMES[i] if MODEL_NAMES and i < len(MODEL_NAMES) else get_model_name(path)
+            print(f"  {i + 1}. {model_name}")
+        print()
+
+        # --- MULTI-MODEL MSE COMPARISON MODE ---
+        print("Running MSE comparison across multiple models...")
+
+        # Prepare to collect MSE results for all models
+        all_mse_results = []
+        model_names_used = []
+
+        # Process each model
+        for model_idx, model_path in enumerate(MULTI_MODEL_PATHS):
+            print(f"\nProcessing model {model_idx + 1}/{len(MULTI_MODEL_PATHS)}: {get_model_name(model_path)}")
+
+            # Load model
+            checkpoint, config, model_states_cfg = load_model_and_config(model_path, device)
+
+            # Create and load models
+            set_encoder, unet_3d, ode_3d, is_new_model = model_factory(config, model_states_cfg, device)
+
+            # Get model name
+            model_name = MODEL_NAMES[model_idx] if MODEL_NAMES and model_idx < len(MODEL_NAMES) else get_model_name(model_path)
+            model_names_used.append(model_name)
+
+            # Run inference for multiple examples
+            model_mse_results = []
+            for example_idx in range(num_examples):
+                print(f"  Example {example_idx + 1}/{num_examples}")
+
+                # Get a random ground truth sample (using same seed for consistency)
+                torch.manual_seed(SEED + example_idx)  # Consistent samples across models
+                z_true, src_xyz = test_sampler.sample(1)
+                z_true, src_xyz = z_true.to(device), src_xyz.to(device)
+
+                # Run inference for this example
+                mse_results, M = run_single_inference(
+                    set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz, M_range,
+                    guidance_scales, num_timesteps, mean, std, device
+                )
+                model_mse_results.append(mse_results)
+                print(f"\n    M={M}")
+                for j, result in enumerate(mse_results):
+                    print(f"      w={guidance_scales[j]}: MSE={result['mse']:.4f}, LSD={result['lsd']:.4f} dB")
+
+            all_mse_results.append(model_mse_results)
+
+        # Create dual metric comparison plot
+        print(f"\nCreating dual metric comparison plot...")
+        plot_dual_metric_comparison(all_mse_results, model_names_used, guidance_scales,
+                           save_path=os.path.join("artifacts", "dual_metric_comparison.png"),
+                           )
 

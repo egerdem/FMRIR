@@ -6,7 +6,7 @@ from tqdm import tqdm
 import matplotlib
 matplotlib.use('Qt5Agg', force=True)  # Same as eval_AUTOENCODER.py
 from matplotlib import pyplot as plt
-
+from inference import model_factory, load_model_and_config
 # Your model imports
 from fm_utils import (
     ATF3DSampler, SetEncoder, 
@@ -604,11 +604,11 @@ MODEL_LOAD_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt", # 2.8743 dB
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq64_layer4_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_20250907-193657_iter500000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt", # 2.8593 dB
+    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt", # 2.8593 dB
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_lossWeighted_20250907-204302_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-231553_iter300000/model.pt",
-
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-231553_iter300000/model.pt",
+    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt"
 ]
 
 
@@ -637,18 +637,24 @@ your_freq_up_to = None
 
 for i, (model_path, model_name) in enumerate(zip(MODEL_LOAD_PATHS, MODEL_NAMES)):
     print(f"Loading model {i+1}/{len(MODEL_LOAD_PATHS)}: {model_name}")
-    set_encoder, unet_3d, ode_3d, your_config = load_your_model(model_path, device)
+
+    checkpoint, config, model_states_cfg = load_model_and_config(model_path, device)
+
+    # Create and load models
+    set_encoder, unet_3d, ode_3d, is_new_model = model_factory(config, model_states_cfg, device)
+    # set_encoder, unet_3d, ode_3d, your_config = load_your_model(model_path, device)
     
     if your_freq_up_to is None:
-        your_freq_up_to = your_config['model']['freq_up_to']
+        freq_up_to = config['model'].get('freq_up_to')
+        # freq_up_to = your_config['model']['freq_up_to']
         print(f"Model frequency range: {your_freq_up_to}")
     
     # Evaluate this model
-    model_results, idx_mes_pos_mat = evaluate_your_model(set_encoder, unet_3d, ode_3d, your_config, M_values, device, num_sources_eval)
+    model_results, idx_mes_pos_mat = evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, num_sources_eval)
     all_your_results[model_name] = model_results
     
     # Store model components for later plotting (avoid reloading best model)
-    all_your_predictions[model_name] = (set_encoder, unet_3d, ode_3d, your_config)
+    all_your_predictions[model_name] = (set_encoder, unet_3d, ode_3d, config)
 
 # Load and evaluate reference model
 print("\n2. Loading reference AUTOENCODER model...")

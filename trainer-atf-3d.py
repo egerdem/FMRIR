@@ -55,7 +55,7 @@ def main(args):
                  "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
-                  "architecture_version": args.version},
+                  "architecture_version": args.version, "setencoder_version": args.setencoderversion},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "min_lr": args.min_lr,
                      "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
@@ -227,6 +227,7 @@ def main(args):
         loss_type=training_cfg['loss_type'],
         grid_xyz=atf_train_sampler.grid_xyz,
         version=model_cfg.get("architecture_version"),
+        setencoderversion=model_cfg.get("setencoder_version"),
         coord_mean = coord_mean,  # Pass the mean here
         coord_std = coord_std  # Pass the std here
     )
@@ -290,6 +291,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint_interval', type=int, default=20000)
     parser.add_argument('--validation_interval', type=int, default=20)
     parser.add_argument('--version', type=str, default="v1_legacy", help='Model architecture version, e.g. v1, v2, etc.')
+    parser.add_argument('--setencoder_version', type=str, default="v3", help='setencoder architecture version, e.g. v12:merged feature, v3:pos embed')
 
 
     # --- Paths ---

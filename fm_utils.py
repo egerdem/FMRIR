@@ -23,15 +23,27 @@ def model_factory(config, device):
     model_cfg = config['model']
     # Use the presence of the version key to decide which architecture to build
     architecture = model_cfg.get('architecture_version')
+    setversion = model_cfg.get('setencoder_version')
 
     # --- Instantiate models based on version ---
-    set_encoder = SetEncoder(
-        num_freqs=model_cfg['freq_up_to'],
-        # num_freqs=train_sampler.cubes.shape[1],
-        d_model=model_cfg['d_model'],
-        nhead=model_cfg['nhead'],
-        num_layers=model_cfg['num_encoder_layers']
-    ).to(device)
+    if setversion == "v3":
+        print("--- Creating set encoder v3 ---")
+        # --- Instantiate models based on version ---
+        set_encoder = SetEncoder(
+            num_freqs=model_cfg['freq_up_to'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead'],
+            num_layers=model_cfg['num_encoder_layers']
+        ).to(device)
+
+    elif setversion == "v12" or setversion is None:
+        print("--- Creating set encoder v12 ---")
+        set_encoder = SetEncoder_v12(
+            num_freqs=model_cfg['freq_up_to'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead'],
+            num_layers=model_cfg['num_encoder_layers']
+        ).to(device)
 
     if architecture == "v2_residual_context":
         print("--- Creating (v2) architecture ---")
@@ -42,7 +54,6 @@ def model_factory(config, device):
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
         ).to(device)
-        ode_3d = CFGVectorFieldODE_3D_V2(unet=unet_3d, set_encoder=set_encoder)
 
     elif architecture == "v1_legacy" or architecture is None:
         print("--- Creating v1 architecture: standard 3d unet ---")
@@ -54,7 +65,6 @@ def model_factory(config, device):
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
         ).to(device)
-        ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
 
     return set_encoder, unet_3d
 
@@ -2150,7 +2160,7 @@ class ATFInpaintingTrainer(Trainer):
 
 
 class ATF3DTrainer(Trainer):
-    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, version: bool,
+    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, version: bool, setencoderversion: str,
                  coord_mean: torch.Tensor, coord_std: torch.Tensor, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
         self.path = path
@@ -2161,6 +2171,7 @@ class ATF3DTrainer(Trainer):
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
 
         self.version = version
+        self.setencoderversion = setencoderversion
 
         # ### <<< CHANGE 2: Store the coordinate statistics
         self.coord_mean = coord_mean.to(next(model.parameters()).device)

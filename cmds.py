@@ -67,24 +67,25 @@ python trainer-atf-3d.py \
     --checkpoint_interval 50000
 
 python trainer-atf-3d.py \
-    --model_name "M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5" \
+    --model_name "M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4v2_setv3" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 300000 \
-    --version "v1_legacy" \
+    --version "v2_residual_context" \
     --freq_up_to 20 \
     --lr 1e-4 \
-    --warmup_iterations 10000 \
-    --min_lr 1e-6 \
-    --channels 32,64,128,256,512 \
+    --warmup_iterations 5000 \
+    --min_lr 1e-5 \
+    --channels 32,64,128,256 \
     --d_model 512 \
     --nhead 8 \
-    --num_encoder_layers 4 \
+    --num_encoder_layers 3 \
     --M_range 5,50 \
-    --eta 0.01 \
-    --sigma 1e-4 \
+    --eta 0.0 \
+    --sigma 0 \
     --loss_type "standard" \
+    --setencoder_version "v3" \
     --validation_interval 100 \
     --checkpoint_interval 100000
 
@@ -147,7 +148,7 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/pro
 
 #ROSSINI'den localescp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-231553_iter300000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
 
 scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000 /Users/ege/Projects/FMRIR/artifacts
