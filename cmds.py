@@ -93,7 +93,7 @@ python trainer-atf-3d.py \
 # SCORE MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v2_setv3" \
+    --model_name "M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v2_setv3" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
@@ -109,8 +109,8 @@ python trainer-atf-3d.py \
     --num_encoder_layers 3 \
     --M_range 5,50 \
     --eta 0.0 \
-    --sigma 1e-3 \
-    --FM_vs_Diff "score_mathcing"
+    --sigma 0.1 \
+    --FM_vs_Diff "score_matching"
     --setencoder_version "v3" \
     --validation_interval 100 \
     --checkpoint_interval 100000
