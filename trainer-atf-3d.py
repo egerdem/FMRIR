@@ -227,7 +227,7 @@ def main(args):
         loss_type=training_cfg.get('loss_type', args.loss_type),
         grid_xyz=atf_train_sampler.grid_xyz,
         version=model_cfg.get("architecture_version"),
-        setencoderversion=model_cfg.get("setencoder_version"),
+        setencoderversion=model_cfg.get("setencoder_version", args.setencoder_version),
         coord_mean = coord_mean,  # Pass the mean here
         coord_std = coord_std  # Pass the std here
     )
