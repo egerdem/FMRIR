@@ -55,7 +55,7 @@ def main(args):
                  "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
-                  "architecture_version": args.version, "setencoder_version": args.setencoderversion},
+                  "architecture_version": args.version, "setencoder_version": args.setencoder_version},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "min_lr": args.min_lr,
                      "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
