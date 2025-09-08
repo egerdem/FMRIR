@@ -1607,7 +1607,8 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         return z_full_batch.to(self.dummy.device), src_xyz_batch.to(self.dummy.device)
 
 
-class SetEncoder(nn.Module):
+class SetEncoder_v12(nn.Module):
+    # this was v1 and v2 models' setencoder, now siwtcihng to v3 for sadding positional encodings separately
     """Encodes a sparse set of observations into a sequence of tokens. and a pooled context vector."""
 
     def __init__(self, num_freqs=64, d_model=256, nhead=4, num_layers=3):
@@ -1656,6 +1657,70 @@ class SetEncoder(nn.Module):
         pooled_context = masked_tokens.sum(dim=1) / (num_valid_tokens + 1e-8)
 
         return tokens, pooled_context
+
+
+# In fm_utils.py, replace your SetEncoder class
+
+class SetEncoder(nn.Module):
+    """
+    Encodes a sparse set of observations into a sequence of tokens and a pooled context vector,
+    using a dedicated positional encoding for the coordinates.
+    """
+
+    def __init__(self, num_freqs, d_model, nhead, num_layers):
+        super().__init__()
+        self.d_model = d_model
+
+        # ### <<< CHANGE 1: Create two separate MLPs
+
+        # An MLP for the "what": the ATF values
+        self.value_tokenizer = nn.Sequential(
+            nn.Linear(num_freqs, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model)
+        )
+
+        # A separate MLP for the "where": the relative coordinates. This is our positional encoding.
+        self.positional_encoder = nn.Sequential(
+            nn.Linear(3, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model)
+        )
+
+        # Transformer encoder remains the same
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=True)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        self.y_null_token = nn.Parameter(torch.randn(1, 1, d_model))
+
+    def forward(self, obs_coords_rel, obs_values, obs_mask):
+        """
+        Args:
+            obs_coords_rel (Tensor): Relative mic coordinates [B, M_max, 3]
+            obs_values (Tensor): ATF magnitudes at those mics [B, M_max, 20]
+            obs_mask (Tensor): Boolean mask indicating valid observations [B, M_max]
+        """
+        # ### <<< CHANGE 2: Process values and positions separately
+
+        # 1. Create value embeddings
+        value_tokens = self.value_tokenizer(obs_values)
+
+        # 2. Create positional embeddings
+        positional_tokens = self.positional_encoder(obs_coords_rel)
+
+        # 3. Add them together to get the final input tokens for the transformer
+        tokens = value_tokens + positional_tokens
+
+        # 4. Use transformer to let observations communicate with each other
+        padding_mask = ~obs_mask
+        encoded_tokens = self.transformer_encoder(tokens, src_key_padding_mask=padding_mask)
+
+        # 5. Create the pooled context vector (this logic remains the same)
+        masked_tokens = encoded_tokens.masked_fill(~obs_mask.unsqueeze(-1), 0.0)
+        num_valid_tokens = obs_mask.sum(dim=1, keepdim=True)
+        pooled_context = masked_tokens.sum(dim=1) / (num_valid_tokens + 1e-8)
+
+        return encoded_tokens, pooled_context
 
 # """Part 2: Training for Classifier Free Guidance (CFG) """
 class ConditionalVectorField(nn.Module, ABC):

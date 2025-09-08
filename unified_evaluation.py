@@ -603,10 +603,11 @@ MODEL_LOAD_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt", # 2.8743 dB
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq64_layer4_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_20250907-193657_iter500000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq64_layer4_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_20250907-193657_iter500000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt", # 2.8593 dB
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_lossWeighted_20250907-204302_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt",
+    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-231553_iter300000/model.pt",
 
 ]
 
