@@ -31,12 +31,11 @@ python trainer-unet-ATF-CMD.py \
         --experiments_dir ~/FMRIR_experiments
 #3D UNET
 python trainer-atf-3d.py \
-    --model_name "ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 500000 \
-    --lr 6e-4 \
+    --lr 6e-5 \
     --freq_up_to 20 \
     --channels 32,64,128 \
     --d_model 256 \
@@ -52,17 +51,19 @@ python trainer-atf-3d.py \
 python trainer-atf-3d.py \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
-    --resume_from_checkpoint ~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lrWARM5k_e4_toe6_unet3_20250905-182733_iter300000/checkpoints/ckpt_final_300000.pt \
+    --resume_from_checkpoint ~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt \
     --batch_size 4 \
-    --num_iterations 500000 \
-    --lr 1e-4 \
-    --channels 32,64,128 \
+    --num_iterations 300000 \
+    --lr 1e-5 \
+    --channels 32,64,128,256 \
     --d_model 512 \
     --nhead 8 \
     --num_encoder_layers 3 \
     --M_range 5,50 \
-    --eta 0.1 \
+    --eta 0. \
     --sigma 0 \
+    --loss_type "weighted" \
+    --setencoder_version "v3" \
     --validation_interval 100 \
     --checkpoint_interval 50000
 
@@ -148,8 +149,8 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/pro
 
 #ROSSINI'den localescp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4v2_setv3_20250908-164616_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
 
-scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000 /Users/ege/Projects/FMRIR/artifacts
 

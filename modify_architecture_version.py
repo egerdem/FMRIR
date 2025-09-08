@@ -10,12 +10,12 @@ import os
 from pathlib import Path
 
 # Model path for architecture_version modification
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt"
-CONFIG_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/config.json"
+# MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/model.pt"
+# CONFIG_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/config.json"
 
 # Model path for setencoder_version modification
-SETENCODER_MODEL_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt"
-SETENCODER_CONFIG_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/config.json"
+SETENCODER_MODEL_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/model.pt"
+SETENCODER_CONFIG_PATH = "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/config.json"
 
 def load_model_and_config(model_path, device):
     """Load model checkpoint and extract configuration"""

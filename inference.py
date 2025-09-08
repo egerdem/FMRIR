@@ -75,6 +75,8 @@ MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d51
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e3_toe4_ETA1e2_unet4_20250907-220148_iter300000/model.pt"
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-221902_iter300000/model.pt"
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt"
+MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/model.pt"
+MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4v2_setv3_20250908-164616_iter300000/model.pt"
 
 
 

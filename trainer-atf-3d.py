@@ -224,7 +224,7 @@ def main(args):
         eta=training_cfg['eta'],
         M_range=training_cfg['M_range'],
         sigma=training_cfg['sigma'],
-        loss_type=training_cfg['loss_type'],
+        loss_type=training_cfg.get('loss_type', args.loss_type),
         grid_xyz=atf_train_sampler.grid_xyz,
         version=model_cfg.get("architecture_version"),
         setencoderversion=model_cfg.get("setencoder_version"),

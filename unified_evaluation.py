@@ -44,51 +44,6 @@ def calculate_lsd_unified(estimation, ground_truth, freq_dim=1):
     return torch.mean(lsd_per_position)
 
 
-def load_your_model(model_path, device):
-    """Load your 3D Flow Matching model."""
-    checkpoint = torch.load(model_path, map_location=device)
-    config = checkpoint.get('config', {})
-    model_states_cfg = checkpoint['model_states']
-    
-    model_cfg = config['model']
-    architecture = model_cfg.get('architecture_version')
-    
-    # Load models
-    set_encoder = SetEncoder(
-        num_freqs=model_cfg['freq_up_to'],
-        d_model=model_cfg['d_model'],
-        nhead=model_cfg['nhead'],
-        num_layers=model_cfg['num_encoder_layers']
-    ).to(device)
-    
-    if architecture == "v2_residual_context":
-        unet_3d = CrossAttentionUNet3D_RED3d(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
-            channels=model_cfg['channels'],
-            d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead']
-        ).to(device)
-        ode_3d = CFGVectorFieldODE_3D_V2(unet=unet_3d, set_encoder=set_encoder)
-    else:
-        unet_3d = CrossAttentionUNet3D(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
-            channels=model_cfg['channels'],
-            d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead']
-        ).to(device)
-        ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
-    
-    # Load weights
-    set_encoder.load_state_dict(model_states_cfg['set_encoder'])
-    unet_3d.load_state_dict(model_states_cfg['unet'])
-    set_encoder.eval()
-    unet_3d.eval()
-    
-    return set_encoder, unet_3d, ode_3d, config
-
-
 def load_reference_model(device, freq_up_to):
     """Load the reference AUTOENCODER model data and predictions."""
     # Use the exact same config as in eval_AUTOENCODER.py (no modifications!)
@@ -257,7 +212,7 @@ def evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, 
     return results, idx_mes_pos_mat
 
 
-def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_eval=None, your_freq_up_to=None):
+def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_eval=None, freq_up_to=None):
     """Evaluate the reference AUTOENCODER model using the loaded data."""
     print("Evaluating reference AUTOENCODER model...")
     
@@ -301,14 +256,14 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         mse_per_sample_full.append(mse_val_full)
         
         # M_fundamental evaluation (5 specific positions) - USE MATCHED FREQUENCY RANGE
-        if your_freq_up_to is not None:
+        if freq_up_to is not None:
             # Fair comparison: use same frequency range as your model
             lsd_val_m_fund = calculate_lsd_unified(
-                atf_mag_est[m_fundamental_indices, :your_freq_up_to, src_idx], 
-                atf_mag_gt[m_fundamental_indices, :your_freq_up_to, src_idx], 
+                atf_mag_est[m_fundamental_indices, :freq_up_to, src_idx], 
+                atf_mag_gt[m_fundamental_indices, :freq_up_to, src_idx], 
                 freq_dim=1
             )
-            mse_val_m_fund = torch.mean((atf_mag_est[m_fundamental_indices, :your_freq_up_to, src_idx] - atf_mag_gt[m_fundamental_indices, :your_freq_up_to, src_idx]) ** 2).item()
+            mse_val_m_fund = torch.mean((atf_mag_est[m_fundamental_indices, :freq_up_to, src_idx] - atf_mag_gt[m_fundamental_indices, :freq_up_to, src_idx]) ** 2).item()
         else:
             # Full frequency range if no matching needed
             lsd_val_m_fund = calculate_lsd_unified(
@@ -321,17 +276,17 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         lsd_per_sample_m_fund.append(lsd_val_m_fund.item())
         mse_per_sample_m_fund.append(mse_val_m_fund)
         
-        # Matched frequency range (first your_freq_up_to bins)
-        if your_freq_up_to is not None:
+        # Matched frequency range (first freq_up_to bins)
+        if freq_up_to is not None:
             lsd_val_matched = calculate_lsd_unified(
-                atf_mag_est[:, :your_freq_up_to, src_idx], 
-                atf_mag_gt[:, :your_freq_up_to, src_idx], 
+                atf_mag_est[:, :freq_up_to, src_idx], 
+                atf_mag_gt[:, :freq_up_to, src_idx], 
                 freq_dim=1
             )
             lsd_per_sample_matched.append(lsd_val_matched.item())
             
             # MSE for matched frequency range
-            mse_val_matched = torch.mean((atf_mag_est[:, :your_freq_up_to, src_idx] - atf_mag_gt[:, :your_freq_up_to, src_idx]) ** 2).item()
+            mse_val_matched = torch.mean((atf_mag_est[:, :freq_up_to, src_idx] - atf_mag_gt[:, :freq_up_to, src_idx]) ** 2).item()
             mse_per_sample_matched.append(mse_val_matched)
     
     result = {
@@ -351,7 +306,7 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
     }
     
     # Add matched frequency range results if available
-    if your_freq_up_to is not None and lsd_per_sample_matched:
+    if freq_up_to is not None and lsd_per_sample_matched:
         result['lsd_mean_matched_freq'] = np.mean(lsd_per_sample_matched)
         result['lsd_std_matched_freq'] = np.std(lsd_per_sample_matched)
         result['mse_mean_matched_freq'] = np.mean(mse_per_sample_matched)
@@ -360,16 +315,16 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         
         print(f"Reference LSD (full 64 bins): {result['lsd_mean']:.4f} ± {result['lsd_std']:.4f} dB")
         print(f"Reference MSE (full 64 bins): {result['mse_mean']:.4f} ± {result['mse_std']:.4f}")
-        print(f"Reference LSD (first {your_freq_up_to} bins): {result['lsd_mean_matched_freq']:.4f} ± {result['lsd_std_matched_freq']:.4f} dB")
-        print(f"Reference MSE (first {your_freq_up_to} bins): {result['mse_mean_matched_freq']:.4f} ± {result['mse_std_matched_freq']:.4f}")
-        print(f"Reference LSD M_fund (first {your_freq_up_to} bins): {result['lsd_mean_m_fund']:.4f} ± {result['lsd_std_m_fund']:.4f} dB")
-        print(f"Reference MSE M_fund (first {your_freq_up_to} bins): {result['mse_mean_m_fund']:.4f} ± {result['mse_std_m_fund']:.4f}")
-        print(f"✅ FIXED: All reference metrics now use SAME {your_freq_up_to} frequency bins as your model!")
+        print(f"Reference LSD (first {freq_up_to} bins): {result['lsd_mean_matched_freq']:.4f} ± {result['lsd_std_matched_freq']:.4f} dB")
+        print(f"Reference MSE (first {freq_up_to} bins): {result['mse_mean_matched_freq']:.4f} ± {result['mse_std_matched_freq']:.4f}")
+        print(f"Reference LSD M_fund (first {freq_up_to} bins): {result['lsd_mean_m_fund']:.4f} ± {result['lsd_std_m_fund']:.4f} dB")
+        print(f"Reference MSE M_fund (first {freq_up_to} bins): {result['mse_mean_m_fund']:.4f} ± {result['mse_std_m_fund']:.4f}")
+        print(f"✅ FIXED: All reference metrics now use SAME {freq_up_to} frequency bins as your model!")
     
     return result
 
 
-def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_config, your_freq_up_to, num_sources_eval):
+def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_config, freq_up_to, num_sources_eval):
     """Plot ATF comparisons with 3 methods: True, Reference, Your Model for multiple combinations"""
     dataset_name = ref_config['dataset'][0]
     
@@ -381,10 +336,10 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
     freq_ref = np.arange(1, ref_freq_bins + 1) / ref_freq_bins * fs / 2
     
     # Your model frequency axis (0 to ~312 Hz, 20 bins)  
-    freq_yours = np.arange(1, your_freq_up_to + 1) / your_freq_up_to * fs / 2
+    freq_yours = np.arange(1, freq_up_to + 1) / freq_up_to * fs / 2
     
     print(f"Reference freq range: 0-{freq_ref[-1]:.0f} Hz ({ref_freq_bins} bins)")
-    print(f"Your model freq range: 0-{freq_yours[-1]:.0f} Hz ({your_freq_up_to} bins)")
+    print(f"Your model freq range: 0-{freq_yours[-1]:.0f} Hz ({freq_up_to} bins)")
     
     plt.rcParams["font.size"] = 18  # Same as eval_AUTOENCODER.py
     
@@ -409,7 +364,7 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
         # Get microphone coordinates for titles
         data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
         train_sampler = ATF3DSampler(data_path=data_path, mode='train', src_splits={'train': range(0, 820)}, 
-                                   normalize=True, freq_up_to=your_freq_up_to)
+                                   normalize=True, freq_up_to=freq_up_to)
         grid_xyz = train_sampler.grid_xyz
         
         for src_idx in source_indices:
@@ -422,8 +377,8 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
                 
                 # Plot all three methods with correct frequency axes
                 # All models plot the same frequency range for comparison (0-312 Hz)
-                ax.plot(freq_yours, atf_mag_gt[mic_idx, :your_freq_up_to, src_idx], 'k--', label="True", linewidth=2)
-                ax.plot(freq_yours, atf_mag_est_ref[mic_idx, :your_freq_up_to, src_idx], 'r-', label="Reference", linewidth=1.5)
+                ax.plot(freq_yours, atf_mag_gt[mic_idx, :freq_up_to, src_idx], 'k--', label="True", linewidth=2)
+                ax.plot(freq_yours, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="Reference", linewidth=1.5)
                 ax.plot(freq_yours, atf_mag_est_yours[mic_idx, :, src_idx], 'b-', label="Your Model", linewidth=1.5)
                 
                 ax.set_xscale('log')
@@ -456,7 +411,7 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
         print("Your model predictions not available - skipping ATF plots")
 
 
-def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_gt, ref_config, your_freq_up_to, num_sources_eval):
+def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_gt, ref_config, freq_up_to, num_sources_eval):
     """
     Extract ATF predictions from your model in the same format as reference model.
     Based on inference_1d_atf.py approach.
@@ -470,11 +425,11 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
     # Load normalized data
     train_sampler = ATF3DSampler(
         data_path=data_path, mode='train', src_splits=src_split, 
-        normalize=True, freq_up_to=your_freq_up_to
+        normalize=True, freq_up_to=freq_up_to
     )
     test_sampler = ATF3DSampler(
         data_path=data_path, mode='test', src_splits=src_split, 
-        normalize=False, freq_up_to=your_freq_up_to
+        normalize=False, freq_up_to=freq_up_to
     )
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
     
@@ -488,7 +443,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
     # Initialize output array matching reference format [Mic, Freq, Source]
     total_mics = atf_mag_gt.shape[0]
     total_sources = min(num_sources_eval or atf_mag_gt.shape[2], len(test_sampler))
-    your_atf_predictions = torch.zeros(total_mics, your_freq_up_to, total_sources)
+    your_atf_predictions = torch.zeros(total_mics, freq_up_to, total_sources)
     
     # Fixed M and parameters (from inference_1d_atf.py)
     M = ref_config['num_mes_test']  # Use same M as reference (5)
@@ -604,11 +559,13 @@ MODEL_LOAD_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt", # 2.8743 dB
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq64_layer4_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_20250907-193657_iter500000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt", # 2.8593 dB
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt", # 2.8593 dB
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_lossWeighted_20250907-204302_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-231553_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt"
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt"
+    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/model.pt"
+    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4v2_setv3_20250908-164616_iter300000/model.pt"
 ]
 
 
@@ -633,7 +590,7 @@ print()
 print("\n1. Loading your 3D Flow Matching models...")
 all_your_results = {}
 all_your_predictions = {}  # Store predictions to avoid reloading best model
-your_freq_up_to = None
+freq_up_to = None
 
 for i, (model_path, model_name) in enumerate(zip(MODEL_LOAD_PATHS, MODEL_NAMES)):
     print(f"Loading model {i+1}/{len(MODEL_LOAD_PATHS)}: {model_name}")
@@ -642,12 +599,11 @@ for i, (model_path, model_name) in enumerate(zip(MODEL_LOAD_PATHS, MODEL_NAMES))
 
     # Create and load models
     set_encoder, unet_3d, ode_3d, is_new_model = model_factory(config, model_states_cfg, device)
-    # set_encoder, unet_3d, ode_3d, your_config = load_your_model(model_path, device)
-    
-    if your_freq_up_to is None:
+
+    if freq_up_to is None:
         freq_up_to = config['model'].get('freq_up_to')
         # freq_up_to = your_config['model']['freq_up_to']
-        print(f"Model frequency range: {your_freq_up_to}")
+        print(f"Model frequency range: {freq_up_to}")
     
     # Evaluate this model
     model_results, idx_mes_pos_mat = evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, num_sources_eval)
@@ -658,21 +614,21 @@ for i, (model_path, model_name) in enumerate(zip(MODEL_LOAD_PATHS, MODEL_NAMES))
 
 # Load and evaluate reference model
 print("\n2. Loading reference AUTOENCODER model...")
-atf_mag_est, atf_mag_gt, ref_config, ref_data = load_reference_model(device, your_freq_up_to)
+atf_mag_est, atf_mag_gt, ref_config, ref_data = load_reference_model(device, freq_up_to)
 
-ref_results = evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_eval, your_freq_up_to)
+ref_results = evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_eval, freq_up_to)
 
 # Print results
 print("\n" + "="*80)
 print("=== COMPARISON RESULTS ===")
 print("="*80)
-print(f"Your model freq range: 0-{your_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz ({your_freq_up_to} bins)")
+print(f"Your model freq range: 0-{freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz ({freq_up_to} bins)")
 print(f"Reference freq range: 0-{ref_config['fs']//2} Hz ({ref_config['num_freq']} bins)")
 print(f"Sources evaluated: {ref_results['num_sources_eval']} (out of 102 total)")
 print()
 print("M_fundamental = 5 specific evaluation positions [0, 272, 665, 937, 1330] for PDFs")
 print("Full cube = All 1331 spatial positions")
-print(f"FAIR COMPARISON: Both models evaluated on same {your_freq_up_to} frequency bins (0-{your_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
+print(f"FAIR COMPARISON: Both models evaluated on same {freq_up_to} frequency bins (0-{freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
 print("-"*140)
 print(f"{'Method':<35} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'Freq Range':<15}")
 print("-"*140)
@@ -684,7 +640,7 @@ ref_mse_m_fund = ref_results['mse_mean_m_fund']  # Now uses matched freq range
 ref_lsd_full_fair = ref_results.get('lsd_mean_matched_freq', ref_results['lsd_mean'])
 ref_mse_full_fair = ref_results.get('mse_mean_matched_freq', ref_results['mse_mean'])
 
-print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<35} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {f'First {your_freq_up_to} bins':<15}")
+print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<35} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {f'First {freq_up_to} bins':<15}")
 
 # All your models
 for model_name, model_results in all_your_results.items():
@@ -696,7 +652,7 @@ for model_name, model_results in all_your_results.items():
         your_lsd_full = model_results[M]['lsd_mean']
         your_mse_full = model_results[M]['mse_mean']
         
-        print(f"{display_name + f' (M={M})':<35} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {f'First {your_freq_up_to} bins':<15}")
+        print(f"{display_name + f' (M={M})':<35} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {f'First {freq_up_to} bins':<15}")
         
         # Show improvements for fair comparison
         lsd_improvement = ref_lsd_full_fair - your_lsd_full
@@ -735,10 +691,10 @@ if best_model and best_model in all_your_predictions:
     # Get your model's ATF predictions for plotting
     your_atf_predictions = get_your_model_atf_predictions(
         set_encoder_best, ode_3d_best, config_best, device,
-        atf_mag_gt, ref_config, your_freq_up_to, num_sources_eval
+        atf_mag_gt, ref_config, freq_up_to, num_sources_eval
     )
     
-    plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config, your_freq_up_to, num_sources_eval)
+    plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config, freq_up_to, num_sources_eval)
 else:
     print("Could not find best model for plotting")
 
