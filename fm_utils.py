@@ -2990,7 +2990,7 @@ class CrossAttentionUNet3D(nn.Module):
         return out[..., s:e, s:e, s:e]  # Crop back to original size
 
 class CrossAttentionUNet3D_RED3d(nn.Module):
-    def __init__(self, in_channels=20, out_channels=20, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11):
+    def __init__(self, channels, d_model, nhead, in_channels=20, out_channels=20,  input_size=11):
         super().__init__()
 
         self.time_embedder = FourierEncoder(d_model)
