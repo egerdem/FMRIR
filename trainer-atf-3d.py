@@ -55,7 +55,8 @@ def main(args):
                  "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
-                  "architecture_version": args.version, "setencoder_version": args.setencoder_version},
+                  "architecture_version": args.version, "setencoder_version": args.setencoder_version,
+                  "FM_vs_Diff": args.FM_vs_Diff},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "min_lr": args.min_lr,
                      "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
@@ -113,7 +114,8 @@ def main(args):
                 "nhead": args.nhead,
                 "num_encoder_layers": args.num_encoder_layers,
                 "freq_up_to": args.freq_up_to,
-                "architecture_version": args.version, "setencoder_version": args.setencoder_version
+                "architecture_version": args.version, "setencoder_version": args.setencoder_version,
+                "FM_vs_Diff": args.FM_vs_Diff
             },
             "training": {
                 "num_iterations": args.num_iterations,
@@ -226,6 +228,7 @@ def main(args):
         M_range=training_cfg['M_range'],
         sigma=training_cfg['sigma'],
         loss_type=training_cfg.get('loss_type'),
+        FM_vs_Diff=model_cfg['FM_vs_Diff'],
         grid_xyz=atf_train_sampler.grid_xyz,
         version=model_cfg.get("architecture_version"),
         setencoderversion=model_cfg.get("setencoder_version"),
@@ -257,7 +260,7 @@ def main(args):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="3D ATF Trainer CMD")
+    parser = argparse.ArgumentParser(description="FM - SM // 3D ATF Trainer CMD")
 
     # --- Resuming ---
     parser.add_argument('--resume_from_checkpoint', type=str, help='Path to a checkpoint to resume from.')
@@ -287,8 +290,10 @@ if __name__ == '__main__':
     parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
-    parser.add_argument('--loss_type', type=str, default='weighted', choices=['standard', 'weighted'],
+    parser.add_argument('--loss_type', type=str, default='standard', choices=['standard', 'weighted'],
                         help='Type of loss function for training: "standard" MSE or "weighted" perceptual MSE.')
+
+    parser.add_argument('--FM_vs_Diff', type=str, default='score_matching', choices=['flow_matching', 'score_matching'])
     parser.add_argument('--checkpoint_interval', type=int, default=20000)
     parser.add_argument('--validation_interval', type=int, default=20)
     parser.add_argument('--version', type=str, default="v1_legacy", help='Model architecture version, e.g. v1, v2, etc.')

@@ -6,7 +6,8 @@ import os
 import numpy as np
 import random
 from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, CFGVectorFieldODE_3D_V2,
-                      SetEncoder, SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d)
+                      SetEncoder, SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d,
+                      DiffusionTransformer3D, CFGVectorFieldODE_DiT_3D)
 
 # Import unified LSD function for consistency with unified_evaluation.py
 def calculate_lsd_unified(estimation, ground_truth, freq_dim=1):
@@ -77,6 +78,7 @@ MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d5
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt"
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/model.pt"
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4v2_setv3_20250908-164616_iter300000/model.pt"
+MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_d512_head8_patch4_dept12_sigma0_lrWARM5k_e4_toe5_DiTNetv3_setv3_20250908-185826_iter300000/model.pt"
 
 
 
@@ -160,6 +162,8 @@ def model_factory(config, model_states_cfg, device):
             nhead=model_cfg['nhead']
         ).to(device)
         ode_3d = CFGVectorFieldODE_3D_V2(unet=unet_3d, set_encoder=set_encoder)
+        unet_3d.load_state_dict(model_states_cfg['unet'])
+
 
     elif architecture == "v1_legacy" or architecture is None:
         print("--- Creating v1 architecture: standard 3d unet ---")
@@ -172,10 +176,26 @@ def model_factory(config, model_states_cfg, device):
             nhead=model_cfg['nhead']
         ).to(device)
         ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
+        unet_3d.load_state_dict(model_states_cfg['unet'])
 
+    elif architecture == "v3_DiT":
+        # Instantiate the old U-Net and ODE wrapper for old checkpoints
+        unet_3d = DiffusionTransformer3D(
+            in_channels=model_cfg['freq_up_to'],
+            out_channels=model_cfg['freq_up_to'],
+            patch_size=model_cfg['patch_size'],
+            depth=model_cfg.get('dit_depth', 12),
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead']
+        ).to(device)
+        ode_3d = CFGVectorFieldODE_DiT_3D(unet=unet_3d, set_encoder=set_encoder)
+        unet_3d.load_state_dict(model_states_cfg['dit'])
+
+    else:
+        raise ValueError(f"Unknown architecture version: {architecture}")
     # --- Load weights ---
     set_encoder.load_state_dict(model_states_cfg['set_encoder'])
-    unet_3d.load_state_dict(model_states_cfg['unet'])
+
     set_encoder.eval()
     unet_3d.eval()
 
@@ -544,8 +564,10 @@ if __name__ == '__main__':
                                               ts,
                                               x0=x0,
                                               z_true=z_true,
-                                              y_tokens=y_tokens,
+                                              # y_tokens=y_tokens,
                                               obs_mask=obs_mask,
+                                              obs_coords_rel=obs_coords_rel,
+                                              obs_values=obs_values,
                                               pooled_context=pooled_context,  # <<< ADD THIS LINE
                                               paste_observations=False,
                                               obs_indices=obs_indices

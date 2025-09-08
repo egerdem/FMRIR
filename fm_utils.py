@@ -1796,6 +1796,37 @@ class ConditionalVectorField(nn.Module, ABC):
 #
 #         return combined_field
 
+class ProbabilityFlowSDE(SDE):
+    #NEW ONE, not MIT
+    def __init__(self, score_network, set_encoder, sigma, guidance_scale=1.0):
+        self.score_network = score_network
+        self.set_encoder = set_encoder
+        self.guidance_scale = guidance_scale
+        self.sigma = sigma  # The diffusion coefficient
+
+    def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
+        # Get the pooled context (same as DiT trainer)
+        obs_coords_rel, obs_values, obs_mask = kwargs['obs_coords_rel'], kwargs['obs_values'], kwargs['obs_mask']
+        _, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+        # Get the unconditional context (null token)
+        unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
+
+        # Get guided and unguided score predictions
+        s_guided = self.score_network(xt, t.squeeze(), pooled_context=guided_pooled_context)
+        s_unguided = self.score_network(xt, t.squeeze(), pooled_context=unguided_pooled_context)
+
+        # Combine using CFG for the score
+        s_final = (1 - self.guidance_scale) * s_unguided + self.guidance_scale * s_guided
+
+        # Define the drift of the probability flow ODE
+        # For a simple linear path, a_t=0 and g_t=1 (can be adjusted)
+        drift = -0.5 * (self.sigma ** 2) * s_final
+        return drift
+
+    def diffusion_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
+        # The diffusion coefficient is a simple scalar in this case
+        return self.sigma
 
 class CFGVectorFieldODE_3D(ODE):
     """
@@ -2170,7 +2201,7 @@ class ATFInpaintingTrainer(Trainer):
 
 
 class ATF3DTrainer(Trainer):
-    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, version: bool, setencoderversion: str,
+    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str, version: bool, setencoderversion: str,
                  coord_mean: torch.Tensor, coord_std: torch.Tensor, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
         self.path = path
@@ -2188,6 +2219,7 @@ class ATF3DTrainer(Trainer):
         self.coord_std = coord_std.to(next(model.parameters()).device)
 
         self.loss_type = loss_type
+        self.FM_vs_Diff = FM_vs_Diff
         if self.loss_type == 'weighted':
             print("--- Using PERCEPTUALLY WEIGHTED training loss. ---")
         else:
@@ -2252,7 +2284,7 @@ class ATF3DTrainer(Trainer):
 
         return torch.stack(obs_coords_rel_list), torch.stack(obs_values_list), torch.stack(obs_mask_list)
 
-    def get_train_loss(self, **kwargs) -> torch.Tensor:
+    def get_train_loss_flow_matching(self, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
         # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
         z_full, src_xyz = self.path.p_data.sample(batch_size)
@@ -2324,6 +2356,71 @@ class ATF3DTrainer(Trainer):
             loss = torch.mean(torch.square(ut_theta - ut_ref))
 
         return loss
+
+    def get_train_loss_score_matching(self, **kwargs):
+
+        batch_size = kwargs.get('batch_size')
+        # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
+        z_full, src_xyz = self.path.p_data.sample(batch_size)
+
+        dev = next(self.model.parameters()).device
+        z_full = z_full.to(dev)
+        src_xyz = src_xyz.to(dev)
+
+        x1 = z_full
+
+        # 2. Create the sparse observation set on the fly
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+
+        # 3. Encode the observations into conditioning tokens
+        y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
+
+        # 4. Define the Flow Matching path from noise to data
+        t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
+        x0 = torch.randn_like(x1)
+
+        # xt = (1 - t) * x0 + t * x1
+        xt = (1 - (1 - self.sigma) * t) * x0 + t * x1
+        # ut_ref = x1 - (1 - self.sigma) * x0
+
+        # 5. Apply Classifier-Free Guidance during training
+        # With probability eta, replace conditioning tokens with the null token
+        is_conditional_mask = (torch.rand(batch_size, device=x1.device) > self.eta)
+
+        # Broadcast y_null_token and select based on the mask
+        null_tokens = self.set_encoder.y_null_token.expand(batch_size, y_tokens.shape[1], -1)
+        null_context = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, -1)
+
+        final_tokens = torch.where(is_conditional_mask.view(-1, 1, 1), y_tokens, null_tokens)
+        final_pooled_context = torch.where(is_conditional_mask.view(-1, 1), pooled_context, null_context)
+
+        # The mask for the transformer (to ignore padding) is the same for both cases
+        final_obs_mask = obs_mask
+
+        # 6. Get the model's prediction for the velocity field
+        model_kwargs = {
+            'context': final_tokens,
+            'context_mask': final_obs_mask
+        }
+
+        if self.version == "v2_residual_context":
+            model_kwargs['pooled_context'] = final_pooled_context
+        # The 3D U-Net's forward pass must accept `context` and `context_mask`
+        # ut_theta = self.model(xt, t, **model_kwargs)
+        st_theta = self.model(xt, t, **model_kwargs)
+        # 7. Compute the loss based on the selected type
+        beta_t = 1-t
+        st_ref = -x0 / beta_t
+        # --- Standard Loss ---
+        loss = torch.mean(torch.square(st_theta - st_ref))
+
+        return loss
+
+    def get_train_loss(self, **kwargs):
+        if self.FM_vs_Diff == 'score_matching':
+            return self.get_train_loss_score_matching(**kwargs)
+        elif self.FM_vs_Diff == "flow_matching":  # Default to flow matching
+            return self.get_train_loss_flow_matching(**kwargs)
 
     @torch.no_grad()
     def get_valid_loss(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
@@ -2821,88 +2918,6 @@ class ConvBlock3D(nn.Module):
 
     def forward(self, x):
         return self.block(x)
-
-
-# The full U-Net architecture with Pad-and-Crop and GroupNorm
-
-# First version with non-dynamic fixed 3 channel unet
-# class CrossAttentionUNet3D(nn.Module):
-#     def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4):
-#         super().__init__()
-#         self.channels = channels
-#
-#         # Sanity check: embed_dim must be divisible by nhead for each attn block
-#         assert all(c % nhead == 0 for c in channels), "Channel dimensions must be divisible by nhead"
-#
-#         # Pad to (D,H,W)=(12,12,12) and crop back to (11,11,11)
-#         self.pad = nn.ConstantPad3d((0, 1, 0, 1, 0, 1), 0.0)
-#
-#         # --- Time Embedding ---
-#         self.time_embedder = FourierEncoder(d_model)
-#         self.time_mlp = nn.Linear(d_model, channels[-1])
-#
-#         # --- Initial Convolution ---
-#         self.init_conv = ConvBlock3D(in_channels, channels[0])
-#
-#         # --- Encoder ---
-#         self.down1 = nn.Sequential(ConvBlock3D(channels[0], channels[1]), nn.MaxPool3d(2))  # 12->6
-#         self.attn1 = CrossAttentionBlock3D(in_channels=channels[1], d_model=d_model, nhead=nhead)
-#
-#         self.down2 = nn.Sequential(ConvBlock3D(channels[1], channels[2]), nn.MaxPool3d(2))  # 6->3
-#         self.attn2 = CrossAttentionBlock3D(in_channels=channels[2], d_model=d_model, nhead=nhead)
-#
-#         # --- Bottleneck ---
-#         self.bottleneck = ConvBlock3D(channels[2], channels[2])
-#         self.attn_mid = CrossAttentionBlock3D(in_channels=channels[2], d_model=d_model, nhead=nhead)
-#
-#         # --- Decoder ---
-#         self.up1_trans = nn.ConvTranspose3d(channels[2], channels[1], kernel_size=2, stride=2)  # 3->6
-#         self.up1_conv = ConvBlock3D(channels[1] * 2, channels[1])
-#
-#         self.up2_trans = nn.ConvTranspose3d(channels[1], channels[0], kernel_size=2, stride=2)  # 6->12
-#         self.up2_conv = ConvBlock3D(channels[0] * 2, channels[0])
-#
-#         # --- Final ---
-#         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
-#
-#     def forward(self, x, t, context, context_mask):
-#         B = x.size(0)
-#
-#         # 0. Pad to 12x12x12
-#         x = self.pad(x)
-#
-#         # 1. Initial Convolution
-#         x1 = self.init_conv(x)
-#
-#         # 2. Encoder Path
-#         x2 = self.down1(x1)
-#         x2 = self.attn1(x2, context, context_mask)
-#
-#         x3 = self.down2(x2)
-#         x3 = self.attn2(x3, context, context_mask)
-#
-#         # 3. Bottleneck
-#         bn = self.bottleneck(x3)
-#
-#         # Add time embedding
-#         t_emb = self.time_mlp(self.time_embedder(t.unsqueeze(-1)))
-#         bn = bn + t_emb.view(B, self.channels[-1], 1, 1, 1)
-#
-#         # Add cross-attention in the bottleneck
-#         bn = self.attn_mid(bn, context, context_mask)
-#
-#         # 4. Decoder Path
-#         d1 = self.up1_trans(bn)
-#         d1 = torch.cat([d1, x2], dim=1)  # Skip connection
-#         d1 = self.up1_conv(d1)
-#
-#         d2 = self.up2_trans(d1)
-#         d2 = torch.cat([d2, x1], dim=1)  # Skip connection
-#         d2 = self.up2_conv(d2)
-#
-#         # 5. Final output and crop back to 11x11x11
-#         out = self.final_conv(d2)
-#         return out[..., :11, :11, :11]
 
 # Second version with dynamic parametric channel unet
 class CrossAttentionUNet3D(nn.Module):
