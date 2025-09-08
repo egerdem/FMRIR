@@ -66,6 +66,16 @@ def model_factory(config, device):
             nhead=model_cfg['nhead']
         ).to(device)
 
+    elif architecture == "v3_DiT":
+        # Instantiate the old U-Net and ODE wrapper for old checkpoints
+        unet_3d = DiffusionTransformer3D(
+            in_channels=model_cfg['freq_up_to'],
+            out_channels=model_cfg['freq_up_to'],
+            patch_size=model_cfg['patch_size'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead']
+        ).to(device)
+
     return set_encoder, unet_3d
 
 # early stopping taken from: https://github.com/sigsep/open-unmix-pytorch/blob/master/openunmix/utils.py#L72
@@ -3068,6 +3078,287 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
         out = self.final_conv(d2)
         s, e = self.crop_start, self.crop_end
         return out[..., s:e, s:e, s:e]
+
+#NEW: DiT
+
+def modulate(x, shift, scale):
+    """ Helper function for adaLN """
+    return x * (1 + scale.unsqueeze(1)) + shift.unsqueeze(1)
+
+
+class DiTBlock(nn.Module):
+    """
+    A block of a Diffusion Transformer, with adaptive layer norm (adaLN) for conditioning.
+    """
+
+    def __init__(self, d_model, nhead, mlp_ratio=4.0):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
+        self.attn = nn.MultiheadAttention(d_model, nhead, batch_first=True)
+        self.norm2 = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
+        mlp_hidden_dim = int(d_model * mlp_ratio)
+        self.mlp = nn.Sequential(
+            nn.Linear(d_model, mlp_hidden_dim),
+            nn.SiLU(),
+            nn.Linear(mlp_hidden_dim, d_model),
+        )
+        # The adaLN MLP that generates scale and shift parameters
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(d_model, 6 * d_model, bias=True)
+        )
+
+    def forward(self, x, c):
+        # c is the conditioning vector (from time + pooled_context)
+        # It's used to generate scale/shift for norm1, norm2, and a final output gate
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(c).chunk(6, dim=1)
+
+        # Self-Attention block
+        x_msa = modulate(self.norm1(x), shift_msa, scale_msa)
+        attn_output, _ = self.attn(x_msa, x_msa, x_msa)
+        x = x + gate_msa.unsqueeze(1) * attn_output
+
+        # MLP block
+        x_mlp = modulate(self.norm2(x), shift_mlp, scale_mlp)
+        mlp_output = self.mlp(x_mlp)
+        x = x + gate_mlp.unsqueeze(1) * mlp_output
+
+        return x
+
+
+class DiffusionTransformer3D(nn.Module):
+    """
+    A Diffusion Transformer for 3D volumetric data.
+    """
+
+    def __init__(self, input_size=11, patch_size=4, in_channels=20, out_channels=20,
+                 d_model=512, depth=12, nhead=8):
+        super().__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.patch_size = patch_size
+        self.d_model = d_model
+
+        # --- Padding Calculation ---
+        # Pad input to be divisible by the patch size
+        target_size = math.ceil(input_size / patch_size) * patch_size
+        total_pad = target_size - input_size
+        pad_front = total_pad // 2
+        pad_back = total_pad - pad_front
+        self.padding_tuple = (pad_front, pad_back, pad_front, pad_back, pad_front, pad_back)
+        self.crop_start = pad_front
+        self.crop_end = pad_front + input_size
+
+        # 1. Patching and Linear Embedding (done in one step with a Conv3D)
+        self.patch_embed = nn.Conv3d(in_channels, d_model, kernel_size=patch_size, stride=patch_size)
+
+        # Calculate number of patches
+        num_patches = (target_size // patch_size) ** 3
+
+        # 2. Positional Embedding
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches, d_model))
+
+        # 3. Time Embedding and Conditioning MLP
+        self.time_embedder = FourierEncoder(d_model)
+        # This MLP will process time + pooled_context to generate the adaLN parameters
+        self.conditioning_mlp = nn.Sequential(
+            nn.Linear(d_model * 2, d_model),
+            nn.SiLU(),
+            nn.Linear(d_model, d_model)
+        )
+
+        # 4. Transformer Blocks
+        self.blocks = nn.ModuleList([
+            DiTBlock(d_model, nhead) for _ in range(depth)
+        ])
+
+        # 5. Final Layer and Un-patching
+        self.final_norm = nn.LayerNorm(d_model, elementwise_affine=False, eps=1e-6)
+        self.final_adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(d_model, 2 * d_model, bias=True)
+        )
+        self.unpatch_proj = nn.Linear(d_model, patch_size * patch_size * patch_size * out_channels)
+        self.unpatch_pd, self.unpatch_ph, self.unpatch_pw = target_size // patch_size, target_size // patch_size, target_size // patch_size
+
+    def forward(self, x, t, pooled_context):
+        # Note: This forward signature is different from the U-Net.
+        # It takes 'pooled_context' directly, not the token sequence.
+
+        x = F.pad(x, self.padding_tuple, mode='reflect')
+        B = x.shape[0]
+
+        # Patching and embedding
+        x = self.patch_embed(x)  # (B, d_model, D/p, H/p, W/p)
+        x = x.flatten(2).transpose(1, 2)  # (B, num_patches, d_model)
+
+        # Add positional embedding
+        x = x + self.pos_embed
+
+        # Prepare conditioning vector
+        t_emb = self.time_embedder(t.squeeze())
+        c = self.conditioning_mlp(torch.cat([t_emb, pooled_context], dim=1))
+
+        # Apply Transformer blocks
+        for block in self.blocks:
+            x = block(x, c)
+
+        # Final modulation and projection
+        shift, scale = self.final_adaLN_modulation(c).chunk(2, dim=1)
+        x = modulate(self.final_norm(x), shift, scale)
+        x = self.unpatch_proj(x)
+
+        # Un-patchify
+        x = x.view(B, self.unpatch_pd, self.unpatch_ph, self.unpatch_pw, self.patch_size, self.patch_size,
+                   self.patch_size, self.out_channels)
+        x = x.permute(0, 7, 1, 4, 2, 5, 3, 6).contiguous().view(B, self.out_channels, self.unpatch_pd * self.patch_size,
+                                                                self.unpatch_ph * self.patch_size,
+                                                                self.unpatch_pw * self.patch_size)
+
+        # Crop back to original size
+        s, e = self.crop_start, self.crop_end
+        return x[..., s:e, s:e, s:e]
+
+
+class CFGVectorFieldODE_DiT_3D(ODE):
+    """ ODE wrapper for the 3D Diffusion Transformer. """
+
+    def __init__(self, unet, set_encoder, guidance_scale=1):
+        self.unet = unet  # Here 'unet' is actually our DiT model
+        self.set_encoder = set_encoder
+        self.guidance_scale = guidance_scale
+
+    def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
+        # Note: We only need obs_coords_rel and obs_values to get the pooled_context
+        # The DiT itself does not use the token sequence y_tokens.
+        obs_coords_rel = kwargs['obs_coords_rel']
+        obs_values = kwargs['obs_values']
+        obs_mask = kwargs['obs_mask']
+
+        # Get the pooled context for the guided prediction
+        _, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+        guided_vector_field = self.unet(xt, t.squeeze(), pooled_context=guided_pooled_context)
+
+        # Get the pooled context for the unguided prediction (the null token)
+        unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
+        unguided_vector_field = self.unet(xt, t.squeeze(), pooled_context=unguided_pooled_context)
+
+        # Combine using the CFG formula
+        return (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
+
+
+class DiTTrainer3D(Trainer):
+    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str,
+                 coord_mean: torch.Tensor, coord_std: torch.Tensor, **kwargs):
+        super().__init__(models={'dit': model, 'set_encoder': set_encoder})
+        self.path = path
+        self.set_encoder = set_encoder
+        self.eta = eta
+        self.M_range = (int(M_range[0]), int(M_range[1]))
+        self.sigma = sigma
+        self.grid_xyz = grid_xyz.to(next(model.parameters()).device)
+        self.loss_type = loss_type
+        self.coord_mean = coord_mean.to(next(model.parameters()).device)
+        self.coord_std = coord_std.to(next(model.parameters()).device)
+
+        if self.loss_type == 'weighted':
+            print("--- DiT Trainer: Using PERCEPTUALLY WEIGHTED training loss. ---")
+        else:
+            print("--- DiT Trainer: Using STANDARD training loss. ---")
+
+    def make_observation_set(self, z_full, src_xyz):
+        # This method can be copied directly from ATF3DTrainer
+        # Or you can move it to a shared parent class to avoid code duplication.
+        B, C, D, H, W = z_full.shape
+        dev = z_full.device
+        grid_xyz = self.grid_xyz.to(dev)
+        src_xyz = src_xyz.to(dev)
+        N = self.grid_xyz.shape[0]
+        M_max = self.M_range[1]
+        obs_coords_rel_list, obs_values_list, obs_mask_list = [], [], []
+
+        for i in range(B):
+            M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
+            obs_indices = torch.randperm(N, device=dev)[:M]
+            obs_xyz = self.grid_xyz[obs_indices]
+            obs_coords_rel = obs_xyz - src_xyz[i].unsqueeze(0)
+            obs_coords_rel = (obs_coords_rel - self.coord_mean) / (self.coord_std + 1e-8)
+            z_flat = z_full[i].view(C, -1)
+            obs_values = z_flat[:, obs_indices].transpose(0, 1)
+            pad_len = M_max - M
+            obs_coords_rel_padded = nn.functional.pad(obs_coords_rel, (0, 0, 0, pad_len))
+            obs_values_padded = nn.functional.pad(obs_values, (0, 0, 0, pad_len))
+            mask = torch.zeros(M_max, dtype=torch.bool, device=dev)
+            mask[:M] = True
+            obs_coords_rel_list.append(obs_coords_rel_padded)
+            obs_values_list.append(obs_values_padded)
+            obs_mask_list.append(mask)
+
+        return torch.stack(obs_coords_rel_list), torch.stack(obs_values_list), torch.stack(obs_mask_list)
+
+    def get_train_loss(self, **kwargs) -> torch.Tensor:
+        batch_size = kwargs.get('batch_size')
+        z_full, src_xyz = self.path.p_data.sample(batch_size)
+        dev = next(self.model.parameters()).device
+        z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
+        x1 = z_full
+
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+
+        # The DiT only needs the pooled_context for conditioning.
+        _, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+        t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
+        x0 = torch.randn_like(x1)
+        xt = (1 - (1 - self.sigma) * t) * x0 + t * x1
+        ut_ref = x1 - (1 - self.sigma) * x0
+
+        # Apply CFG dropout to the pooled_context
+        is_conditional_mask = (torch.rand(batch_size, device=x1.device) > self.eta)
+        null_context = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, -1)
+        final_pooled_context = torch.where(is_conditional_mask.view(-1, 1), pooled_context, null_context)
+
+        # Get the model's prediction
+        ut_theta = self.model(xt, t, pooled_context=final_pooled_context)
+
+        # Compute loss (standard or weighted)
+        if self.loss_type == 'weighted':
+            with torch.no_grad():
+                xt_denorm = xt * self.path.p_data.std + self.path.p_data.mean
+                xt_linear = 10 ** (xt_denorm / 20.0)
+                weights = 1.0 / (xt_linear + 1e-6)
+                weights = torch.clamp(weights, max=10.0)
+            loss = torch.mean(torch.square(weights * (ut_theta - ut_ref)))
+        else:
+            loss = torch.mean(torch.square(ut_theta - ut_ref))
+
+        return loss
+
+    @torch.no_grad()
+    def get_valid_loss(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
+        batch_size = kwargs.get('batch_size')
+        z_full, src_xyz = valid_sampler.sample(batch_size)
+        dev = next(self.model.parameters()).device
+        z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
+        x1 = z_full
+
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        _, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+        t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
+        x0 = torch.randn_like(x1)
+        xt = (1 - (1 - self.sigma) * t) * x0 + t * x1
+        ut_ref = x1 - (1 - self.sigma) * x0
+
+        # For validation, we are always conditional
+        ut_theta = self.model(xt, t, pooled_context=pooled_context)
+
+        # Validation loss is always standard MSE
+        loss = torch.mean(torch.square(ut_theta - ut_ref))
+
+        return loss
+
+
 
 #EVAL
 

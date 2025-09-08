@@ -90,6 +90,31 @@ python trainer-atf-3d.py \
     --validation_interval 100 \
     --checkpoint_interval 100000
 
+
+python trainer-atf-3d.py \
+    --model_name "M5to50_freq20_d512_head8_patch4_dept12_sigma0_lrWARM5k_e4_toe5_DiTNetv3_setv3" \
+    --data_dir ~/DATA \
+    --experiments_dir ~/FMRIR_experiments \
+    --batch_size 4 \
+    --num_iterations 300000 \
+    --version "v3" \
+    --freq_up_to 20 \
+    --lr 1e-4 \
+    --warmup_iterations 5000 \
+    --min_lr 1e-5 \
+    --patch_size 4 \
+    --dit_depth 12
+    --d_model 512 \
+    --nhead 8 \
+    --num_encoder_layers 3 \
+    --M_range 5,50 \
+    --eta 0.1 \
+    --sigma 0 \
+    --loss_type "standard" \
+    --setencoder_version "v3" \
+    --validation_interval 100 \
+    --checkpoint_interval 100000
+
 # python trainer-unet-ATF-CMD.py \
 #     --model_mode "spatial" \
 #     --flag_gaussian_mask False \
