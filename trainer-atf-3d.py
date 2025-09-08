@@ -112,7 +112,8 @@ def main(args):
                 "d_model": args.d_model,
                 "nhead": args.nhead,
                 "num_encoder_layers": args.num_encoder_layers,
-                "freq_up_to": args.freq_up_to
+                "freq_up_to": args.freq_up_to,
+                "architecture_version": args.version, "setencoder_version": args.setencoder_version
             },
             "training": {
                 "num_iterations": args.num_iterations,
@@ -122,7 +123,7 @@ def main(args):
                 "min_lr": args.min_lr,
                 "M_range": args.M_range,
                 "eta": args.eta,
-                "sigma": args.sigma,
+                "sigma": args.sigma, "loss_type": args.loss_type,
                 "validation_interval": args.validation_interval
             },
             "experiments_dir": args.experiments_dir
@@ -224,10 +225,10 @@ def main(args):
         eta=training_cfg['eta'],
         M_range=training_cfg['M_range'],
         sigma=training_cfg['sigma'],
-        loss_type=training_cfg.get('loss_type', args.loss_type),
+        loss_type=training_cfg.get('loss_type'),
         grid_xyz=atf_train_sampler.grid_xyz,
         version=model_cfg.get("architecture_version"),
-        setencoderversion=model_cfg.get("setencoder_version", args.setencoder_version),
+        setencoderversion=model_cfg.get("setencoder_version"),
         coord_mean = coord_mean,  # Pass the mean here
         coord_std = coord_std  # Pass the std here
     )
