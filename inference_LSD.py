@@ -110,7 +110,7 @@ def main():
 
     data_dir = config['data']['data_dir']
     # Override data_dir with your local path if necessary
-    data_dir = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
+    data_dir = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
 

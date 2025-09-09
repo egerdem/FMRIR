@@ -187,7 +187,7 @@ if __name__ == '__main__':
                         help='Main model architecture to use.')
 
     # --- Data ---
-    parser.add_argument('--data_dir', type=str, default="ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/")
+    parser.add_argument('--data_dir', type=str, default="ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
     parser.add_argument('--model_name', default="ZZZDiT", type=str)

@@ -89,7 +89,7 @@ def load_reference_model(device, freq_up_to):
 
 def evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, num_sources_eval=None):
     """Evaluate your 3D model."""
-    data_dir = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
+    data_dir = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
     
@@ -362,8 +362,8 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
         print(f"Generating {total_plots} ATF comparison PDFs (5 microphones per PDF)...")
         
         # Get microphone coordinates for titles
-        data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
-        train_sampler = ATF3DSampler(data_path=data_path, mode='train', src_splits={'train': range(0, 820)}, 
+        data_path = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"
+        train_sampler = ATF3DSampler(data_path=data_path, mode='train', src_splits={'train': [[0, 820], [1024, 4096]]}, 
                                    normalize=True, freq_up_to=freq_up_to)
         grid_xyz = train_sampler.grid_xyz
         
@@ -419,7 +419,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
     print("Generating ATF predictions from your 3D model...")
     
     # Load your data (same as in inference_1d_atf.py)
-    data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
+    data_path = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"
     src_split = config['data']['src_splits']
     
     # Load normalized data

@@ -6,7 +6,7 @@ import os
 import numpy as np
 import random
 from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, EulerMaruyamaSimulator,
-                      CFGVectorFieldODE_3D_V2, ProbabilityFlowSDE,
+                      CFGVectorFieldODE_3D_V2, GenerativeSDE,
                       SetEncoder, SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d,
                       DiffusionTransformer3D, CFGVectorFieldODE_DiT_3D)
 
@@ -80,14 +80,14 @@ MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d5
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/model.pt"
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4v2_setv3_20250908-164616_iter300000/model.pt"
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_d512_head8_patch4_dept12_sigma0_lrWARM5k_e4_toe5_DiTNetv3_setv3_20250908-185826_iter300000/model.pt"
-MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250908-204919_iter300000/model.pt"
+# MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250908-204919_iter300000/model.pt"
 
 #best
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt"
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-042721_iter300000/model.pt"
-MODEL_LOAD_PATH =  "/users/k24037994/FMRIR_experiments/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-042721_iter300000/model.pt"
-
-
+# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-042721_iter300000/model.pt"
+# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/model.pt"
+# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma2e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250909-171236_iter300000/model.pt"
+# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta1e1_head8_sigma1e2_lrWARM5k_e4_toe5_unet4v1_setv3_20250909-173619_iter300000/model.pt"
 
 # Multiple model paths for MSE comparison (used when SINGLE_MODEL_MODE = False)/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt
 MULTI_MODEL_PATHS = [
@@ -122,20 +122,23 @@ MODEL_NAMES = [
 ]
 
 M_range = None
+SIGMA_SDE = 0.
 M_range = [5,10]
-num_examples = 3
-num_timesteps = 10
-guidance_scales = [1.0, 2]
-freq_idx_to_plot = 5  # Pick a frequency channel to visualize
+num_examples = 1
+num_timesteps = 100
+guidance_scales = [1.0]
+freq_idx_to_plot = 10  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
 
-data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
+data_path = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"
+
 
 def model_factory(config, model_states_cfg, device):
     """
     Reads the config and returns the correctly instantiated and loaded models.
     """
     model_cfg = config['model']
+    training_cfg = config['training']
     # Use the presence of the version key to decide which architecture to build
     architecture = model_cfg.get('architecture_version')
     fm_or_diff = model_cfg.get('FM_vs_Diff', None)
@@ -175,7 +178,12 @@ def model_factory(config, model_states_cfg, device):
         ).to(device)
 
         if fm_or_diff == 'score_matching':
-            ode_sde_wrapper = ProbabilityFlowSDE(score_network=main_model, set_encoder=set_encoder, config=config)
+            ode_sde_wrapper = GenerativeSDE(
+                noise_predictor_network=main_model,
+                set_encoder=set_encoder,
+                config=config,
+                sigma_sde= SIGMA_SDE
+            )
         elif fm_or_diff == 'flow_matching' or fm_or_diff == None:
             ode_sde_wrapper = CFGVectorFieldODE_3D_V2(unet=main_model, set_encoder=set_encoder)
 
@@ -200,8 +208,14 @@ def model_factory(config, model_states_cfg, device):
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
         ).to(device)
+
         if fm_or_diff == 'score_matching':
-            ode_sde_wrapper = ProbabilityFlowSDE(score_network=main_model, set_encoder=set_encoder, config=config)
+            ode_sde_wrapper = GenerativeSDE(
+                noise_predictor_network=main_model,
+                set_encoder=set_encoder,
+                config=config,
+                sigma_sde= SIGMA_SDE
+            )
         elif fm_or_diff == 'flow_matching' or fm_or_diff == None:  # flow_matching
             print("--- Using Flow Matching ODE Wrapper ---")
             ode_sde_wrapper = CFGVectorFieldODE_3D(unet=main_model, set_encoder=set_encoder)
@@ -365,9 +379,7 @@ def plot_dual_metric_comparison(all_results, model_names, guidance_scales, save_
 
 def get_model_name(model_path):
     """Extract model name from path"""
-    # return model_path.split("artifacts/")[1].split("/")[0]
-    return "lkasdfk"
-
+    return model_path.split("artifacts/")[1].split("/")[0]
 
 def load_model_and_config(model_path, device):
     """Load model checkpoint and extract configuration"""
@@ -385,7 +397,7 @@ if __name__ == '__main__':
     # --- Load minimal config for data samplers (needed for both modes) ---
     checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
     config = checkpoint.get('config', {})
-    data_dir = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"  # Override with local
+    data_dir = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"  # Override with local
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
 
@@ -448,8 +460,8 @@ if __name__ == '__main__':
         if config['model'].get('FM_vs_Diff') == 'flow_matching' or config['model'].get('FM_vs_Diff') is None:
             print("--- Using Flow Matching ODE Simulator ---")
             simulator = EulerSimulator(ode=ode_3d)
-            print("simulator type: ", type(simulator), "\n")
         elif config['model'].get('FM_vs_Diff') == 'score_matching':
+            print("--- Using Denoising Diffusion (SDE) Simulator ---")
             simulator = EulerMaruyamaSimulator(sde=ode_3d)
 
 

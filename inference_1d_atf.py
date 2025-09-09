@@ -178,7 +178,7 @@ def main():
         print(f"  Model {i+1}: {name}")
     print()
 
-    data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
+    data_path = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

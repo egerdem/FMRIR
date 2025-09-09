@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional, List, Type, Tuple, Dict
+from typing import Optional, List, Type, Tuple, Dict, Union
 import math
 import os
 import torch.nn.functional as F
@@ -15,6 +15,31 @@ import wandb
 # import matplotlib.pyplot as plt
 import random
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+
+def parse_source_indices(src_splits_config, mode: str) -> List[int]:
+    """
+    Parse source indices from src_splits configuration.
+    Supports both old format [start, end] and new format [[start1, end1], [start2, end2], ...]
+    
+    Args:
+        src_splits_config: Dictionary containing src_splits configuration
+        mode: Mode string ('train', 'valid', 'test')
+    
+    Returns:
+        List of source indices
+    """
+    split_config = src_splits_config[mode]
+    
+    # Check if it's the new format (list of lists) or old format (single list)
+    if isinstance(split_config[0], list):
+        # New format: [[start1, end1], [start2, end2], ...]
+        indices = []
+        for start, end in split_config:
+            indices.extend(range(start, end))
+        return indices
+    else:
+        # Old format: [start, end]
+        return list(range(split_config[0], split_config[1]))
 
 def model_factory(config, device):
     """
@@ -613,9 +638,9 @@ class EulerMaruyamaSimulator(Simulator):
         self.sde = sde
 
     def step(self, xt: torch.Tensor, t: torch.Tensor, h: torch.Tensor, **kwargs):
+        # print("diffusion coefficient: ", self.sde.diffusion_coefficient(xt, t, **kwargs) )
         return xt + self.sde.drift_coefficient(xt, t, **kwargs) * h + self.sde.diffusion_coefficient(xt, t,
-                                                                                                     **kwargs) * torch.sqrt(
-            h) * torch.randn_like(xt)
+                                    **kwargs) * torch.sqrt(h) * torch.randn_like(xt)
 
 
 def record_every(num_timesteps: int, record_every: int) -> torch.Tensor:
@@ -1035,7 +1060,7 @@ class SpectrogramSampler(nn.Module, Sampleable):
             all_coords = []
             all_sample_info = []
 
-            source_indices = range(*self.src_splits[self.mode])
+            source_indices = parse_source_indices(self.src_splits, self.mode)
 
             for src_id in tqdm(source_indices, desc=f"Loading {self.mode} NPZ files"):
                 # Construct file path based on source index
@@ -1153,7 +1178,7 @@ class ATFSliceSampler(torch.nn.Module, Sampleable):
             self.sample_info = data.get('sample_info')
         else:
             print(f"Processing ATF {self.mode} data from .npz files...")
-            source_indices = range(*src_splits[self.mode])
+            source_indices = parse_source_indices(src_splits, self.mode)
             all_slices = []
             all_coords = []
             # **NEW: Create a list to store metadata**
@@ -1331,7 +1356,7 @@ class FreqConditionalATFSampler(torch.nn.Module, Sampleable):
 
         else:
             print(f"Processing ATF {self.mode} data from .npz files...")
-            source_indices = range(*src_splits[self.mode])
+            source_indices = parse_source_indices(src_splits, self.mode)
             all_slices = []
             all_coords = []
             all_sample_info = []
@@ -1539,7 +1564,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
 
         else:
             print(f"Processing ATF-3D {self.mode} data from .npz files...")
-            source_indices = range(*src_splits[self.mode])
+            source_indices = parse_source_indices(src_splits, self.mode)
             all_cubes = []
             all_source_coords = []
             all_sample_info = []
@@ -1796,56 +1821,146 @@ class ConditionalVectorField(nn.Module, ABC):
 #
 #         return combined_field
 
-class ProbabilityFlowSDE(SDE):
-    def __init__(self, score_network, set_encoder, config, guidance_scale=1.0):
+# class GenerativeSDE(SDE):
+#     """
+#     Implements the generative SDE for a DDPM trained with a Gaussian probability path.
+#     This can be used for both stochastic sampling (SDE) and deterministic sampling (ODE).
+#     """
+#
+#     def __init__(self, noise_predictor_network, set_encoder, config, guidance_scale=1.0):
+#         super().__init__()
+#         self.epsilon_theta = noise_predictor_network
+#         self.set_encoder = set_encoder
+#         self.guidance_scale = guidance_scale
+#
+#         # This is the sigma for the SDE solver, NOT the path sigma
+#         self.sigma_sde = config['training'].get('sigma', 0.1)
+#         self.architecture = config['model'].get('architecture_version', 'v1_legacy')
+#
+#     def _get_alpha_beta_derivatives(self, t):
+#         """ For path xt = alpha_t * z + beta_t * epsilon, with alpha_t = t, beta_t = 1-t """
+#         alpha_t = t
+#         beta_t = 1 - t
+#         alpha_dot_t = torch.ones_like(t)
+#         beta_dot_t = -torch.ones_like(t)
+#         return alpha_t, beta_t, alpha_dot_t, beta_dot_t
+#
+#     def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
+#         # 1. Get conditioning from the SetEncoder
+#         obs_coords_rel = kwargs['obs_coords_rel']
+#         obs_values = kwargs['obs_values']
+#         obs_mask = kwargs['obs_mask']
+#         guided_y_tokens, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+#
+#         # 2. Prepare unguided (null) conditioning
+#         unguided_y_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], guided_y_tokens.shape[1], -1)
+#         unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
+#
+#         # 3. Get guided and unguided noise predictions from the network (epsilon_theta)
+#         model_kwargs_guided = {'context': guided_y_tokens, 'context_mask': obs_mask}
+#         model_kwargs_unguided = {'context': unguided_y_tokens, 'context_mask': obs_mask}
+#
+#         if self.architecture == "v2_residual_context":
+#             model_kwargs_guided['pooled_context'] = guided_pooled_context
+#             model_kwargs_unguided['pooled_context'] = unguided_pooled_context
+#
+#         epsilon_theta_guided = self.epsilon_theta(xt, t.squeeze(), **model_kwargs_guided)
+#         epsilon_theta_unguided = self.epsilon_theta(xt, t.squeeze(), **model_kwargs_unguided)
+#
+#         # 4. Combine using Classifier-Free Guidance (CFG)
+#         epsilon_theta_final = (1 - self.guidance_scale) * epsilon_theta_unguided + self.guidance_scale * epsilon_theta_guided
+#
+#         # 5. Convert noise prediction to score prediction (s_theta)
+#         # From notes, s_t = -epsilon_t / beta_t
+#         alpha_t, beta_t, alpha_dot_t, beta_dot_t = self._get_alpha_beta_derivatives(t)
+#         s_theta = -epsilon_theta_final / (beta_t + 1e-8)  # Add epsilon for stability as t->1
+#
+#         # 6. Calculate the flow field (u_theta) from the score (s_theta)
+#         # From notes (Proposition 1, eq. 54), with our alpha_t, beta_t
+#         # u_t = (beta_t^2 * alpha_dot_t / alpha_t - beta_dot_t * beta_t) * s_t + (alpha_dot_t / alpha_t) * x
+#         # u_t = ((1-t)^2 * 1/t - (-1)*(1-t)) * s_t + (1/t) * xt
+#         u_theta = ((beta_t.pow(2) * alpha_dot_t / (alpha_t + 1e-8) - beta_dot_t * beta_t)) * s_theta + (
+#                     alpha_dot_t / (alpha_t + 1e-8)) * xt
+#
+#         # 7. Calculate the final drift for the generative SDE
+#         # From notes (Summary 23, eq. 62): drift = u_t + (sigma_t^2 / 2) * s_t
+#         drift = u_theta + (self.sigma_sde ** 2 / 2) * s_theta
+#
+#         return drift
+#
+#     def diffusion_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
+#         return torch.tensor(self.sigma_sde, device=xt.device)
+
+class GenerativeSDE(SDE):
+    """
+    Implements the generative SDE for a DDPM trained with a Gaussian probability path.
+    This version uses a numerically stable formulation for the drift calculation.
+    """
+
+    def __init__(self, noise_predictor_network, set_encoder, config, sigma_sde, guidance_scale=1.0):
         super().__init__()
-        self.score_network = score_network
+        self.epsilon_theta = noise_predictor_network
         self.set_encoder = set_encoder
         self.guidance_scale = guidance_scale
-        self.sigma = config['training'].get('sigma', 0.1)
-
-        # ### <<< CHANGE: Store the architecture version
+        self.sigma_sde = sigma_sde
         self.architecture = config['model'].get('architecture_version', 'v1_legacy')
 
-    def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
-        # 1. Get raw observation data from the simulator call
-        obs_coords_rel = kwargs['obs_coords_rel']
-        obs_values = kwargs['obs_values']
-        obs_mask = kwargs['obs_mask']
-
-        # 2. Get ALL conditioning info from the SetEncoder
+    def get_predicted_noise(self, xt: torch.Tensor, t: torch.Tensor, **kwargs):
+        """Helper function to get the CFG-combined noise prediction."""
+        obs_coords_rel, obs_values, obs_mask = kwargs['obs_coords_rel'], kwargs['obs_values'], kwargs['obs_mask']
         guided_y_tokens, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-        # 3. Create unguided (null) versions of the conditioning
         unguided_y_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], guided_y_tokens.shape[1], -1)
         unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
 
-        # 4. ### <<< CHANGE: Call the score_network with the correct arguments based on its version
-        if self.architecture == "v3_DiT":
-            s_guided = self.score_network(xt, t.squeeze(), pooled_context=guided_pooled_context)
-            s_unguided = self.score_network(xt, t.squeeze(), pooled_context=unguided_pooled_context)
+        model_kwargs_guided = {'context': guided_y_tokens, 'context_mask': obs_mask}
+        model_kwargs_unguided = {'context': unguided_y_tokens, 'context_mask': obs_mask}
 
-        elif self.architecture == "v2_residual_context":
-            s_guided = self.score_network(xt, t.squeeze(), context=guided_y_tokens, context_mask=obs_mask,
-                                          pooled_context=guided_pooled_context)
-            s_unguided = self.score_network(xt, t.squeeze(), context=unguided_y_tokens, context_mask=obs_mask,
-                                            pooled_context=unguided_pooled_context)
+        if self.architecture == "v2_residual_context":
+            model_kwargs_guided['pooled_context'] = guided_pooled_context
+            model_kwargs_unguided['pooled_context'] = unguided_pooled_context
 
-        else:  # This handles the "v1_legacy" case
-            s_guided = self.score_network(xt, t.squeeze(), context=guided_y_tokens, context_mask=obs_mask)
-            s_unguided = self.score_network(xt, t.squeeze(), context=unguided_y_tokens, context_mask=obs_mask)
+        epsilon_theta_guided = self.epsilon_theta(xt, t.squeeze(), **model_kwargs_guided)
+        epsilon_theta_unguided = self.epsilon_theta(xt, t.squeeze(), **model_kwargs_unguided)
 
-        # 5. Combine using the CFG formula
-        s_final = (1 - self.guidance_scale) * s_unguided + self.guidance_scale * s_guided
-        beta_t = 1 - t.view(-1, 1, 1, 1, 1)  # Ensure t has the right shape
-        s_final = -s_final / (beta_t + 1e-9)  # Add epsilon for stability when t is near 1
+        return (1 - self.guidance_scale) * epsilon_theta_unguided + self.guidance_scale * epsilon_theta_guided
 
-        # 6. Define the drift for the Probability Flow ODE
-        drift = -0.5 * (self.sigma ** 2) * s_final
+    def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
+        """Calculates the full SDE drift using the stable formulation."""
+        alpha_t = t
+        beta_t = 1 - t
+
+        # 1. Get the final noise prediction from the network
+        predicted_noise = self.get_predicted_noise(xt, t, **kwargs)
+
+        # 2. Estimate the clean data `z` (often called `x_0_pred` in papers)
+        # Based on rearranging x_t = alpha_t * z + beta_t * epsilon
+        z_pred = (xt - beta_t * predicted_noise) / (alpha_t + 1e-8)
+
+        # 3. The flow field `u_theta` is an estimate of `z - epsilon`
+        u_theta = z_pred - predicted_noise
+
+        # 4. Convert noise prediction to score prediction for the SDE term
+        s_theta = -predicted_noise / (beta_t + 1e-8)
+
+        # 5. Calculate the final drift for the generative SDE
+        drift = u_theta + (self.sigma_sde ** 2 / 2) * s_theta
+
         return drift
 
     def diffusion_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
-        return torch.tensor(self.sigma, device=xt.device)
+        return torch.tensor(self.sigma_sde, device=xt.device)
+
+    def ode_drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
+        """Calculates the deterministic drift for the Probability Flow ODE."""
+        alpha_t = t
+        beta_t = 1 - t
+
+        predicted_noise = self.get_predicted_noise(xt, t, **kwargs)
+        z_pred = (xt - beta_t * predicted_noise) / (alpha_t + 1e-8)
+        u_theta = z_pred - predicted_noise
+
+        return u_theta
 
 class CFGVectorFieldODE_3D(ODE):
     """
@@ -2377,7 +2492,7 @@ class ATF3DTrainer(Trainer):
 
         return loss
 
-    def get_train_loss_score_matching(self, **kwargs):
+    def get_train_loss_ddpm(self, **kwargs):
 
         batch_size = kwargs.get('batch_size')
         # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
@@ -2398,8 +2513,10 @@ class ATF3DTrainer(Trainer):
         # 4. Define the Flow Matching path from noise to data
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
         x0 = torch.randn_like(x1)
+        # Target for our network is the noise we added
+        noise_target = x0
 
-        xt = (1 - t) * x0 + t * x1
+        xt = (1 - t) * x0 + t * x1 # Correct path for alpha_t=t, beta_t=1-t
 
         # 5. Apply Classifier-Free Guidance during training
         # With probability eta, replace conditioning tokens with the null token
@@ -2408,35 +2525,25 @@ class ATF3DTrainer(Trainer):
         # Broadcast y_null_token and select based on the mask
         null_tokens = self.set_encoder.y_null_token.expand(batch_size, y_tokens.shape[1], -1)
         null_context = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, -1)
-
         final_tokens = torch.where(is_conditional_mask.view(-1, 1, 1), y_tokens, null_tokens)
         final_pooled_context = torch.where(is_conditional_mask.view(-1, 1), pooled_context, null_context)
 
-        # The mask for the transformer (to ignore padding) is the same for both cases
-        final_obs_mask = obs_mask
-
-        # 6. Get the model's prediction for the velocity field
-        model_kwargs = {
-            'context': final_tokens,
-            'context_mask': final_obs_mask
-        }
+        model_kwargs = {'context': final_tokens, 'context_mask': obs_mask}
 
         if self.version == "v2_residual_context":
             model_kwargs['pooled_context'] = final_pooled_context
 
         # The 3D U-Net's forward pass must accept `context` and `context_mask`
-        st_theta = self.model(xt, t, **model_kwargs)
-        # 7. Compute the loss based on the selected type
-        beta_t = 1-t
-        st_ref = -x0
+        predicted_noise = self.model(xt, t, **model_kwargs) #predicted noise
+
         # --- Standard Loss ---
-        loss = torch.mean(torch.square(st_theta - st_ref))
+        loss = torch.mean(torch.square(predicted_noise - noise_target))
 
         return loss
 
     def get_train_loss(self, **kwargs):
         if self.FM_vs_Diff == 'score_matching':
-            return self.get_train_loss_score_matching(**kwargs)
+            return self.get_train_loss_ddpm(**kwargs)
         elif self.FM_vs_Diff == "flow_matching":  # Default to flow matching
             return self.get_train_loss_flow_matching(**kwargs)
 
@@ -2456,6 +2563,7 @@ class ATF3DTrainer(Trainer):
 
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
         x0 = torch.randn_like(x1)
+        noise_target = x0
 
         xt = (1 - t) * x0 + t * x1
 
@@ -2468,13 +2576,11 @@ class ATF3DTrainer(Trainer):
             model_kwargs['pooled_context'] = pooled_context
 
         # For validation, we are always conditional
-        st_theta = self.model(xt, t, **model_kwargs)
+        predicted_noise = self.model(xt, t, **model_kwargs)
         # 7. Compute the loss based on the selected type
-        beta_t = 1 - t
-        st_ref = -x0
 
         # --- Standard Loss ---
-        loss = torch.mean(torch.square(st_theta - st_ref))
+        loss = torch.mean(torch.square(predicted_noise - noise_target))
 
         return loss
 

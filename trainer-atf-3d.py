@@ -52,7 +52,7 @@ def main(args):
     # This creates a baseline config that can be used immediately
     config = {
         "data": {"data_dir": args.data_dir,
-                 "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
+                 "src_splits": {"train": [[0, 820], [1024, 3100]], "valid": [820, 922], "test": [922, 1024]}},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
@@ -102,7 +102,7 @@ def main(args):
             "data": {
                 "data_dir": args.data_dir,
                 "src_splits": {
-                    "train": [0, 820],
+                    "train": [[0, 820], [1024, 3100]],
                     "valid": [820, 922],
                     "test": [922, 1024]
                 }
@@ -270,7 +270,7 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_key', type=str, default="ec2cf1718868be26a8055412b556d952681ee0b6")
 
     # --- Data ---
-    parser.add_argument('--data_dir', type=str, default="ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/")
+    parser.add_argument('--data_dir', type=str, default="ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
     parser.add_argument('--model_name', default="ZZZATF-3D-CrossAttn-UNet", type=str)
