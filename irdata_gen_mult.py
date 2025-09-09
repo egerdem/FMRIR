@@ -7,20 +7,20 @@ from scipy.signal import windows, spectrogram
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import matplotlib
-matplotlib.use('MacOSX')  # Use 'TKAgg' for Linux or Windows
+# matplotlib.use('MacOSX')  # Use 'TKAgg' for Linux or Windows
 
 from irdata_utils import dim2cuboid
 
 if __name__ == "__main__":
 
-    save_figs = True  # Set to False to disable saving figures
+    save_figs = False  # Set to False to disable saving figures
     save_data = True
     # Set random seed
     seed = 0
     np.random.seed(seed)
 
     parser = argparse.ArgumentParser(description='Generate impulse responses by image source method')
-    parser.add_argument('--num_src', '-s', type=int, default=1024, help='Number of sources')
+    parser.add_argument('--num_src', '-s', type=int, default=4096, help='Number of sources')
     parser.add_argument('--rt60', '-r', type=int, default=200, help='Target RT60 (ms)')
     parser.add_argument('--int_mic', '-i', type=float, default=0.1, help='Microphone interval (m)')
 
@@ -178,8 +178,8 @@ if __name__ == "__main__":
             plt.title("Acoustic Transfer Function")
             plt.xlabel("Frequency (Hz)")
             plt.ylabel("Magnitude (dB)")
-            # if save_figs:
-            plt.savefig(f"{dir}atf_s{i+1:04d}.pdf")
+            if save_figs:
+                plt.savefig(f"{dir}atf_s{i+1:04d}.pdf")
 
             fig, ax = plt.subplots()
             plt.plot(freq_algn, atf_mag_algn[0,:])
@@ -187,7 +187,8 @@ if __name__ == "__main__":
             plt.title("Acoustic Transfer Function (Time-Aligned)")
             plt.xlabel("Frequency (Hz)")
             plt.ylabel("Magnitude (dB)")
-            plt.savefig(f"{dir}atf_algn_s{i+1:04d}.pdf")
+            if save_figs:
+                plt.savefig(f"{dir}atf_algn_s{i+1:04d}.pdf")
 
             # Plot spectrograms
             # fig, ax = plt.subplots()
