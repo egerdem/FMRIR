@@ -85,7 +85,7 @@ MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq2
 #best
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt"
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-042721_iter300000/model.pt"
-MODEL_LOAD_PATH =  "/FMRIR_experiments/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-042721_iter300000/model.pt"
+MODEL_LOAD_PATH =  "~/FMRIR_experiments/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-042721_iter300000/model.pt"
 
 
 
