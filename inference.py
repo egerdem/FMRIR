@@ -365,7 +365,9 @@ def plot_dual_metric_comparison(all_results, model_names, guidance_scales, save_
 
 def get_model_name(model_path):
     """Extract model name from path"""
-    return model_path.split("artifacts/")[1].split("/")[0]
+    # return model_path.split("artifacts/")[1].split("/")[0]
+    return "lkasdfk"
+
 
 def load_model_and_config(model_path, device):
     """Load model checkpoint and extract configuration"""
