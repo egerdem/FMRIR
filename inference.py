@@ -84,6 +84,7 @@ MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq2
 
 #best
 MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt"
+MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-042721_iter300000/model.pt"
 
 
 
@@ -121,10 +122,10 @@ MODEL_NAMES = [
 
 M_range = None
 M_range = [5,10]
-num_examples = 10
-num_timesteps = 100
+num_examples = 3
+num_timesteps = 10
 guidance_scales = [1.0, 2]
-freq_idx_to_plot = 15  # Pick a frequency channel to visualize
+freq_idx_to_plot = 5  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
 
 data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
@@ -626,6 +627,7 @@ if __name__ == '__main__':
 
         # plt.tight_layout(rect=[0, 0.03, 1, 0.95], h_pad=0.5, w_pad=1.5)
         plt.show()
+        plt.savefig("test.png", dpi=200, bbox_inches='tight')
 
         model_dir = os.path.dirname(MODEL_LOAD_PATH)
         outfile_name = f"{model_mode}_finf{freq_idx_to_plot}_z{z_slice_idx_to_plot}_{M_range[0]}to{M_range[1]}.png"

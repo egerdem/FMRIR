@@ -1837,6 +1837,8 @@ class ProbabilityFlowSDE(SDE):
 
         # 5. Combine using the CFG formula
         s_final = (1 - self.guidance_scale) * s_unguided + self.guidance_scale * s_guided
+        beta_t = 1 - t.view(-1, 1, 1, 1, 1)  # Ensure t has the right shape
+        s_final = -s_final / (beta_t + 1e-9)  # Add epsilon for stability when t is near 1
 
         # 6. Define the drift for the Probability Flow ODE
         drift = -0.5 * (self.sigma ** 2) * s_final

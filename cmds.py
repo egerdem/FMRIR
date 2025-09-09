@@ -93,7 +93,7 @@ python trainer-atf-3d.py \
 # SCORE MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "TTTM5to50_SCOREMATCH_freq20_layer3_d512_eta1e1_head8_sigma2e1_lrWARM20k_e4_toe5_unet4v1_setv3" \
+    --model_name "M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
@@ -108,8 +108,8 @@ python trainer-atf-3d.py \
     --nhead 8 \
     --num_encoder_layers 3 \
     --M_range 5,50 \
-    --eta 0.1 \
-    --sigma 0.2 \
+    --eta 0. \
+    --sigma 0.1 \
     --FM_vs_Diff "score_matching"
     --setencoder_version "v3" \
     --validation_interval 100 \
@@ -200,6 +200,9 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/pro
 
 scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250908-204919_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
-
+#BELLİNİ'den locale
 scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250908-204919_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
+#Create'den locale
+
+scp -r k24037994@hpc.create.kcl.ac.uk:~/FMRIR_experiments/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-042721_iter300000/model.pt /Users/ege/Projects/FMRIR/artifacts
