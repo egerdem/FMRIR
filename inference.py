@@ -5,7 +5,8 @@ import torch
 import os
 import numpy as np
 import random
-from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, CFGVectorFieldODE_3D_V2,
+from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, EulerMaruyamaSimulator,
+                      CFGVectorFieldODE_3D_V2, ProbabilityFlowSDE,
                       SetEncoder, SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d,
                       DiffusionTransformer3D, CFGVectorFieldODE_DiT_3D)
 
@@ -79,6 +80,10 @@ MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d5
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/model.pt"
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4v2_setv3_20250908-164616_iter300000/model.pt"
 MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_d512_head8_patch4_dept12_sigma0_lrWARM5k_e4_toe5_DiTNetv3_setv3_20250908-185826_iter300000/model.pt"
+MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250908-204919_iter300000/model.pt"
+
+#best
+MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt"
 
 
 
@@ -116,10 +121,10 @@ MODEL_NAMES = [
 
 M_range = None
 M_range = [5,10]
-num_examples = 5
-num_timesteps = 10
-guidance_scales = [1.0]
-freq_idx_to_plot = 19  # Pick a frequency channel to visualize
+num_examples = 10
+num_timesteps = 100
+guidance_scales = [1.0, 2]
+freq_idx_to_plot = 15  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
 
 data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
@@ -131,6 +136,7 @@ def model_factory(config, model_states_cfg, device):
     model_cfg = config['model']
     # Use the presence of the version key to decide which architecture to build
     architecture = model_cfg.get('architecture_version')
+    fm_or_diff = model_cfg.get('FM_vs_Diff', None)
     setversion = model_cfg.get('setencoder_version')
 
     if setversion == "v3":
@@ -152,35 +158,28 @@ def model_factory(config, model_states_cfg, device):
             num_layers=model_cfg['num_encoder_layers']
         ).to(device)
 
+    # --- 2. Instantiate Main Model and Wrapper (Corrected Logic) ---
+    main_model = None
+    ode_sde_wrapper = None
+
     if architecture == "v2_residual_context":
-        print("--- Creating (v2) architecture ---")
-        unet_3d = CrossAttentionUNet3D_RED3d(
+        print("--- Creating Main Model: U-Net with Residual Context (v2) ---")
+        main_model = CrossAttentionUNet3D_RED3d(
             in_channels=model_cfg['freq_up_to'],
             out_channels=model_cfg['freq_up_to'],
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
         ).to(device)
-        ode_3d = CFGVectorFieldODE_3D_V2(unet=unet_3d, set_encoder=set_encoder)
-        unet_3d.load_state_dict(model_states_cfg['unet'])
 
-
-    elif architecture == "v1_legacy" or architecture is None:
-        print("--- Creating v1 architecture: standard 3d unet ---")
-        # Instantiate the old U-Net and ODE wrapper for old checkpoints
-        unet_3d = CrossAttentionUNet3D(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
-            channels=model_cfg['channels'],
-            d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead']
-        ).to(device)
-        ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
-        unet_3d.load_state_dict(model_states_cfg['unet'])
+        if fm_or_diff == 'score_matching':
+            ode_sde_wrapper = ProbabilityFlowSDE(score_network=main_model, set_encoder=set_encoder, config=config)
+        elif fm_or_diff == 'flow_matching' or fm_or_diff == None:
+            ode_sde_wrapper = CFGVectorFieldODE_3D_V2(unet=main_model, set_encoder=set_encoder)
 
     elif architecture == "v3_DiT":
         # Instantiate the old U-Net and ODE wrapper for old checkpoints
-        unet_3d = DiffusionTransformer3D(
+        main_model = DiffusionTransformer3D(
             in_channels=model_cfg['freq_up_to'],
             out_channels=model_cfg['freq_up_to'],
             patch_size=model_cfg['patch_size'],
@@ -188,18 +187,35 @@ def model_factory(config, model_states_cfg, device):
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
         ).to(device)
-        ode_3d = CFGVectorFieldODE_DiT_3D(unet=unet_3d, set_encoder=set_encoder)
-        unet_3d.load_state_dict(model_states_cfg['dit'])
+        ode_sde_wrapper = CFGVectorFieldODE_DiT_3D(unet=main_model, set_encoder=set_encoder)
 
-    else:
-        raise ValueError(f"Unknown architecture version: {architecture}")
+    elif architecture == "v1_legacy" or architecture is None:
+        print("--- Creating Main Model: Legacy U-Net (v1) ---")
+        main_model = CrossAttentionUNet3D(
+            in_channels=model_cfg['freq_up_to'],
+            out_channels=model_cfg['freq_up_to'],
+            channels=model_cfg['channels'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead']
+        ).to(device)
+        if fm_or_diff == 'score_matching':
+            ode_sde_wrapper = ProbabilityFlowSDE(score_network=main_model, set_encoder=set_encoder, config=config)
+        elif fm_or_diff == 'flow_matching' or fm_or_diff == None:  # flow_matching
+            print("--- Using Flow Matching ODE Wrapper ---")
+            ode_sde_wrapper = CFGVectorFieldODE_3D(unet=main_model, set_encoder=set_encoder)
+
     # --- Load weights ---
     set_encoder.load_state_dict(model_states_cfg['set_encoder'])
 
-    set_encoder.eval()
-    unet_3d.eval()
+    if architecture == "v3_DiT":
+        main_model.load_state_dict(model_states_cfg['dit'])
+    else:
+        main_model.load_state_dict(model_states_cfg['unet'])
 
-    return set_encoder, unet_3d, ode_3d, architecture
+    set_encoder.eval()
+    main_model.eval()
+
+    return set_encoder, main_model, ode_sde_wrapper, architecture
 
 # Helper function to plot a 3D box
 def plot_room_box(ax, dimensions):
@@ -356,25 +372,6 @@ def load_model_and_config(model_path, device):
     model_states_cfg = checkpoint['model_states']
     return checkpoint, config, model_states_cfg
 
-# def create_models(config, train_sampler, device):
-#     """Create and return model instances"""
-#     model_cfg = config['model']
-#     set_encoder = SetEncoder(
-#         num_freqs=train_sampler.cubes.shape[1],
-#         d_model=model_cfg['d_model'],
-#         nhead=model_cfg['nhead'],
-#         num_layers=model_cfg['num_encoder_layers']
-#     ).to(device)
-#
-#     unet_3d = CrossAttentionUNet3D_RED3d(
-#         in_channels=train_sampler.cubes.shape[1],
-#         out_channels=train_sampler.cubes.shape[1],
-#         channels=model_cfg['channels'],
-#         d_model=model_cfg['d_model'],
-#         nhead=model_cfg['nhead']
-#     ).to(device)
-#
-#     return set_encoder, unet_3d
 
 if __name__ == '__main__':
 
@@ -444,7 +441,13 @@ if __name__ == '__main__':
         set_encoder, unet_3d, ode_3d, is_new_model = model_factory(config, model_states_cfg, device)
 
         # --- 4. Original Inference & Visualization ---
-        simulator = EulerSimulator(ode=ode_3d)
+        if config['model'].get('FM_vs_Diff') == 'flow_matching' or config['model'].get('FM_vs_Diff') is None:
+            print("--- Using Flow Matching ODE Simulator ---")
+            simulator = EulerSimulator(ode=ode_3d)
+            print("simulator type: ", type(simulator), "\n")
+        elif config['model'].get('FM_vs_Diff') == 'score_matching':
+            simulator = EulerMaruyamaSimulator(sde=ode_3d)
+
 
         # --- SETUP THE PLOT GRID ---
         # Add an extra column at the far left for a 3D snapshot view
@@ -556,23 +559,37 @@ if __name__ == '__main__':
                 ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
                 ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
 
+                fm_vs_diff = config['model'].get('FM_vs_Diff', None)
                 # Set the guidance scale on the ODE object
-                simulator.ode.guidance_scale = w
+                if fm_vs_diff == 'flow_matching' or fm_vs_diff == None:
+                    simulator.ode.guidance_scale = w
+                    # Simulation loop
+                    x1_recon = simulator.simulate(xt,
+                                                  ts,
+                                                  x0=x0,
+                                                  z_true=z_true,
+                                                  y_tokens=y_tokens,
+                                                  obs_mask=obs_mask,
+                                                  obs_coords_rel=obs_coords_rel,
+                                                  obs_values=obs_values,
+                                                  pooled_context=pooled_context,  # <<< ADD THIS LINE
+                                                  paste_observations=False,
+                                                  obs_indices=obs_indices
+                                                  )
 
-                # Simulation loop
-                x1_recon = simulator.simulate(xt,
-                                              ts,
-                                              x0=x0,
-                                              z_true=z_true,
-                                              # y_tokens=y_tokens,
-                                              obs_mask=obs_mask,
-                                              obs_coords_rel=obs_coords_rel,
-                                              obs_values=obs_values,
-                                              pooled_context=pooled_context,  # <<< ADD THIS LINE
-                                              paste_observations=False,
-                                              obs_indices=obs_indices
-                                              )
-
+                elif config['model'].get('FM_vs_Diff') == 'score_matching':
+                    simulator.sde.guidance_scale = w
+                    # Simulation loop
+                    x1_recon = simulator.simulate(xt,
+                                                  ts,
+                                                  x0=x0,
+                                                  z_true=z_true,
+                                                  obs_indices=obs_indices,
+                                                  obs_values=obs_values,
+                                                  obs_coords_rel=obs_coords_rel,
+                                                  obs_mask=obs_mask,
+                                                  y_tokens=y_tokens,
+                                                  )
                 # De-normalize and plot
                 x1_recon_denorm = (x1_recon * std + mean)
                 recon_cube_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()

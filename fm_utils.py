@@ -1797,36 +1797,53 @@ class ConditionalVectorField(nn.Module, ABC):
 #         return combined_field
 
 class ProbabilityFlowSDE(SDE):
-    #NEW ONE, not MIT
-    def __init__(self, score_network, set_encoder, sigma, guidance_scale=1.0):
+    def __init__(self, score_network, set_encoder, config, guidance_scale=1.0):
+        super().__init__()
         self.score_network = score_network
         self.set_encoder = set_encoder
         self.guidance_scale = guidance_scale
-        self.sigma = sigma  # The diffusion coefficient
+        self.sigma = config['training'].get('sigma', 0.1)
+
+        # ### <<< CHANGE: Store the architecture version
+        self.architecture = config['model'].get('architecture_version', 'v1_legacy')
 
     def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
-        # Get the pooled context (same as DiT trainer)
-        obs_coords_rel, obs_values, obs_mask = kwargs['obs_coords_rel'], kwargs['obs_values'], kwargs['obs_mask']
-        _, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+        # 1. Get raw observation data from the simulator call
+        obs_coords_rel = kwargs['obs_coords_rel']
+        obs_values = kwargs['obs_values']
+        obs_mask = kwargs['obs_mask']
 
-        # Get the unconditional context (null token)
+        # 2. Get ALL conditioning info from the SetEncoder
+        guided_y_tokens, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+        # 3. Create unguided (null) versions of the conditioning
+        unguided_y_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], guided_y_tokens.shape[1], -1)
         unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
 
-        # Get guided and unguided score predictions
-        s_guided = self.score_network(xt, t.squeeze(), pooled_context=guided_pooled_context)
-        s_unguided = self.score_network(xt, t.squeeze(), pooled_context=unguided_pooled_context)
+        # 4. ### <<< CHANGE: Call the score_network with the correct arguments based on its version
+        if self.architecture == "v3_DiT":
+            s_guided = self.score_network(xt, t.squeeze(), pooled_context=guided_pooled_context)
+            s_unguided = self.score_network(xt, t.squeeze(), pooled_context=unguided_pooled_context)
 
-        # Combine using CFG for the score
+        elif self.architecture == "v2_residual_context":
+            s_guided = self.score_network(xt, t.squeeze(), context=guided_y_tokens, context_mask=obs_mask,
+                                          pooled_context=guided_pooled_context)
+            s_unguided = self.score_network(xt, t.squeeze(), context=unguided_y_tokens, context_mask=obs_mask,
+                                            pooled_context=unguided_pooled_context)
+
+        else:  # This handles the "v1_legacy" case
+            s_guided = self.score_network(xt, t.squeeze(), context=guided_y_tokens, context_mask=obs_mask)
+            s_unguided = self.score_network(xt, t.squeeze(), context=unguided_y_tokens, context_mask=obs_mask)
+
+        # 5. Combine using the CFG formula
         s_final = (1 - self.guidance_scale) * s_unguided + self.guidance_scale * s_guided
 
-        # Define the drift of the probability flow ODE
-        # For a simple linear path, a_t=0 and g_t=1 (can be adjusted)
+        # 6. Define the drift for the Probability Flow ODE
         drift = -0.5 * (self.sigma ** 2) * s_final
         return drift
 
     def diffusion_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
-        # The diffusion coefficient is a simple scalar in this case
-        return self.sigma
+        return torch.tensor(self.sigma, device=xt.device)
 
 class CFGVectorFieldODE_3D(ODE):
     """
@@ -2332,6 +2349,7 @@ class ATF3DTrainer(Trainer):
 
         if self.version == "v2_residual_context":
             model_kwargs['pooled_context'] = final_pooled_context
+
         # The 3D U-Net's forward pass must accept `context` and `context_mask`
         ut_theta = self.model(xt, t, **model_kwargs)
 
@@ -2408,7 +2426,7 @@ class ATF3DTrainer(Trainer):
         st_theta = self.model(xt, t, **model_kwargs)
         # 7. Compute the loss based on the selected type
         beta_t = 1-t
-        st_ref = -x0 / beta_t
+        st_ref = -x0
         # --- Standard Loss ---
         loss = torch.mean(torch.square(st_theta - st_ref))
 
@@ -2451,7 +2469,7 @@ class ATF3DTrainer(Trainer):
         st_theta = self.model(xt, t, **model_kwargs)
         # 7. Compute the loss based on the selected type
         beta_t = 1 - t
-        st_ref = -x0 / beta_t
+        st_ref = -x0
 
         # --- Standard Loss ---
         loss = torch.mean(torch.square(st_theta - st_ref))
