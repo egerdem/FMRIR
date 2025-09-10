@@ -715,7 +715,7 @@ class Trainer(ABC):
               checkpoint_interval: Optional[int] = None,
               start_iteration: int = 0,
               config: dict = None,
-              early_stopping_patience: int = 1500, #was 1000
+              early_stopping_patience: int = 1400, #was 1000
               resume_checkpoint_path: Optional[str] = None,
               resume_checkpoint_state: Optional[dict] = None,
               **kwargs):
@@ -2563,9 +2563,9 @@ class ATF3DTrainer(Trainer):
 
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
         x0 = torch.randn_like(x1)
-        noise_target = x0
 
-        xt = (1 - t) * x0 + t * x1
+        xt = (1 - (1 - self.sigma) * t) * x0 + t * x1
+        ut_ref = x1 - (1 - self.sigma) * x0
 
         model_kwargs = {
             'context': y_tokens,
@@ -2576,11 +2576,11 @@ class ATF3DTrainer(Trainer):
             model_kwargs['pooled_context'] = pooled_context
 
         # For validation, we are always conditional
-        predicted_noise = self.model(xt, t, **model_kwargs)
+        ut_theta = self.model(xt, t, **model_kwargs)
         # 7. Compute the loss based on the selected type
 
         # --- Standard Loss ---
-        loss = torch.mean(torch.square(predicted_noise - noise_target))
+        loss = torch.mean(torch.square(ut_theta - ut_ref))
 
         return loss
 
