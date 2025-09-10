@@ -1902,6 +1902,46 @@ class ConditionalVectorField(nn.Module, ABC):
 #     def diffusion_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
 #         return torch.tensor(self.sigma_sde, device=xt.device)
 
+class DDPMScheduler:
+    """
+    A scheduler for Denoising Diffusion Probabilistic Models (DDPMs)
+    using the cosine schedule, as described in 'Improved Denoising
+    Diffusion Probabilistic Models' by Nichol and Dhariwal (2021).
+    """
+
+    def __init__(self, num_timesteps=1000, beta_start=0.0001, beta_end=0.02):
+        self.num_timesteps = num_timesteps
+        self.betas = self._cosine_schedule(num_timesteps)
+
+        self.alphas = 1.0 - self.betas
+        self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
+
+        # Pre-calculate values needed for the forward process (noising)
+        self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
+        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - self.alphas_cumprod)
+
+    def _cosine_schedule(self, timesteps, s=0.008):
+        """ Creates a cosine beta schedule. """
+        steps = timesteps + 1
+        x = torch.linspace(0, timesteps, steps, dtype=torch.float64)
+        alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
+        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
+        return torch.clip(betas, 0, 0.999)
+
+    def add_noise(self, original_samples: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor):
+        """
+        Adds noise to the original samples according to the schedule for the given timesteps.
+        """
+        # Get the sqrt_alpha_cumprod and sqrt_one_minus_alpha_cumprod for the specific timesteps
+        sqrt_alpha_t = self.sqrt_alphas_cumprod.to(original_samples.device)[timesteps].view(-1, 1, 1, 1, 1)
+        sqrt_one_minus_alpha_t = self.sqrt_one_minus_alphas_cumprod.to(original_samples.device)[timesteps].view(-1, 1,
+                                                                                                                1, 1, 1)
+
+        # The noising formula: x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * epsilon
+        noisy_samples = sqrt_alpha_t * original_samples + sqrt_one_minus_alpha_t * noise
+        return noisy_samples
+
 class GenerativeSDE(SDE):
     """
     Implements the generative SDE for a DDPM trained with a Gaussian probability path.
@@ -2365,6 +2405,9 @@ class ATF3DTrainer(Trainer):
 
         self.loss_type = loss_type
         self.FM_vs_Diff = FM_vs_Diff
+
+        self.ddpm_scheduler = DDPMScheduler(num_timesteps=1000)
+
         if self.loss_type == 'weighted':
             print("--- Using PERCEPTUALLY WEIGHTED training loss. ---")
         else:
@@ -2521,13 +2564,13 @@ class ATF3DTrainer(Trainer):
         # 3. Encode the observations into conditioning tokens
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
 
-        # 4. Define the Flow Matching path from noise to data
-        t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
-        x0 = torch.randn_like(x1)
-        # Target for our network is the noise we added
-        noise_target = x0
+        # --- CHANGE 1: Sample discrete timesteps ---
+        # Sample integer timesteps from [0, T-1] for each item in the batch
+        timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
 
-        xt = (1 - t) * x0 + t * x1 # Correct path for alpha_t=t, beta_t=1-t
+        # --- CHANGE 2: Use the scheduler to create the noisy sample xt ---
+        noise_target = torch.randn_like(x1)  # This is epsilon
+        xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
 
         # 5. Apply Classifier-Free Guidance during training
         # With probability eta, replace conditioning tokens with the null token
@@ -2544,8 +2587,13 @@ class ATF3DTrainer(Trainer):
         if self.version == "v2_residual_context" or self.version == "v3_attention":
             model_kwargs['pooled_context'] = final_pooled_context
 
+        # --- CHANGE 3: Pass normalized continuous time to the model ---
+        # The FourierEncoder expects time in [0, 1], so we normalize the discrete timesteps
+        continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
+        continuous_time = continuous_time.view(-1, 1, 1, 1, 1)  # Reshape for the model
+
         # The 3D U-Net's forward pass must accept `context` and `context_mask`
-        predicted_noise = self.model(xt, t, **model_kwargs) #predicted noise
+        predicted_noise = self.model(xt, continuous_time, **model_kwargs) #predicted noise
 
         # --- Standard Loss ---
         loss = torch.mean(torch.square(predicted_noise - noise_target))
@@ -2558,8 +2606,51 @@ class ATF3DTrainer(Trainer):
         elif self.FM_vs_Diff == "flow_matching":  # Default to flow matching
             return self.get_train_loss_flow_matching(**kwargs)
 
+
     @torch.no_grad()
-    def get_valid_loss(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
+    def get_val_loss_ddpm(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
+        batch_size = kwargs.get('batch_size')
+        z_full, src_xyz = valid_sampler.sample(batch_size)
+
+        dev = next(self.model.parameters()).device
+        z_full = z_full.to(dev)
+        src_xyz = src_xyz.to(dev)
+
+        x1 = z_full
+
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+        # --- CHANGE 1: Sample discrete timesteps ---
+        # Sample integer timesteps from [0, T-1] for each item in the batch
+        timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
+
+        # --- CHANGE 2: Use the scheduler to create the noisy sample xt ---
+        noise_target = torch.randn_like(x1)  # This is epsilon
+        xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
+
+        model_kwargs = {
+            'context': y_tokens,
+            'context_mask': obs_mask
+        }
+
+        if self.version == "v2_residual_context" or self.version == "v3_attention":
+            model_kwargs['pooled_context'] = pooled_context
+
+        # --- CHANGE 3: Pass normalized continuous time to the model ---
+        # The FourierEncoder expects time in [0, 1], so we normalize the discrete timesteps
+        continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
+        continuous_time = continuous_time.view(-1, 1, 1, 1, 1)  # Reshape for the model
+
+        predicted_noise = self.model(xt, continuous_time, **model_kwargs)
+
+        # --- The loss remains the same ---
+        loss = torch.mean(torch.square(predicted_noise - noise_target))
+
+        return loss
+
+    @torch.no_grad()
+    def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
         z_full, src_xyz = valid_sampler.sample(batch_size)
 
@@ -2594,6 +2685,12 @@ class ATF3DTrainer(Trainer):
         loss = torch.mean(torch.square(ut_theta - ut_ref))
 
         return loss
+
+    def get_valid_loss(self, **kwargs):
+        if self.FM_vs_Diff == 'score_matching':
+            return self.get_val_loss_ddpm(**kwargs)
+        elif self.FM_vs_Diff == "flow_matching":  # Default to flow matching
+            return self.get_val_loss_flow_matching(**kwargs)
 
 # """ Part 3: An Architecture for Spectrograms: Building a U-Net """
 

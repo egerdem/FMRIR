@@ -47,7 +47,7 @@ random.seed(SEED)
 
 # --- Multi-Model Configuration ---
 VISUALIZE_slice = True  # Set to True to visualize a single model's slice
-COMPARE = True     # Set to True to show both plots simultaneously
+COMPARE = False     # Set to True to show both plots simultaneously
 
 # Custom model names for legends (optional, will auto-generate if None)
 MODEL_NAMES = [
@@ -58,9 +58,9 @@ M_range = None
 M_range = [5,10]
 num_examples = 5
 num_timesteps = 10
-guidance_scales = [1.0, 2, 3]
-freq_idx_to_plot = 19  # Pick a frequency channel to visualize
-z_slice_idx_to_plot = 10
+guidance_scales = [1.0, 2]
+freq_idx_to_plot = 10  # Pick a frequency channel to visualize
+z_slice_idx_to_plot = 2
 
 # Option to exclude outermost boundary positions from MSE/LSD calculation
 EXCLUDE_BOUNDARY = False  # Set to True to exclude outermost positions
@@ -108,59 +108,53 @@ def create_interior_mask(cube_shape, boundary_thickness=1):
     
     return mask_3d, interior_indices
 
-def model_factory(config, model_states_cfg, device):
+def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
     """
-    Reads the config and returns the correctly instantiated and loaded models.
+    Reads the config and returns the correctly instantiated and loaded models
+    and their corresponding inference wrapper.
     """
     model_cfg = config['model']
-    training_cfg = config['training']
-    # Use the presence of the version key to decide which architecture to build
     architecture = model_cfg.get('architecture_version')
-    fm_or_diff = model_cfg.get('FM_vs_Diff', None)
     setversion = model_cfg.get('setencoder_version')
+    fm_or_diff = model_cfg.get('FM_vs_Diff', 'flow_matching')
 
+    # --- 1. Instantiate SetEncoder ---
     if setversion == "v3":
         print("--- Creating set encoder v3 ---")
-        # --- Instantiate models based on version ---
         set_encoder = SetEncoder(
-            num_freqs=model_cfg['freq_up_to'],
-            d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead'],
-            num_layers=model_cfg['num_encoder_layers']
+            num_freqs=model_cfg['freq_up_to'], d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers']
         ).to(device)
-
-    elif setversion == "v12" or setversion is None:
+    else: # Fallback to v12
         print("--- Creating set encoder v12 ---")
         set_encoder = SetEncoder_v12(
-            num_freqs=model_cfg['freq_up_to'],
-            d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead'],
-            num_layers=model_cfg['num_encoder_layers']
+            num_freqs=model_cfg['freq_up_to'], d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers']
         ).to(device)
 
-    # --- 2. Instantiate Main Model and Wrapper (Corrected Logic) ---
-    main_model = None
-    ode_sde_wrapper = None
-
-    if architecture == "v2_residual_context":
-        print("--- Creating Main Model: U-Net with Residual Context (v2) ---")
+    # --- 2. Instantiate Main Model (U-Net/DiT) ---
+    if architecture == "v3_attention":
+        print("--- Creating (v3) architecture with Self-Attention ---")
+        main_model = CrossAttentionUNet3D_v3(
+            in_channels=model_cfg['freq_up_to'], out_channels=model_cfg['freq_up_to'],
+            channels=model_cfg['channels'], d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead'], input_size=11
+        ).to(device)
+    elif architecture == "v2_residual_context":
+        print("--- Creating (v2) architecture ---")
         main_model = CrossAttentionUNet3D_RED3d(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
-            channels=model_cfg['channels'],
-            d_model=model_cfg['d_model'],
+            in_channels=model_cfg['freq_up_to'], out_channels=model_cfg['freq_up_to'],
+            channels=model_cfg['channels'], d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
         ).to(device)
-
-        if fm_or_diff == 'score_matching':
-            ode_sde_wrapper = GenerativeSDE(
-                noise_predictor_network=main_model,
-                set_encoder=set_encoder,
-                config=config,
-                sigma_sde= SIGMA_SDE
-            )
-        elif fm_or_diff == 'flow_matching' or fm_or_diff == None:
-            ode_sde_wrapper = CFGVectorFieldODE_3D_V2(unet=main_model, set_encoder=set_encoder)
+    # Add other architectures like v1_legacy as needed...
+    elif architecture == "v1_legacy" or architecture is None:
+        print("--- Creating v1 architecture: standard 3d unet ---")
+        main_model = CrossAttentionUNet3D(
+            in_channels=model_cfg['freq_up_to'], out_channels=model_cfg['freq_up_to'],
+            channels=model_cfg['channels'], d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead']
+        ).to(device)
 
     elif architecture == "v4_DiT":
         # Instantiate the old U-Net and ODE wrapper for old checkpoints
@@ -185,37 +179,19 @@ def model_factory(config, model_states_cfg, device):
             input_size=11  # Assuming your cube dimension is 11
         ).to(device)
 
-        if fm_or_diff == 'score_matching':
-            ode_sde_wrapper = GenerativeSDE(
-                noise_predictor_network=main_model,
-                set_encoder=set_encoder,
-                config=config,
-                sigma_sde= SIGMA_SDE
-            )
-        elif fm_or_diff == 'flow_matching':  # flow_matching
-            print("--- Using Flow Matching ODE Wrapper ---")
-            ode_sde_wrapper = CFGVectorFieldODE_3D_V2(unet=main_model, set_encoder=set_encoder)
+    # --- 3. Instantiate the Correct Inference Wrapper ---
+    if fm_or_diff == 'score_matching':
+        print("--- Using Denoising Diffusion (SDE) Wrapper ---")
+        ode_sde_wrapper = GenerativeSDE(
+            noise_predictor_network=main_model, set_encoder=set_encoder,
+            config=config, sigma_sde=SIGMA_SDE
+        )
 
-    elif architecture == "v1_legacy" or architecture is None:
-        print("--- Creating Main Model: Legacy U-Net (v1) ---")
-        main_model = CrossAttentionUNet3D(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
-            channels=model_cfg['channels'],
-            d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead']
-        ).to(device)
-
-        if fm_or_diff == 'score_matching':
-            ode_sde_wrapper = GenerativeSDE(
-                noise_predictor_network=main_model,
-                set_encoder=set_encoder,
-                config=config,
-                sigma_sde= SIGMA_SDE
-            )
-        elif fm_or_diff == 'flow_matching' or fm_or_diff == None:  # flow_matching
-            print("--- Using Flow Matching ODE Wrapper ---")
-            ode_sde_wrapper = CFGVectorFieldODE_3D(unet=main_model, set_encoder=set_encoder)
+    elif fm_or_diff == 'flow_matching' and architecture != "v4_DiT":
+        print("--- Using Flow Matching ODE Wrapper ---")
+        print("inference.py")
+        # CFGVectorFieldODE_3D_V2 is compatible with both v2 and v3 U-Nets
+        ode_sde_wrapper = CFGVectorFieldODE_3D_V2(unet=main_model, set_encoder=set_encoder)
 
     # --- Load weights ---
     set_encoder.load_state_dict(model_states_cfg['set_encoder'])
@@ -529,9 +505,11 @@ if __name__ == '__main__':
         for row in range(num_examples):
         # Get a random ground truth sample
 
-            # z_true, src_xyz = test_sampler.sample(1)
-            # z_true, src_xyz = z_true.to(device), src_xyz.to(device)
-            z_true, src_xyz = test_sampler.cubes[922-922].unsqueeze(0).to(device), test_sampler.source_coords[922-922].unsqueeze(0).to(device)
+            z_true, src_xyz = test_sampler.sample(1)
+            z_true, src_xyz = z_true.to(device), src_xyz.to(device)
+
+            # z_true, src_xyz = test_sampler.cubes[922-922].unsqueeze(0).to(device), test_sampler.source_coords[922-922].unsqueeze(0).to(device)
+
             # --- Create a sparse observation set on the fly ---
             M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
             obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
@@ -780,6 +758,7 @@ if __name__ == '__main__':
                 z_true, src_xyz = z_true.to(device), src_xyz.to(device)
 
                 # Run inference for this example
+                print("not using run_single_inference")
                 mse_results, M = run_single_inference(
                     set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz, M_range,
                     guidance_scales, num_timesteps, mean, std, device, EXCLUDE_BOUNDARY, BOUNDARY_THICKNESS

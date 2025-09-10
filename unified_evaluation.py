@@ -89,7 +89,7 @@ def load_reference_model(device, freq_up_to):
         return None, None, None, None
 
 
-def evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, num_sources_eval=None, guidance_scales=None):
+def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval=None, guidance_scales=None):
     """
     Evaluate your 3D model.
     
@@ -167,7 +167,7 @@ def evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, 
                     simulator.ode.guidance_scale = w
                     z_est = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                              obs_mask=obs_mask, pooled_context=pooled_context,
-                                             paste_observations=True, obs_indices=obs_indices)
+                                             paste_observations=False, obs_indices=obs_indices)
                     
                     # Calculate BOTH LSD and MSE for comprehensive comparison
                     # Full cube (all 1331 positions)
@@ -336,8 +336,43 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
     return result
 
 
-def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_config, freq_up_to, num_sources_eval):
-    """Plot ATF comparisons with 3 methods: True, Reference, Your Model for multiple combinations"""
+def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, best_guidance=None):
+    """
+    Plot ATF comparisons with 3 methods: True, Reference, Your Model for multiple combinations
+    
+    Args:
+        atf_mag_est_ref: Reference model predictions
+        atf_mag_est_yours: Dictionary of your model predictions for each guidance scale
+        atf_mag_gt: Ground truth ATF values
+        ref_config: Reference model config
+        freq_up_to: Number of frequency bins to use
+        num_sources_eval: Number of sources to evaluate
+        best_guidance: Optional, pre-computed best guidance scale. If None, will compute it.
+    """
+    # Get the correct number of sources to evaluate
+    total_sources = atf_mag_gt.shape[2]  # Total available sources
+    eval_sources = min(num_sources_eval, total_sources) if num_sources_eval is not None else total_sources
+    print(f"Evaluating ATF plots for first {eval_sources} sources (out of {total_sources})")
+
+    # Use provided best_guidance or compute it
+    if best_guidance is None:
+        # Select the best guidance scale for visualization (lowest average LSD)
+        guidance_scales = list(atf_mag_est_yours.keys())
+        best_guidance = guidance_scales[0]  # Default to first scale
+        best_lsd = float('inf')
+        
+        for w in guidance_scales:
+            # Make sure to use the same number of sources for comparison
+            current_lsd = torch.mean((atf_mag_est_yours[w][:, :, :eval_sources] - 
+                                    atf_mag_gt[:, :freq_up_to, :eval_sources]) ** 2).item()
+            if current_lsd < best_lsd:
+                best_lsd = current_lsd
+                best_guidance = w
+        print(f"Computed best guidance scale w={best_guidance} (LSD={best_lsd:.4f})")
+    else:
+        print(f"Using provided best guidance scale w={best_guidance}")
+    
+    atf_mag_est_yours_best = atf_mag_est_yours[best_guidance]
     dataset_name = ref_config['dataset'][0]
     
     # Create frequency axes for both models
@@ -361,7 +396,7 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
     
     if atf_mag_est_yours is not None:
         # Multiple source and microphone combinations (similar to inference_1d_atf.py)
-        total_sources_for_plots = num_sources_eval if num_sources_eval is not None else atf_mag_gt.shape[2]
+        total_sources_for_plots = min(num_sources_eval, atf_mag_gt.shape[2]) if num_sources_eval is not None else atf_mag_gt.shape[2]
         source_indices = list(range(min(10, total_sources_for_plots)))  # Limit to 10 for plotting (can be adjusted)
         
         # Use the CORRECT microphone indices that match the PDF coordinates:
@@ -391,7 +426,9 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
                 # All models plot the same frequency range for comparison (0-312 Hz)
                 ax.plot(freq_yours, atf_mag_gt[mic_idx, :freq_up_to, src_idx], 'k--', label="True", linewidth=2)
                 ax.plot(freq_yours, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="Reference", linewidth=1.5)
-                ax.plot(freq_yours, atf_mag_est_yours[mic_idx, :, src_idx], 'b-', label="Your Model", linewidth=1.5)
+                print(f"Plotting Source {src_idx+922}, Mic {mic_idx} (index {i+1}/5)")
+                ax.plot(freq_yours, atf_mag_est_yours_best[mic_idx, :, src_idx], 'b-', 
+                       label=f"Your Model (w={best_guidance})", linewidth=1.5)
                 
                 ax.set_xscale('log')
                 ax.grid(True)
@@ -423,11 +460,17 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
         print("Your model predictions not available - skipping ATF plots")
 
 
-def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, guidance_scales):
+def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, guidance_scales=None, single_guidance=None):
     """
     Extract ATF predictions from your model in the same format as reference model.
     Based on inference_1d_atf.py approach.
+    
+    Args:
+        guidance_scales: List of guidance scales to evaluate. If single_guidance is provided, this is ignored.
+        single_guidance: Optional, single guidance scale to evaluate. If provided, only this scale is used.
     """
+    if single_guidance is not None:
+        guidance_scales = [single_guidance]
     print("Generating ATF predictions from your 3D model...")
     
     # Load your data (same as in inference_1d_atf.py)
@@ -525,7 +568,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
                     if iz < gen_cube_denorm.shape[2] and iy < gen_cube_denorm.shape[3] and ix < gen_cube_denorm.shape[4]:
                         your_atf_predictions[w][mic_idx, :, src_idx] = gen_cube_denorm[0, :, iz, iy, ix].cpu()
     
-    print(f"Generated ATF predictions: {your_atf_predictions.shape} (Mic, Freq, Source)")
+    # print(f"Generated ATF predictions: {your_atf_predictions.shape} (Mic, Freq, Source)")
     return your_atf_predictions
 
 # def get_fallback_reference_results():
@@ -541,8 +584,8 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-guidance_scales = [1.0, 2.0, 3]
-M_values = [5]
+guidance_scales = [1.0]
+M_values = [5, 50, 100]
 num_sources_eval = None  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
 def get_model_name(model_path):
@@ -579,7 +622,7 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
         print(f"Model frequency range: {freq_up_to}")
     
     # Evaluate this model
-    model_results, idx_mes_pos_mat = evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, num_sources_eval, guidance_scales)
+    model_results, idx_mes_pos_mat = evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval, guidance_scales)
     all_your_results[model_name] = model_results
     
     # Store model components for later plotting (avoid reloading best model)
@@ -640,6 +683,8 @@ for model_name, model_results in all_your_results.items():
 best_model = None
 best_guidance = None
 best_lsd = float('inf')
+best_results = {}  # Store best results for reuse
+
 for model_name, model_results in all_your_results.items():
     for M in M_values:
         for w in guidance_scales:
@@ -647,6 +692,11 @@ for model_name, model_results in all_your_results.items():
                 best_lsd = model_results[M][w]['lsd_mean']
                 best_model = model_name
                 best_guidance = w
+                best_results = {
+                    'model': best_model,
+                    'guidance': best_guidance,
+                    'lsd': best_lsd
+                }
 
 print("="*80)
 print(f"🏆 BEST MODEL: {best_model}")
@@ -661,21 +711,24 @@ print(f"      (Different M=5 microphones for each source, as per reference)")
 print("="*80)
 
 # Plot ATF comparisons using the best model (no reloading needed!)
-print("\n3. Generating ATF comparison plots...")
-print(f"Using best model for plots: {best_model}")
-
-if best_model and best_model in all_your_predictions:
-    # Use already loaded model components (efficient!)
-    set_encoder_best, unet_3d_best, ode_3d_best, config_best = all_your_predictions[best_model]
-
-    # Get your model's ATF predictions for plotting
-    your_atf_predictions = get_your_model_atf_predictions(
-        set_encoder_best, ode_3d_best, config_best, device,
-        atf_mag_gt, ref_config, freq_up_to, num_sources_eval, guidance_scales
-    )
-
-    plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config, freq_up_to, num_sources_eval)
-else:
-    print("Could not find best model for plotting")
-
-
+# print("\n3. Generating ATF comparison plots...")
+# print(f"Using best model for plots: {best_model}")
+#
+# if best_model and best_model in all_your_predictions:
+#     # Use already loaded model components (efficient!)
+#     set_encoder_best, unet_3d_best, ode_3d_best, config_best = all_your_predictions[best_model]
+#
+#     # Get your model's ATF predictions for plotting (only for best guidance scale)
+#     your_atf_predictions = get_your_model_atf_predictions(
+#         set_encoder_best, ode_3d_best, config_best, device,
+#         atf_mag_gt, ref_config, freq_up_to, num_sources_eval,
+#         single_guidance=best_results['guidance']  # Only compute for best guidance scale
+#     )
+#
+#     # Use the already computed best guidance scale
+#     plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config,
+#                         freq_up_to, num_sources_eval, best_guidance=best_results['guidance'])
+# else:
+#     print("Could not find best model for plotting")
+#
+#
