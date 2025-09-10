@@ -91,7 +91,7 @@ def model_factory(config, device):
             nhead=model_cfg['nhead']
         ).to(device)
 
-    elif architecture == "v3_DiT":
+    elif architecture == "v4_DiT":
         # Instantiate the old U-Net and ODE wrapper for old checkpoints
         unet_3d = DiffusionTransformer3D(
             in_channels=model_cfg['freq_up_to'],
@@ -99,6 +99,17 @@ def model_factory(config, device):
             patch_size=model_cfg['patch_size'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
+        ).to(device)
+
+    elif architecture == "v3_attention":
+        print("--- Creating (v3) architecture with Self-Attention ---")
+        unet_3d = CrossAttentionUNet3D_v3(
+            in_channels=model_cfg['freq_up_to'],
+            out_channels=model_cfg['freq_up_to'],
+            channels=model_cfg['channels'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead'],
+            input_size=11  # Assuming your cube dimension is 11
         ).to(device)
 
     return set_encoder, unet_3d
@@ -2464,7 +2475,7 @@ class ATF3DTrainer(Trainer):
             'context_mask': final_obs_mask
         }
 
-        if self.version == "v2_residual_context":
+        if self.version == "v2_residual_context" or self.version == "v3_attention":
             model_kwargs['pooled_context'] = final_pooled_context
 
         # The 3D U-Net's forward pass must accept `context` and `context_mask`
@@ -2530,7 +2541,7 @@ class ATF3DTrainer(Trainer):
 
         model_kwargs = {'context': final_tokens, 'context_mask': obs_mask}
 
-        if self.version == "v2_residual_context":
+        if self.version == "v2_residual_context" or self.version == "v3_attention":
             model_kwargs['pooled_context'] = final_pooled_context
 
         # The 3D U-Net's forward pass must accept `context` and `context_mask`
@@ -2572,7 +2583,7 @@ class ATF3DTrainer(Trainer):
             'context_mask': obs_mask
         }
 
-        if self.version == "v2_residual_context":
+        if self.version == "v2_residual_context" or self.version == "v3_attention":
             model_kwargs['pooled_context'] = pooled_context
 
         # For validation, we are always conditional
@@ -3215,6 +3226,132 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
         d2 = torch.cat((d2, h1), dim=1)  # Concat with h1 (size 16)
         d2 = self.dec2_res(d2, t_emb, pooled_context)
         d2 = self.dec2_attn(d2, context, context_mask)
+
+        out = self.final_conv(d2)
+        s, e = self.crop_start, self.crop_end
+        return out[..., s:e, s:e, s:e]
+
+# V3 SELF ATTENTION UNET
+
+class SelfAttentionBlock3D(nn.Module):
+    """ Applies self-attention to a 3D spatial feature map. """
+
+    def __init__(self, channels, nhead=4, groups=4):
+        super().__init__()
+        # Ensure num_groups is valid
+        if channels < groups: groups = 1
+
+        self.norm = nn.GroupNorm(num_groups=groups, num_channels=channels)
+        self.attention = nn.MultiheadAttention(
+            embed_dim=channels,
+            num_heads=nhead,
+            batch_first=True
+        )
+
+    def forward(self, x):
+        B, C, D, H, W = x.shape
+        x_norm = self.norm(x)
+
+        # Reshape for attention: [B, C, D*H*W] -> [B, D*H*W, C]
+        seq = x_norm.view(B, C, -1).permute(0, 2, 1)
+
+        # Self-attention: query, key, and value are all the same
+        attn_output, _ = self.attention(seq, seq, seq)
+
+        # Add residual and reshape back to 3D
+        out = x + attn_output.permute(0, 2, 1).view(B, C, D, H, W)
+        return out
+
+
+class ResidualAttentionBlock3D(nn.Module):
+    """ A combined residual and attention block for the U-Net v3. """
+
+    def __init__(self, in_channels, out_channels, time_embed_dim, context_embed_dim, nhead=4, groups=8):
+        super().__init__()
+        self.res_block = ResidualBlock3D(in_channels, out_channels, time_embed_dim, context_embed_dim, groups)
+        self.self_attn = SelfAttentionBlock3D(out_channels, nhead, groups)
+
+    def forward(self, x, t_embed, context_embed):
+        # First, pass through the residual block with conditioning injection
+        x = self.res_block(x, t_embed, context_embed)
+        # Then, apply self-attention for spatial reasoning
+        x = self.self_attn(x)
+        return x
+
+
+class CrossAttentionUNet3D_v3(nn.Module):
+    """
+    U-Net v3: Combines Residual Blocks, Self-Attention, and Cross-Attention.
+    """
+
+    def __init__(self, in_channels=20, out_channels=20, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11):
+        super().__init__()
+
+        self.time_embedder = FourierEncoder(d_model)
+
+        # Padding to make input size divisible by 4 (for 2 downsampling stages)
+        target_size = math.ceil(input_size / 4) * 4
+        total_pad = target_size - input_size
+        pad_front = total_pad // 2
+        pad_back = total_pad - pad_front
+        self.padding_tuple = (pad_front, pad_back, pad_front, pad_back, pad_front, pad_back)
+        self.crop_start = pad_front
+        self.crop_end = pad_front + input_size
+
+        # --- ENCODER PATH ---
+        self.init_conv = nn.Conv3d(in_channels, channels[0], kernel_size=3, padding=1)
+
+        self.enc1_res_attn = ResidualAttentionBlock3D(channels[0], channels[0], d_model, d_model, nhead)
+        self.enc1_cross_attn = CrossAttentionBlock3D(channels[0], d_model, nhead)
+        self.down1 = nn.MaxPool3d(2)
+
+        self.enc2_res_attn = ResidualAttentionBlock3D(channels[0], channels[1], d_model, d_model, nhead)
+        self.enc2_cross_attn = CrossAttentionBlock3D(channels[1], d_model, nhead)
+        self.down2 = nn.MaxPool3d(2)
+
+        # --- BOTTLENECK ---
+        self.bottle_res_attn = ResidualAttentionBlock3D(channels[1], channels[2], d_model, d_model, nhead)
+        self.bottle_cross_attn = CrossAttentionBlock3D(channels[2], d_model, nhead)
+
+        # --- DECODER PATH ---
+        self.up1 = nn.ConvTranspose3d(channels[2], channels[1], kernel_size=2, stride=2)
+        self.dec1_res_attn = ResidualAttentionBlock3D(channels[1] * 2, channels[1], d_model, d_model, nhead)
+        self.dec1_cross_attn = CrossAttentionBlock3D(channels[1], d_model, nhead)
+
+        self.up2 = nn.ConvTranspose3d(channels[1], channels[0], kernel_size=2, stride=2)
+        self.dec2_res_attn = ResidualAttentionBlock3D(channels[0] * 2, channels[0], d_model, d_model, nhead)
+        self.dec2_cross_attn = CrossAttentionBlock3D(channels[0], d_model, nhead)
+
+        self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
+
+    def forward(self, x, t, context, context_mask, pooled_context):
+        x = F.pad(x, self.padding_tuple, mode='reflect')
+        t_emb = self.time_embedder(t.squeeze())
+
+        # --- Encoder ---
+        h1 = self.init_conv(x)
+        h1 = self.enc1_res_attn(h1, t_emb, pooled_context)
+        h1 = self.enc1_cross_attn(h1, context, context_mask)
+
+        h2 = self.down1(h1)
+        h2 = self.enc2_res_attn(h2, t_emb, pooled_context)
+        h2 = self.enc2_cross_attn(h2, context, context_mask)
+
+        # --- Bottleneck ---
+        bn = self.down2(h2)
+        bn = self.bottle_res_attn(bn, t_emb, pooled_context)
+        bn = self.bottle_cross_attn(bn, context, context_mask)
+
+        # --- Decoder ---
+        d1 = self.up1(bn)
+        d1 = torch.cat((d1, h2), dim=1)
+        d1 = self.dec1_res_attn(d1, t_emb, pooled_context)
+        d1 = self.dec1_cross_attn(d1, context, context_mask)
+
+        d2 = self.up2(d1)
+        d2 = torch.cat((d2, h1), dim=1)
+        d2 = self.dec2_res_attn(d2, t_emb, pooled_context)
+        d2 = self.dec2_cross_attn(d2, context, context_mask)
 
         out = self.final_conv(d2)
         s, e = self.crop_start, self.crop_end

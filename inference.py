@@ -161,7 +161,7 @@ def model_factory(config, model_states_cfg, device):
         elif fm_or_diff == 'flow_matching' or fm_or_diff == None:
             ode_sde_wrapper = CFGVectorFieldODE_3D_V2(unet=main_model, set_encoder=set_encoder)
 
-    elif architecture == "v3_DiT":
+    elif architecture == "v4_DiT":
         # Instantiate the old U-Net and ODE wrapper for old checkpoints
         main_model = DiffusionTransformer3D(
             in_channels=model_cfg['freq_up_to'],
@@ -197,7 +197,7 @@ def model_factory(config, model_states_cfg, device):
     # --- Load weights ---
     set_encoder.load_state_dict(model_states_cfg['set_encoder'])
 
-    if architecture == "v3_DiT":
+    if architecture == "v4_DiT":
         main_model.load_state_dict(model_states_cfg['dit'])
     else:
         main_model.load_state_dict(model_states_cfg['unet'])
@@ -277,7 +277,7 @@ def run_single_inference(set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz
         # Run simulation - pass pooled_context for v2 models
         x1_recon = simulator.simulate(xt, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                       obs_mask=obs_mask, pooled_context=pooled_context,
-                                      paste_observations=False, obs_indices=obs_indices)
+                                      paste_observations=True, obs_indices=obs_indices)
 
         # Calculate BOTH MSE and LSD for comprehensive comparison
         x1_recon_denorm = (x1_recon * std + mean)
@@ -613,7 +613,7 @@ if __name__ == '__main__':
                                                   obs_coords_rel=obs_coords_rel,
                                                   obs_values=obs_values,
                                                   pooled_context=pooled_context,  # <<< ADD THIS LINE
-                                                  paste_observations=False,
+                                                  paste_observations=True,
                                                   obs_indices=obs_indices
                                                   )
 
