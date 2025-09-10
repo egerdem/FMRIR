@@ -93,12 +93,12 @@ python trainer-atf-3d.py \
 # SCORE MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v2_setv12" \
+    --model_name "BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v3_setv12" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 300000 \
-    --version "v2_residual_context" \
+    --version "v3_attention" \
     --freq_up_to 20 \
     --lr 1e-4 \
     --warmup_iterations 5000 \
@@ -199,7 +199,7 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/pro
 
 #ROSSINI'den localescp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v2_setv12_20250910-170659_iter300000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v3_setv12_20250910-181459_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
 #BELLİNİ'den locale
 scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250908-204919_iter300000 /Users/ege/Projects/FMRIR/artifacts

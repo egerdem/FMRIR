@@ -8,6 +8,7 @@ import random
 from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, EulerMaruyamaSimulator,
                       CFGVectorFieldODE_3D_V2, GenerativeSDE,
                       SetEncoder, SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d,
+                        CrossAttentionUNet3D_v3,
                       DiffusionTransformer3D, CFGVectorFieldODE_DiT_3D)
 
 from model_paths import MULTI_MODEL_PATHS, MODEL_LOAD_PATH
@@ -46,7 +47,7 @@ random.seed(SEED)
 
 # --- Multi-Model Configuration ---
 VISUALIZE_slice = True  # Set to True to visualize a single model's slice
-COMPARE = False     # Set to True to show both plots simultaneously
+COMPARE = True     # Set to True to show both plots simultaneously
 
 # Custom model names for legends (optional, will auto-generate if None)
 MODEL_NAMES = [
@@ -172,6 +173,28 @@ def model_factory(config, model_states_cfg, device):
             nhead=model_cfg['nhead']
         ).to(device)
         ode_sde_wrapper = CFGVectorFieldODE_DiT_3D(unet=main_model, set_encoder=set_encoder)
+
+    elif architecture == "v3_attention":
+        print("--- Creating (v3) architecture with Self-Attention ---")
+        main_model = CrossAttentionUNet3D_v3(
+            in_channels=model_cfg['freq_up_to'],
+            out_channels=model_cfg['freq_up_to'],
+            channels=model_cfg['channels'],
+            d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead'],
+            input_size=11  # Assuming your cube dimension is 11
+        ).to(device)
+
+        if fm_or_diff == 'score_matching':
+            ode_sde_wrapper = GenerativeSDE(
+                noise_predictor_network=main_model,
+                set_encoder=set_encoder,
+                config=config,
+                sigma_sde= SIGMA_SDE
+            )
+        elif fm_or_diff == 'flow_matching':  # flow_matching
+            print("--- Using Flow Matching ODE Wrapper ---")
+            ode_sde_wrapper = CFGVectorFieldODE_3D_V2(unet=main_model, set_encoder=set_encoder)
 
     elif architecture == "v1_legacy" or architecture is None:
         print("--- Creating Main Model: Legacy U-Net (v1) ---")

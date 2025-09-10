@@ -89,8 +89,14 @@ def load_reference_model(device, freq_up_to):
         return None, None, None, None
 
 
-def evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, num_sources_eval=None):
-    """Evaluate your 3D model."""
+def evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, num_sources_eval=None, guidance_scales=None):
+    """
+    Evaluate your 3D model.
+    
+    Args:
+        guidance_scales: List of guidance scale values to evaluate. If None, defaults to [1.0, 2.0].
+    """
+
     data_dir = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
@@ -120,96 +126,100 @@ def evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, 
     simulator = EulerSimulator(ode=ode_3d)
     results = {}
     
+    # Load the SAME microphone selection strategy as reference model
+    idx_mes_pos_path = "AUTOENCODER/ATF_interp/idx_mes_pos_s1024_m1331.npy"
+    if os.path.exists(idx_mes_pos_path):
+        idx_mes_pos_mat = np.load(idx_mes_pos_path)
+        print(f"Loaded reference microphone selection matrix: {idx_mes_pos_mat.shape}")
+        print("Using source-specific microphone selection (different M=5 mics per source)")
+
     for M in M_values:
+        results[M] = {}
         print(f"Evaluating your model with M={M} microphones...")
-        lsd_scores = []
         
-        # Load the SAME microphone selection strategy as reference model
-        idx_mes_pos_path = "AUTOENCODER/ATF_interp/idx_mes_pos_s1024_m1331.npy"
-        if os.path.exists(idx_mes_pos_path):
-            idx_mes_pos_mat = np.load(idx_mes_pos_path)
-            print(f"Loaded reference microphone selection matrix: {idx_mes_pos_mat.shape}")
-            print("Using source-specific microphone selection (different M=5 mics per source)")
+        for w in guidance_scales:
+            print(f"  Using guidance scale w={w}")
+            lsd_scores = []
+            # Evaluate each source with this guidance scale
+            for i in tqdm(range(eval_sources), desc=f"Your Model M={M}, w={w}"):
+                with torch.no_grad():
+                    z_true = test_sampler.cubes[i].unsqueeze(0).to(device)
+                    src_xyz = test_sampler.source_coords[i].unsqueeze(0).to(device)
+                    
+                    # Use source-specific microphones (different M=5 for each source)
+                    source_specific_indices = idx_mes_pos_mat[:M, i]  # First M mics for this source
+                    obs_indices = torch.tensor(source_specific_indices, dtype=torch.long, device=device)
 
-        for i in tqdm(range(eval_sources), desc=f"Your Model M={M}"):
-            with torch.no_grad():
-                z_true = test_sampler.cubes[i].unsqueeze(0).to(device)
-                src_xyz = test_sampler.source_coords[i].unsqueeze(0).to(device)
-                
-                # Use source-specific microphones (different M=5 for each source)
-                source_specific_indices = idx_mes_pos_mat[:M, i]  # First M mics for this source
-                obs_indices = torch.tensor(source_specific_indices, dtype=torch.long, device=device)
-
-                obs_xyz_abs = grid_xyz[obs_indices]
-                obs_coords_rel = (obs_xyz_abs - src_xyz).unsqueeze(0)
-                
-                z_flat = z_true.view(z_true.shape[1], -1)
-                obs_values = z_flat[:, obs_indices].transpose(0, 1).unsqueeze(0)
-                obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
-                
-                # Inference
-                x0 = torch.randn_like(z_true)
-                y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
-                
-                ts = torch.linspace(0, 1, 11, device=device)
-                ts = ts.view(1, -1, 1, 1, 1, 1).expand(x0.shape[0], -1, -1, -1, -1, -1)
-                
-                simulator.ode.guidance_scale = 1.0
-                z_est = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
-                                         obs_mask=obs_mask, pooled_context=pooled_context,
-                                         paste_observations=True, obs_indices=obs_indices)
-                
-                # Calculate BOTH LSD and MSE for comprehensive comparison
-                # Full cube (all 1331 positions)
-                lsd_normalized = calculate_lsd_unified(z_est.squeeze(0), z_true.squeeze(0), freq_dim=0)
-                lsd_db = lsd_normalized.item() * spec_std
-                
-                # Calculate MSE in denormalized domain 
-                z_est_denorm = z_est * spec_std + train_sampler.mean.item()
-                z_true_denorm = z_true * spec_std + train_sampler.mean.item() 
-                mse = torch.mean((z_est_denorm - z_true_denorm) ** 2).item()
-                
-                # M_fundamental evaluation (5 specific positions: [0, 272, 665, 937, 1330])
-                m_fundamental_indices = [0, 272, 665, 937, 1330]
-                
-                # Convert 3D cube to flat format [freq, 1331] for indexing
-                z_est_flat = z_est_denorm.view(z_est_denorm.shape[1], -1)  # [freq, 1331]
-                z_true_flat = z_true_denorm.view(z_true_denorm.shape[1], -1)  # [freq, 1331]
-                z_est_norm_flat = z_est.squeeze(0).view(z_est.shape[1], -1)  # [freq, 1331] normalized
-                z_true_norm_flat = z_true.squeeze(0).view(z_true.shape[1], -1)  # [freq, 1331] normalized
-                
-                # Extract M_fundamental positions
-                lsd_m_fund_normalized = calculate_lsd_unified(
-                    z_est_norm_flat[:, m_fundamental_indices].T,  # [5, freq] 
-                    z_true_norm_flat[:, m_fundamental_indices].T,  # [5, freq]
-                    freq_dim=1  # frequency is now dim=1
-                )
-                lsd_m_fund_db = lsd_m_fund_normalized.item() * spec_std
-                
-                mse_m_fund = torch.mean((z_est_flat[:, m_fundamental_indices] - z_true_flat[:, m_fundamental_indices]) ** 2).item()
-                
-                lsd_scores.append({
-                    'lsd': lsd_db, 'mse': mse,
-                    'lsd_m_fund': lsd_m_fund_db, 'mse_m_fund': mse_m_fund
-                })
+                    obs_xyz_abs = grid_xyz[obs_indices]
+                    obs_coords_rel = (obs_xyz_abs - src_xyz).unsqueeze(0)
+                    
+                    z_flat = z_true.view(z_true.shape[1], -1)
+                    obs_values = z_flat[:, obs_indices].transpose(0, 1).unsqueeze(0)
+                    obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
+                    
+                    # Inference
+                    x0 = torch.randn_like(z_true)
+                    y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
+                    
+                    ts = torch.linspace(0, 1, 11, device=device)
+                    ts = ts.view(1, -1, 1, 1, 1, 1).expand(x0.shape[0], -1, -1, -1, -1, -1)
+                    
+                    simulator.ode.guidance_scale = w
+                    z_est = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
+                                             obs_mask=obs_mask, pooled_context=pooled_context,
+                                             paste_observations=True, obs_indices=obs_indices)
+                    
+                    # Calculate BOTH LSD and MSE for comprehensive comparison
+                    # Full cube (all 1331 positions)
+                    lsd_normalized = calculate_lsd_unified(z_est.squeeze(0), z_true.squeeze(0), freq_dim=0)
+                    lsd_db = lsd_normalized.item() * spec_std
+                    
+                    # Calculate MSE in denormalized domain 
+                    z_est_denorm = z_est * spec_std + train_sampler.mean.item()
+                    z_true_denorm = z_true * spec_std + train_sampler.mean.item() 
+                    mse = torch.mean((z_est_denorm - z_true_denorm) ** 2).item()
+                    
+                    # M_fundamental evaluation (5 specific positions: [0, 272, 665, 937, 1330])
+                    m_fundamental_indices = [0, 272, 665, 937, 1330]
+                    
+                    # Convert 3D cube to flat format [freq, 1331] for indexing
+                    z_est_flat = z_est_denorm.view(z_est_denorm.shape[1], -1)  # [freq, 1331]
+                    z_true_flat = z_true_denorm.view(z_true_denorm.shape[1], -1)  # [freq, 1331]
+                    z_est_norm_flat = z_est.squeeze(0).view(z_est.shape[1], -1)  # [freq, 1331] normalized
+                    z_true_norm_flat = z_true.squeeze(0).view(z_true.shape[1], -1)  # [freq, 1331] normalized
+                    
+                    # Extract M_fundamental positions
+                    lsd_m_fund_normalized = calculate_lsd_unified(
+                        z_est_norm_flat[:, m_fundamental_indices].T,  # [5, freq] 
+                        z_true_norm_flat[:, m_fundamental_indices].T,  # [5, freq]
+                        freq_dim=1  # frequency is now dim=1
+                    )
+                    lsd_m_fund_db = lsd_m_fund_normalized.item() * spec_std
+                    
+                    mse_m_fund = torch.mean((z_est_flat[:, m_fundamental_indices] - z_true_flat[:, m_fundamental_indices]) ** 2).item()
+                    
+                    lsd_scores.append({
+                        'lsd': lsd_db, 'mse': mse,
+                        'lsd_m_fund': lsd_m_fund_db, 'mse_m_fund': mse_m_fund
+                    })
         
-        # Extract LSD and MSE values
-        lsd_values = [score['lsd'] for score in lsd_scores]
-        mse_values = [score['mse'] for score in lsd_scores]
-        lsd_m_fund_values = [score['lsd_m_fund'] for score in lsd_scores]
-        mse_m_fund_values = [score['mse_m_fund'] for score in lsd_scores]
-        
-        results[M] = {
-            'lsd_mean': np.mean(lsd_values),
-            'lsd_std': np.std(lsd_values), 
-            'mse_mean': np.mean(mse_values),
-            'mse_std': np.std(mse_values),
-            'lsd_mean_m_fund': np.mean(lsd_m_fund_values),
-            'lsd_std_m_fund': np.std(lsd_m_fund_values),
-            'mse_mean_m_fund': np.mean(mse_m_fund_values),
-            'mse_std_m_fund': np.std(mse_m_fund_values),
-            'num_sources_eval': eval_sources
-        }
+            # Extract LSD and MSE values for this guidance scale
+            lsd_values = [score['lsd'] for score in lsd_scores]
+            mse_values = [score['mse'] for score in lsd_scores]
+            lsd_m_fund_values = [score['lsd_m_fund'] for score in lsd_scores]
+            mse_m_fund_values = [score['mse_m_fund'] for score in lsd_scores]
+            
+            results[M][w] = {
+                'lsd_mean': np.mean(lsd_values),
+                'lsd_std': np.std(lsd_values), 
+                'mse_mean': np.mean(mse_values),
+                'mse_std': np.std(mse_values),
+                'lsd_mean_m_fund': np.mean(lsd_m_fund_values),
+                'lsd_std_m_fund': np.std(lsd_m_fund_values),
+                'mse_mean_m_fund': np.mean(mse_m_fund_values),
+                'mse_std_m_fund': np.std(mse_m_fund_values),
+                'num_sources_eval': eval_sources
+            }
     
     return results, idx_mes_pos_mat
 
@@ -413,7 +423,7 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
         print("Your model predictions not available - skipping ATF plots")
 
 
-def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_gt, ref_config, freq_up_to, num_sources_eval):
+def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, guidance_scales):
     """
     Extract ATF predictions from your model in the same format as reference model.
     Based on inference_1d_atf.py approach.
@@ -442,14 +452,13 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
     # Create simulator
     simulator = EulerSimulator(ode=ode_3d)
     
-    # Initialize output array matching reference format [Mic, Freq, Source]
+    # Initialize output array matching reference format [Guidance, Mic, Freq, Source]
     total_mics = atf_mag_gt.shape[0]
     total_sources = min(num_sources_eval or atf_mag_gt.shape[2], len(test_sampler))
-    your_atf_predictions = torch.zeros(total_mics, freq_up_to, total_sources)
+    your_atf_predictions = {w: torch.zeros(total_mics, freq_up_to, total_sources) for w in guidance_scales}
     
     # Fixed M and parameters (from inference_1d_atf.py)
     M = ref_config['num_mes_test']  # Use same M as reference (5)
-    guidance_scale = 1.0
     num_timesteps = 10
     
     # Load the SAME microphone selection strategy as reference model
@@ -495,24 +504,26 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
             ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
             ts = ts.view(1, -1, 1, 1, 1, 1).expand(x0.shape[0], -1, -1, -1, -1, -1)
             
-            simulator.ode.guidance_scale = guidance_scale
-            x1_recon = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
-                                        obs_mask=obs_mask, pooled_context=pooled_context,
-                                        paste_observations=False, obs_indices=obs_indices)
-            
-            # De-normalize (same as inference_1d_atf.py)
-            gen_cube_denorm = (x1_recon * std + mean)
-            
-            # Convert 3D grid to microphone format
-            # Extract ATF values at all microphone positions
-            nx, ny, nz = 11, 11, 11  # Grid dimensions
-            for mic_idx in range(total_mics):
-                # Convert flat microphone index to 3D coordinates (same as inference_1d_atf.py)
-                iz, iy, ix = np.unravel_index(mic_idx, (nz, ny, nx))
+            # Run inference for each guidance scale
+            for w in guidance_scales:
+                simulator.ode.guidance_scale = w
+                x1_recon = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
+                                           obs_mask=obs_mask, pooled_context=pooled_context,
+                                           paste_observations=True, obs_indices=obs_indices)
                 
-                # Extract frequency response at this microphone position
-                if iz < gen_cube_denorm.shape[2] and iy < gen_cube_denorm.shape[3] and ix < gen_cube_denorm.shape[4]:
-                    your_atf_predictions[mic_idx, :, src_idx] = gen_cube_denorm[0, :, iz, iy, ix].cpu()
+                # De-normalize (same as inference_1d_atf.py)
+                gen_cube_denorm = (x1_recon * std + mean)
+                
+                # Convert 3D grid to microphone format
+                # Extract ATF values at all microphone positions
+                nx, ny, nz = 11, 11, 11  # Grid dimensions
+                for mic_idx in range(total_mics):
+                    # Convert flat microphone index to 3D coordinates (same as inference_1d_atf.py)
+                    iz, iy, ix = np.unravel_index(mic_idx, (nz, ny, nx))
+                    
+                    # Extract frequency response at this microphone position
+                    if iz < gen_cube_denorm.shape[2] and iy < gen_cube_denorm.shape[3] and ix < gen_cube_denorm.shape[4]:
+                        your_atf_predictions[w][mic_idx, :, src_idx] = gen_cube_denorm[0, :, iz, iy, ix].cpu()
     
     print(f"Generated ATF predictions: {your_atf_predictions.shape} (Mic, Freq, Source)")
     return your_atf_predictions
@@ -530,7 +541,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+guidance_scales = [1.0, 2.0, 3]
 M_values = [5]
 num_sources_eval = None  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
@@ -568,7 +579,7 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
         print(f"Model frequency range: {freq_up_to}")
     
     # Evaluate this model
-    model_results, idx_mes_pos_mat = evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, num_sources_eval)
+    model_results, idx_mes_pos_mat = evaluate_your_model(set_encoder, unet_3d, ode_3d, config, M_values, device, num_sources_eval, guidance_scales)
     all_your_results[model_name] = model_results
     
     # Store model components for later plotting (avoid reloading best model)
@@ -591,9 +602,9 @@ print()
 print("M_fundamental = 5 specific evaluation positions [0, 272, 665, 937, 1330] for PDFs")
 print("Full cube = All 1331 spatial positions")
 print(f"FAIR COMPARISON: Both models evaluated on same {freq_up_to} frequency bins (0-{freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
-print("-"*140)
-print(f"{'Method':<35} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'Freq Range':<15}")
-print("-"*140)
+print("-"*160)
+print(f"{'Method':<35} | {'w':<4} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'Freq Range':<15}")
+print("-"*160)
 
 # Reference model - USE MATCHED FREQUENCY RANGE for fair comparison
 ref_lsd_m_fund = ref_results['lsd_mean_m_fund']  # Now uses matched freq range
@@ -602,39 +613,46 @@ ref_mse_m_fund = ref_results['mse_mean_m_fund']  # Now uses matched freq range
 ref_lsd_full_fair = ref_results.get('lsd_mean_matched_freq', ref_results['lsd_mean'])
 ref_mse_full_fair = ref_results.get('mse_mean_matched_freq', ref_results['mse_mean'])
 
-print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<35} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {f'First {freq_up_to} bins':<15}")
+print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<35} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {f'First {freq_up_to} bins':<15}")
 
 # All your models
 for model_name, model_results in all_your_results.items():
     for M in M_values:
         # Truncate long model names for better display
         display_name = model_name[60:-5] + "..." if len(model_name) > 35 else model_name
-        your_lsd_m_fund = model_results[M]['lsd_mean_m_fund']
-        your_mse_m_fund = model_results[M]['mse_mean_m_fund']
-        your_lsd_full = model_results[M]['lsd_mean']
-        your_mse_full = model_results[M]['mse_mean']
-        
-        print(f"{display_name + f' (M={M})':<35} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {f'First {freq_up_to} bins':<15}")
-        
-        # Show improvements for fair comparison
-        lsd_improvement = ref_lsd_full_fair - your_lsd_full
-        mse_improvement = ref_mse_full_fair - your_mse_full
-        print(f"{'→ Improvement over Reference':<35} | {lsd_improvement:+.4f}     | {mse_improvement:+.4f}     | {lsd_improvement:+.4f}     | {mse_improvement:+.4f}     | {'FAIR comparison':<15}")
-        print("-"*140)
 
-# Find best model
+        # Print results for each guidance scale
+        for w in guidance_scales:
+            your_lsd_m_fund = model_results[M][w]['lsd_mean_m_fund']
+            your_mse_m_fund = model_results[M][w]['mse_mean_m_fund']
+            your_lsd_full = model_results[M][w]['lsd_mean']
+            your_mse_full = model_results[M][w]['mse_mean']
+
+            print(f"{display_name + f' (M={M})':<35} | {w:<4.1f} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {f'First {freq_up_to} bins':<15}")
+
+            # Show improvements for fair comparison
+            lsd_improvement = ref_lsd_full_fair - your_lsd_full
+            mse_improvement = ref_mse_full_fair - your_mse_full
+            # print(f"{'→ Improvement over Reference':<35} | {'   ':<4} | {lsd_improvement:+.4f}     | {mse_improvement:+.4f}     | {lsd_improvement:+.4f}     | {mse_improvement:+.4f}     | {'FAIR comparison':<15}")
+            print("-"*160)
+
+# Find best model and guidance scale combination
 best_model = None
+best_guidance = None
 best_lsd = float('inf')
 for model_name, model_results in all_your_results.items():
     for M in M_values:
-        if model_results[M]['lsd_mean'] < best_lsd:
-            best_lsd = model_results[M]['lsd_mean']
-            best_model = model_name
+        for w in guidance_scales:
+            if model_results[M][w]['lsd_mean'] < best_lsd:
+                best_lsd = model_results[M][w]['lsd_mean']
+                best_model = model_name
+                best_guidance = w
 
 print("="*80)
 print(f"🏆 BEST MODEL: {best_model}")
+print(f"   Best Guidance Scale: {best_guidance}")
 print(f"   Best LSD: {best_lsd:.4f} dB")
-print(f"   Improvement over Reference: {ref_results['mean'] - best_lsd:+.4f} dB")
+# print(f"   Improvement over Reference: {ref_results['mean'] - best_lsd:+.4f} dB")
 print("="*80)
 print(f"Note: All models use M={ref_results['num_mics']} observation microphones")
 print(f"      Reference uses source-specific microphone selection")
@@ -649,13 +667,13 @@ print(f"Using best model for plots: {best_model}")
 if best_model and best_model in all_your_predictions:
     # Use already loaded model components (efficient!)
     set_encoder_best, unet_3d_best, ode_3d_best, config_best = all_your_predictions[best_model]
-    
+
     # Get your model's ATF predictions for plotting
     your_atf_predictions = get_your_model_atf_predictions(
         set_encoder_best, ode_3d_best, config_best, device,
-        atf_mag_gt, ref_config, freq_up_to, num_sources_eval
+        atf_mag_gt, ref_config, freq_up_to, num_sources_eval, guidance_scales
     )
-    
+
     plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config, freq_up_to, num_sources_eval)
 else:
     print("Could not find best model for plotting")
