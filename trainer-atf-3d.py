@@ -52,7 +52,7 @@ def main(args):
     # This creates a baseline config that can be used immediately
     config = {
         "data": {"data_dir": args.data_dir,
-                 "src_splits": {"train": [[0, 820], [1024, 3100]], "valid": [820, 922], "test": [922, 1024]}},
+                 "src_splits": {"train": [[0, 820], [1024, 4096]], "valid": [820, 922], "test": [922, 1024]}},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,

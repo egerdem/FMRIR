@@ -93,8 +93,8 @@ python trainer-atf-3d.py \
 # SCORE MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv3" \
-    --data_dir ~/DATA/ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/
+    --model_name "BIGDATA_M5to50_freq20_layer3_d512_eta2e1_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv3" \
+    --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 300000 \
@@ -108,7 +108,7 @@ python trainer-atf-3d.py \
     --nhead 8 \
     --num_encoder_layers 3 \
     --M_range 5,50 \
-    --eta 0. \
+    --eta 0.2 \
     --sigma 1e-3 \
     --FM_vs_Diff "flow_matching" \
     --setencoder_version "v3" \
@@ -190,12 +190,12 @@ scp -r k24037994@hpc.create.kcl.ac.uk:~/FMRIR_experiments/ATF3D-CrossAttn-v1_202
 
 #LOCALDEN ROSSINIYE
 scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments
-scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train_freqs30.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
-scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_valid_freqs30.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train_freqs20.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_valid_freqs20.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
 
 scp -r /Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/checkpoints/ckpt_200000_CONV.pt eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/checkpoints
 #LOCALDEN KCL Create'e
-scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/DATASET
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train_freqs20.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/DATA
 
 #ROSSINI'den localescp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
