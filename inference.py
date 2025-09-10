@@ -59,8 +59,8 @@ M_range = [5,10]
 num_examples = 5
 num_timesteps = 10
 guidance_scales = [1.0, 2]
-freq_idx_to_plot = 10  # Pick a frequency channel to visualize
-z_slice_idx_to_plot = 2
+freq_idx_to_plot = 15  # Pick a frequency channel to visualize
+z_slice_idx_to_plot = 5
 
 # Option to exclude outermost boundary positions from MSE/LSD calculation
 EXCLUDE_BOUNDARY = False  # Set to True to exclude outermost positions

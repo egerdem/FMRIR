@@ -2571,7 +2571,7 @@ class ATF3DTrainer(Trainer):
         # --- CHANGE 2: Use the scheduler to create the noisy sample xt ---
         noise_target = torch.randn_like(x1)  # This is epsilon
         xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
-
+        xt = xt.float()
         # 5. Apply Classifier-Free Guidance during training
         # With probability eta, replace conditioning tokens with the null token
         is_conditional_mask = (torch.rand(batch_size, device=x1.device) > self.eta)
@@ -2628,7 +2628,7 @@ class ATF3DTrainer(Trainer):
         # --- CHANGE 2: Use the scheduler to create the noisy sample xt ---
         noise_target = torch.randn_like(x1)  # This is epsilon
         xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
-
+        xt = xt.float()
         model_kwargs = {
             'context': y_tokens,
             'context_mask': obs_mask
