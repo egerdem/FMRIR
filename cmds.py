@@ -93,12 +93,12 @@ python trainer-atf-3d.py \
 # SCORE MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "BIGDATA_M5to50_freq20_layer3_d512_eta2e1_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv3" \
+    --model_name "BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v2_setv12" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 300000 \
-    --version "v1_legacy" \
+    --version "v2_residual_context" \
     --freq_up_to 20 \
     --lr 1e-4 \
     --warmup_iterations 5000 \
@@ -108,10 +108,10 @@ python trainer-atf-3d.py \
     --nhead 8 \
     --num_encoder_layers 3 \
     --M_range 5,50 \
-    --eta 0.2 \
+    --eta 0. \
     --sigma 1e-3 \
     --FM_vs_Diff "flow_matching" \
-    --setencoder_version "v3" \
+    --setencoder_version "v12" \
     --validation_interval 100 \
     --checkpoint_interval 1000000
 
@@ -190,8 +190,8 @@ scp -r k24037994@hpc.create.kcl.ac.uk:~/FMRIR_experiments/ATF3D-CrossAttn-v1_202
 
 #LOCALDEN ROSSINIYE
 scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments
-scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train_freqs20.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
-scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_valid_freqs20.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train_freqs64.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_valid_freqs64.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
 
 scp -r /Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/checkpoints/ckpt_200000_CONV.pt eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/checkpoints
 #LOCALDEN KCL Create'e
@@ -199,7 +199,7 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/pro
 
 #ROSSINI'den localescp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_SCOREMATCH_freq20_layer3_d512_eta1e1_head8_sigma1e2_lrWARM5k_e4_toe5_unet4v1_setv3_20250909-173619_iter300000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv12_20250910-160559_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
 #BELLİNİ'den locale
 scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250908-204919_iter300000 /Users/ege/Projects/FMRIR/artifacts

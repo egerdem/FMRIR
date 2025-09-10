@@ -2577,7 +2577,7 @@ class ATF3DTrainer(Trainer):
 
         # For validation, we are always conditional
         ut_theta = self.model(xt, t, **model_kwargs)
-        # 7. Compute the loss based on the selected type
+        # 7. Compute the loss based on the selected typeclass
 
         # --- Standard Loss ---
         loss = torch.mean(torch.square(ut_theta - ut_ref))

@@ -10,6 +10,8 @@ from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, EulerM
                       SetEncoder, SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d,
                       DiffusionTransformer3D, CFGVectorFieldODE_DiT_3D)
 
+from model_paths import MULTI_MODEL_PATHS, MODEL_LOAD_PATH
+
 # Import unified LSD function for consistency with unified_evaluation.py
 def calculate_lsd_unified(estimation, ground_truth, freq_dim=1):
     """
@@ -42,96 +44,68 @@ torch.cuda.manual_seed_all(SEED)  # for GPU
 np.random.seed(SEED)
 random.seed(SEED)
 
-# def main():
-# --- Universal Setup ---
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_20250825-184335_iter200000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/model_CONVoldcheckpoint.pt"
-
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_20250825-201433_iter200000/modelCONVoldcheckpoint.pt"
-
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/checkpoints/ckpt_300000.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/checkpoints/ckpt_350000.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_UNET256_20250826-192413_iter200000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET256_20250826-204300_iter100000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET256_d512n6_20250826-204427_iter100000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e4_7_20250826-212533_iter100000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq64_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-185835_iter400000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE5_UNET128_LRmin_e6dot6e4toe7_d128_20250827-181013_iter400000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256_20250827-213218_iter500000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to100_sigmaE3_lr1e3to_e7_unet3_layer3_head3_20250828-190043_iter300000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to100_sigmaE3_lr1e3to_e7_unet3_layer3_head8_20250828-233343_iter50000/model.pt"
-# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M40to50_sigmaE5_enclayer3_UNET128_LRmin_e6dot6e4toe7_d256_20250827-213218_iter500000/model.pt"
-
 # --- Multi-Model Configuration ---
 VISUALIZE_slice = True  # Set to True to visualize a single model's slice
 COMPARE = False     # Set to True to show both plots simultaneously
 
-# Single model path (used when SINGLE_MODEL_MODE = True)
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204240_iter300000/model.pt"
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204124_iter500000/model.pt"
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to150_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-223838_iter300000/model.pt"
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt"
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt"
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt"
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt"
-MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e3_toe4_ETA1e2_unet4_20250907-220148_iter300000/model.pt"
-MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-221902_iter300000/model.pt"
-MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt"
-MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/model.pt"
-MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4v2_setv3_20250908-164616_iter300000/model.pt"
-MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_d512_head8_patch4_dept12_sigma0_lrWARM5k_e4_toe5_DiTNetv3_setv3_20250908-185826_iter300000/model.pt"
-# MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250908-204919_iter300000/model.pt"
-
-#best
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt"
-# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-042721_iter300000/model.pt"
-# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/model.pt"
-# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma2e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250909-171236_iter300000/model.pt"
-# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta1e1_head8_sigma1e2_lrWARM5k_e4_toe5_unet4v1_setv3_20250909-173619_iter300000/model.pt"
-
-# Multiple model paths for MSE comparison (used when SINGLE_MODEL_MODE = False)/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt
-MULTI_MODEL_PATHS = [
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head4_sigma0ZERO_lr1e4to_e7_unet3_20250904-214817_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-222356_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250904-225845_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to10_freq20_layer3_d512_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-140802_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d256_head8_sigma0ZERO_lr1e4to_e7_unet3_20250905-154234_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d256_head8_sigma0ZERO_lrWARM5k_e4_toe7_unet3_20250905-165351_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lrWARM5k_e4_toe7_unet3_20250905-173800_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0ZERO_lrWARM5k_e4_toe5_unet3_20250905-182733_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_20250905-204124_iter500000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet3_V2_layer_20250906-173025_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-191114_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer6_20250906-191258_iter300000/model.pt",
-    # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe5_unet4_layer3_20250906-215002_iter300000/model.pt"
-    "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-231553_iter300000/model.pt"
-]
-
 # Custom model names for legends (optional, will auto-generate if None)
 MODEL_NAMES = [
-    # "214817_L3_d256_h4",
-    # "222356_L3_d256_h8_e4_toe7",
-    # "225845_L3_d512_h8",
-    # "140802_M5to10_L3_d512_h8",
-    # "154234_L4_d256_h8",
-    # "16535_L3_d256_h8_warm5k_e7",
-    # "173800_L3_d512_h8_warm5k_e7",
-    # "182733_L3_d512_h8_warm5k_e6",
-    # "193258_L3_d512_h8_warm5k_e6_sigma1e3",
 ]
 
 M_range = None
-SIGMA_SDE = 0.
+# SIGMA_SDE = 0.
 M_range = [5,10]
 num_examples = 5
 num_timesteps = 10
-guidance_scales = [1.0]
-freq_idx_to_plot = 10  # Pick a frequency channel to visualize
-z_slice_idx_to_plot = 5
+guidance_scales = [1.0, 2, 3]
+freq_idx_to_plot = 19  # Pick a frequency channel to visualize
+z_slice_idx_to_plot = 10
+
+# Option to exclude outermost boundary positions from MSE/LSD calculation
+EXCLUDE_BOUNDARY = False  # Set to True to exclude outermost positions
+BOUNDARY_THICKNESS = 1   # Number of boundary layers to exclude (1 = outermost layer only)
 
 data_path = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"
 
+
+def create_interior_mask(cube_shape, boundary_thickness=1):
+    """
+    Create a boolean mask to select interior positions, excluding boundary layers.
+    
+    Args:
+        cube_shape: Shape of the cube (freq, z, y, x) or (z, y, x)
+        boundary_thickness: Number of boundary layers to exclude
+    
+    Returns:
+        mask: Boolean mask where True = interior position, False = boundary position
+        interior_indices: Flat indices of interior positions
+    """
+    if len(cube_shape) == 4:  # (freq, z, y, x)
+        _, nz, ny, nx = cube_shape
+    else:  # (z, y, x)
+        _, _, nz, ny, nx = cube_shape
+    
+    # Create 3D mask for interior positions
+    mask_3d = torch.zeros(nz, ny, nx, dtype=torch.bool)
+    
+    # Set interior region to True
+    z_start, z_end = boundary_thickness, nz - boundary_thickness
+    y_start, y_end = boundary_thickness, ny - boundary_thickness  
+    x_start, x_end = boundary_thickness, nx - boundary_thickness
+    
+    mask_3d[z_start:z_end, y_start:y_end, x_start:x_end] = True
+    
+    # Convert to flat indices
+    interior_indices = torch.nonzero(mask_3d.flatten()).squeeze(-1)
+    
+    total_positions = nz * ny * nx
+    interior_positions = len(interior_indices)
+    boundary_positions = total_positions - interior_positions
+    
+    print(f"Interior mask: {interior_positions}/{total_positions} positions "
+          f"({boundary_positions} boundary positions excluded)")
+    
+    return mask_3d, interior_indices
 
 def model_factory(config, model_states_cfg, device):
     """
@@ -262,7 +236,7 @@ def plot_room_box(ax, dimensions):
 
 
 def run_single_inference(set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz, M_range,
-                         guidance_scales, num_timesteps, mean, std, device):
+                         guidance_scales, num_timesteps, mean, std, device, exclude_boundary=False, boundary_thickness=1):
     """Run inference for a single example and return MSE results"""
     # Create a sparse observation set
     M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
@@ -309,12 +283,31 @@ def run_single_inference(set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz
         x1_recon_denorm = (x1_recon * std + mean)
         z_true_denorm = (z_true * std + mean)
         
-        # MSE: Simple squared error (may favor your model)
-        mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
-        
-        # LSD: Log-spectral distortion (favors reference model)
-        lsd_normalized = calculate_lsd_unified(x1_recon, z_true, freq_dim=1)
-        lsd_db = lsd_normalized.item() * std
+        if exclude_boundary:
+            # Create interior mask for this cube
+            mask_3d, interior_indices = create_interior_mask(z_true.shape, boundary_thickness)
+
+            # Flatten cubes and select interior positions only
+            x1_flat = x1_recon.view(x1_recon.shape[1], -1)  # [freq, 1331]
+            z_flat = z_true.view(z_true.shape[1], -1)       # [freq, 1331]
+            x1_flat_denorm = x1_recon_denorm.view(x1_recon_denorm.shape[1], -1)
+            z_flat_denorm = z_true_denorm.view(z_true_denorm.shape[1], -1)
+            
+            # Select interior positions
+            x1_interior = x1_flat[:, interior_indices]      # [freq, interior_count]
+            z_interior = z_flat[:, interior_indices]        # [freq, interior_count]
+            x1_interior_denorm = x1_flat_denorm[:, interior_indices]
+            z_interior_denorm = z_flat_denorm[:, interior_indices]
+            
+            # Calculate metrics on interior only
+            mse = torch.mean((x1_interior_denorm - z_interior_denorm) ** 2).item()
+            lsd_normalized = calculate_lsd_unified(x1_interior.T, z_interior.T, freq_dim=1)
+            lsd_db = lsd_normalized.item() * std
+        else:
+            # Full cube calculation
+            mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
+            lsd_normalized = calculate_lsd_unified(x1_recon, z_true, freq_dim=1)
+            lsd_db = lsd_normalized.item() * std
         
         # Return both metrics
         mse_results.append({'mse': mse, 'lsd': lsd_db})
@@ -324,9 +317,12 @@ def run_single_inference(set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz
 
 def plot_dual_metric_comparison(all_results, model_names, guidance_scales, save_path=None, block=True):
     """Create dual MSE+LSD comparison plots across multiple models"""
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 10))
     colors = plt.cm.tab10(np.linspace(0, 1, len(model_names)))
 
+    # Store results for printing under plots
+    results_text_lines = []
+    
     for i, (model_name, results_data) in enumerate(zip(model_names, all_results)):
         # Extract MSE and LSD data
         mse_data = [[result['mse'] for result in example] for example in results_data]
@@ -340,36 +336,54 @@ def plot_dual_metric_comparison(all_results, model_names, guidance_scales, save_
         mean_lsd = np.mean(lsd_array, axis=0)
         std_lsd = np.std(lsd_array, axis=0)
 
-        # MSE plot
+        # MSE plot (only add label to first plot for shared legend)
         ax1.plot(guidance_scales, mean_mse, 'o-', label=model_name, color=colors[i], linewidth=2, markersize=6)
         ax1.fill_between(guidance_scales, mean_mse - std_mse, mean_mse + std_mse, alpha=0.2, color=colors[i])
         
-        # LSD plot  
-        ax2.plot(guidance_scales, mean_lsd, 'o-', label=model_name, color=colors[i], linewidth=2, markersize=6)
+        # LSD plot (no label to avoid duplicate legend)
+        ax2.plot(guidance_scales, mean_lsd, 'o-', color=colors[i], linewidth=2, markersize=6)
         ax2.fill_between(guidance_scales, mean_lsd - std_lsd, mean_lsd + std_lsd, alpha=0.2, color=colors[i])
 
+        # Prepare results text for this model
+        mse_results_str = ", ".join([f"w={w}: {mse:.3f}" for w, mse in zip(guidance_scales, mean_mse)])
+        lsd_results_str = ", ".join([f"w={w}: {lsd:.3f}" for w, lsd in zip(guidance_scales, mean_lsd)])
+        results_text_lines.append(f"{model_name}:")
+        results_text_lines.append(f"  MSE: {mse_results_str}")
+        results_text_lines.append(f"  LSD: {lsd_results_str}")
+        results_text_lines.append("")  # Empty line between models
+
     # Configure MSE plot
+    cube_label = "Interior Only" if EXCLUDE_BOUNDARY else "Full Cube"
     ax1.set_xlabel('Guidance Scale (w)', fontsize=12)
-    ax1.set_ylabel('MSE (Full Cube)', fontsize=12)
-    ax1.set_title('MSE: May favor Your Model', fontsize=14, fontweight='bold')
-    ax1.legend()
+    ax1.set_ylabel(f'MSE ({cube_label})', fontsize=12)
+    ax1.set_title('MSE: ', fontsize=14, fontweight='bold')
     ax1.grid(True, alpha=0.3)
     ax1.set_yscale('log')
     
     # Configure LSD plot
     ax2.set_xlabel('Guidance Scale (w)', fontsize=12)
-    ax2.set_ylabel('LSD (Full Cube) [dB]', fontsize=12)
-    ax2.set_title('LSD: May favor Reference Model', fontsize=14, fontweight='bold')
-    ax2.legend()
+    ax2.set_ylabel(f'LSD ({cube_label}) [dB]', fontsize=12)
+    ax2.set_title('LSD: ', fontsize=14, fontweight='bold')
     ax2.grid(True, alpha=0.3)
     ax2.set_yscale('log')
 
+    # Add single shared legend at the top center of the figure
+    fig.legend(ax1.get_legend_handles_labels()[0], ax1.get_legend_handles_labels()[1], 
+              loc='upper center', bbox_to_anchor=(0.5, 0.98), ncol=min(len(model_names), 2), 
+              fontsize=9, frameon=True, fancybox=True, shadow=True)
+
     # Add text box with statistics
-    textstr = f'Averaged over {len(all_results[0])} examples\nShaded areas show ±1 std deviation'
+    stats_str = f'Averaged over {len(all_results[0])} examples\nShaded areas show ±1 std deviation'
     props = dict(boxstyle='round', facecolor='wheat', alpha=0.5)
-    fig.text(0.5, 0.02, textstr, ha='center', fontsize=10, bbox=props)
+    fig.text(0.5, 0.02, stats_str, ha='center', fontsize=10, bbox=props)
+
+    # Add results text under the plots
+    results_text = "\n".join(results_text_lines[:-1])  # Remove last empty line
+    fig.text(0.5, 0.08, results_text, ha='center', va='bottom', fontsize=9, 
+             bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
 
     plt.tight_layout()
+    plt.subplots_adjust(top=0.85, bottom=0.25)  # Make room for legend and results text
 
     if save_path:
         plt.savefig(save_path, dpi=200, bbox_inches='tight')
@@ -468,23 +482,33 @@ if __name__ == '__main__':
         # --- SETUP THE PLOT GRID ---
         # Add an extra column at the far left for a 3D snapshot view
         num_cols = 3 + len(guidance_scales)
-        fig, axes = plt.subplots(num_examples, num_cols, figsize=(4.5 * num_cols, 4 * num_examples), squeeze=False)
+        # Increase figure height to accommodate title and metrics
+        fig, axes = plt.subplots(num_examples, num_cols, figsize=(4.5 * num_cols, 4.5 * num_examples), squeeze=False)
+        
+        # Split long model name for better title formatting
+        model_name_parts = MODEL_NAME.split('_')
+        title_line1 = '_'.join(model_name_parts[:4])  # First 4 parts
+        title_line2 = '_'.join(model_name_parts[4:])  # Rest of the parts
+        
+        # Two-line title with smaller font
         fig.suptitle(
-            f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}, Z-Slice={z_slice_idx_to_plot}) | {MODEL_NAME}",
-            fontsize=16)
-        #add another subtitle at the next line
+            f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}, Z-Slice={z_slice_idx_to_plot})\n{title_line1}\n{title_line2}",
+            fontsize=12, y=0.98)
+        
+        # Move validation loss info closer to title
         best_val_loss = checkpoint.get('best_val_loss', {})
         best_iteration = checkpoint.get('best_iteration', {})
-        fig.text(0.5, 0.92, f"Best Val Loss: {best_val_loss:.4f} at Iteration {best_iteration}", ha='center', fontsize=12)
+        fig.text(0.5, 0.90, f"Best Val Loss: {best_val_loss:.4f} at Iteration {best_iteration}", 
+                ha='center', fontsize=10)
 
         center_np = np.array(center)
 
         for row in range(num_examples):
         # Get a random ground truth sample
 
-            z_true, src_xyz = test_sampler.sample(1)
-            z_true, src_xyz = z_true.to(device), src_xyz.to(device)
-
+            # z_true, src_xyz = test_sampler.sample(1)
+            # z_true, src_xyz = z_true.to(device), src_xyz.to(device)
+            z_true, src_xyz = test_sampler.cubes[922-922].unsqueeze(0).to(device), test_sampler.source_coords[922-922].unsqueeze(0).to(device)
             # --- Create a sparse observation set on the fly ---
             M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
             obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
@@ -611,10 +635,37 @@ if __name__ == '__main__':
                 recon_cube_to_plot = x1_recon_denorm[0, freq_idx_to_plot].detach().cpu().numpy()
 
                 # Calculate BOTH metrics for comprehensive evaluation
-                lsd_normalized = calculate_lsd_unified(x1_recon, z_true, freq_dim=1)
-                lsd_db = lsd_normalized.item() * std
-                mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
-                print(f"Row {row}, w={w}: MSE = {mse:.4f}, LSD = {lsd_db:.4f} dB")
+                if EXCLUDE_BOUNDARY:
+                    # Create interior mask for this cube
+                    mask_3d, interior_indices = create_interior_mask(z_true.shape, BOUNDARY_THICKNESS)
+                    
+                    # Flatten cubes and select interior positions only
+                    x1_flat = x1_recon.view(x1_recon.shape[1], -1)  # [freq, 1331]
+                    z_flat = z_true.view(z_true.shape[1], -1)       # [freq, 1331]
+                    x1_flat_denorm = x1_recon_denorm.view(x1_recon_denorm.shape[1], -1)
+                    z_flat_denorm = z_true_denorm.view(z_true_denorm.shape[1], -1)
+                    
+                    # Select interior positions
+                    x1_interior = x1_flat[:, interior_indices]      # [freq, interior_count]
+                    z_interior = z_flat[:, interior_indices]        # [freq, interior_count]
+                    x1_interior_denorm = x1_flat_denorm[:, interior_indices]
+                    z_interior_denorm = z_flat_denorm[:, interior_indices]
+                    
+                    # Calculate metrics on interior only
+                    lsd_normalized = calculate_lsd_unified(x1_interior.T, z_interior.T, freq_dim=1)
+                    lsd_db = lsd_normalized.item() * std
+                    mse = torch.mean((x1_interior_denorm - z_interior_denorm) ** 2).item()
+                    
+                    metric_label = f"Interior ({len(interior_indices)}/1331 pos)"
+                else:
+                    # Full cube calculation
+                    lsd_normalized = calculate_lsd_unified(x1_recon, z_true, freq_dim=1)
+                    lsd_db = lsd_normalized.item() * std
+                    mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
+                    
+                    metric_label = "Full Cube (1331 pos)"
+                
+                print(f"Row {row}, w={w}: MSE = {mse:.4f}, LSD = {lsd_db:.4f} dB ({metric_label})")
 
                 col_idx = g_idx + 3
 
@@ -626,10 +677,14 @@ if __name__ == '__main__':
                 axes[row, col_idx].set_title(f"w={w}" if row == 0 else "")
                 axes[row, col_idx].axis('off')
 
-                # Add both metrics under the plot
-                axes[row, col_idx].text(0.5, -0.1, f"MSE: {mse:.3f}\nLSD: {lsd_db:.3f} dB",
-                                       transform=axes[row, col_idx].transAxes,
-                                       ha='center', va='top', fontsize=8)
+                # Add both metrics under the plot in a box with white background
+                metric_suffix = "Int" if EXCLUDE_BOUNDARY else "Full"
+                metric_text = f"MSE: {mse:.3f} ({metric_suffix})\nLSD: {lsd_db:.3f} dB ({metric_suffix})"
+                text_box = axes[row, col_idx].text(0.5, -0.15, metric_text,
+                                                 transform=axes[row, col_idx].transAxes,
+                                                 ha='center', va='top', fontsize=8,
+                                                 bbox=dict(facecolor='white', alpha=0.8, 
+                                                         edgecolor='none', pad=2))
 
             # Shared colorbar for GT and generated columns (exclude scatter input)
             ax_list = [axes[row, 1]] + [axes[row, i + 3] for i in range(len(guidance_scales))]
@@ -640,7 +695,9 @@ if __name__ == '__main__':
             cbar_mag.set_label('Magnitude (dB)', size=8)
             cbar_mag.ax.tick_params(labelsize=7)
 
-        # plt.tight_layout(rect=[0, 0.03, 1, 0.95], h_pad=0.5, w_pad=1.5)
+        # Adjust layout to prevent overlapping
+        plt.tight_layout()
+        plt.subplots_adjust(top=0.85, hspace=0.4)  # More space for title and between rows
         plt.show()
         plt.savefig("test.png", dpi=200, bbox_inches='tight')
 
@@ -702,7 +759,7 @@ if __name__ == '__main__':
                 # Run inference for this example
                 mse_results, M = run_single_inference(
                     set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz, M_range,
-                    guidance_scales, num_timesteps, mean, std, device
+                    guidance_scales, num_timesteps, mean, std, device, EXCLUDE_BOUNDARY, BOUNDARY_THICKNESS
                 )
                 model_mse_results.append(mse_results)
                 print(f"\n    M={M}")

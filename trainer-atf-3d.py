@@ -287,7 +287,7 @@ if __name__ == '__main__':
     parser.add_argument('--min_lr', type=float, default=1e-7,
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
-    parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
+    parser.add_argument('--freq_up_to', type=int, default=64, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard', choices=['standard', 'weighted'],
