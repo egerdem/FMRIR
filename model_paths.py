@@ -32,13 +32,13 @@
 # MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_head8_sigma1e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250908-204919_iter300000/model.pt"
 
 #best
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt"
+# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_ETA0_e4_toe5_unet4_20250907-201534_iter300000/model.pt"
 # MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta2e1_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv3_20250910-143237_iter300000/model.pt"
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv3_20250910-151607_iter300000/model.pt"
-MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv12_20250910-160559_iter300000/model.pt"
-MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v2_setv12_20250910-170659_iter300000/model.pt"
-MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v3_setv12_20250910-181459_iter300000/model.pt"
+# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv3_20250910-151607_iter300000/model.pt"
+# MODEL_LOAD_PATH =   "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v2_setv12_20250910-170659_iter300000/model.pt"
 
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v3_setv12_20250910-181459_iter300000/model.pt"
+# MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_DDPM_M5to50_freq20_layer3_d512_eta1e1_head8_sigma0_lrWARM5k_e5_toe7_unet4v1_setv12_20250910-221022_iter300000/model.pt"
 # MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma1e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-042721_iter300000/model.pt"
 # MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/model.pt"
 # MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma2e1_lrWARM5k_e4_toe5_unet4v1_setv3_20250909-171236_iter300000/model.pt"
@@ -87,5 +87,10 @@ MULTI_MODEL_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv3_20250910-151607_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv12_20250910-160559_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v2_setv12_20250910-170659_iter300000/model.pt",
-    "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v3_setv12_20250910-181459_iter300000/model.pt",
+    # "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v3_setv12_20250910-181459_iter300000/model.pt"
+    # "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v2_setv12_20250910-204219_iter300000/model.pt",
+    "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta1e1_head8_sigma0_lrWARM5k_e4_toe5_unet4v3_setv12_20250910-230727_iter300000/model.pt",
 ]
+
+# MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv12_20250910-160559_iter300000/model.pt"
+MODEL_LOAD_PATH = MULTI_MODEL_PATHS[-1]

@@ -20,7 +20,7 @@ if __name__ == "__main__":
     np.random.seed(seed)
 
     parser = argparse.ArgumentParser(description='Generate impulse responses by image source method')
-    parser.add_argument('--num_src', '-s', type=int, default=4096, help='Number of sources')
+    parser.add_argument('--num_src', '-s', type=int, default=8192, help='Number of sources')
     parser.add_argument('--rt60', '-r', type=int, default=200, help='Target RT60 (ms)')
     parser.add_argument('--int_mic', '-i', type=float, default=0.1, help='Microphone interval (m)')
 

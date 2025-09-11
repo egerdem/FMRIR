@@ -138,6 +138,7 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
         print(f"Evaluating your model with M={M} microphones...")
         
         for w in guidance_scales:
+            results[M][w] = {}  # Initialize the dictionary for this guidance scale
             print(f"  Using guidance scale w={w}")
             lsd_scores = []
             # Evaluate each source with this guidance scale
@@ -167,7 +168,7 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                     simulator.ode.guidance_scale = w
                     z_est = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                              obs_mask=obs_mask, pooled_context=pooled_context,
-                                             paste_observations=False, obs_indices=obs_indices)
+                                             paste_observations=True, obs_indices=obs_indices)
                     
                     # Calculate BOTH LSD and MSE for comprehensive comparison
                     # Full cube (all 1331 positions)
@@ -198,10 +199,17 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                     
                     mse_m_fund = torch.mean((z_est_flat[:, m_fundamental_indices] - z_true_flat[:, m_fundamental_indices]) ** 2).item()
                     
-                    lsd_scores.append({
+                    # Store per-source errors
+                    source_errors = {
                         'lsd': lsd_db, 'mse': mse,
                         'lsd_m_fund': lsd_m_fund_db, 'mse_m_fund': mse_m_fund
-                    })
+                    }
+                    lsd_scores.append(source_errors)
+                    
+                    # Store in per-source dictionary
+                    if 'per_source_errors' not in results[M][w]:
+                        results[M][w]['per_source_errors'] = {}
+                    results[M][w]['per_source_errors'][i] = source_errors
         
             # Extract LSD and MSE values for this guidance scale
             lsd_values = [score['lsd'] for score in lsd_scores]
@@ -209,7 +217,7 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
             lsd_m_fund_values = [score['lsd_m_fund'] for score in lsd_scores]
             mse_m_fund_values = [score['mse_m_fund'] for score in lsd_scores]
             
-            results[M][w] = {
+            results[M][w].update({
                 'lsd_mean': np.mean(lsd_values),
                 'lsd_std': np.std(lsd_values), 
                 'mse_mean': np.mean(mse_values),
@@ -219,13 +227,16 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                 'mse_mean_m_fund': np.mean(mse_m_fund_values),
                 'mse_std_m_fund': np.std(mse_m_fund_values),
                 'num_sources_eval': eval_sources
-            }
+            })
     
     return results, idx_mes_pos_mat
 
 
 def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_eval=None, freq_up_to=None):
-    """Evaluate the reference AUTOENCODER model using the loaded data."""
+    """
+    Evaluate the reference AUTOENCODER model using the loaded data.
+    Returns both aggregate metrics and per-source errors.
+    """
     print("Evaluating reference AUTOENCODER model...")
     
     # Get the M value used by reference model
@@ -250,6 +261,9 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
     # Add M_fundamental evaluation (5 specific positions)
     lsd_per_sample_m_fund = []
     mse_per_sample_m_fund = []
+    
+    # Store per-source errors in a dictionary
+    per_source_errors = {}
     
     # 5 fundamental positions for PDF evaluation
     m_fundamental_indices = [0, 272, 665, 937, 1330]
@@ -288,6 +302,14 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         lsd_per_sample_m_fund.append(lsd_val_m_fund.item())
         mse_per_sample_m_fund.append(mse_val_m_fund)
         
+        # Store per-source errors
+        per_source_errors[src_idx] = {
+            'lsd_full': lsd_val_full.item(),
+            'mse_full': mse_val_full,
+            'lsd_m_fund': lsd_val_m_fund.item(),
+            'mse_m_fund': mse_val_m_fund
+        }
+        
         # Matched frequency range (first freq_up_to bins)
         if freq_up_to is not None:
             lsd_val_matched = calculate_lsd_unified(
@@ -300,6 +322,12 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
             # MSE for matched frequency range
             mse_val_matched = torch.mean((atf_mag_est[:, :freq_up_to, src_idx] - atf_mag_gt[:, :freq_up_to, src_idx]) ** 2).item()
             mse_per_sample_matched.append(mse_val_matched)
+            
+            # Add matched frequency metrics to per-source errors
+            per_source_errors[src_idx].update({
+                'lsd_matched': lsd_val_matched.item(),
+                'mse_matched': mse_val_matched
+            })
     
     result = {
         'lsd_mean': np.mean(lsd_per_sample_full), 
@@ -314,7 +342,9 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         'num_sources_eval': eval_sources,
         # For backward compatibility
         'mean': np.mean(lsd_per_sample_full),
-        'std': np.std(lsd_per_sample_full)
+        'std': np.std(lsd_per_sample_full),
+        # Add per-source errors
+        'per_source_errors': per_source_errors
     }
     
     # Add matched frequency range results if available
@@ -710,10 +740,58 @@ print(f"      Your models use SAME source-specific microphone selection")
 print(f"      (Different M=5 microphones for each source, as per reference)")
 print("="*80)
 
+# Plot LSD distribution across sources
+ref_per_source = ref_results['per_source_errors']
+best_per_source = all_your_results[best_model][M_values[0]][best_guidance]['per_source_errors']
+
+# Get LSD values in source order
+ref_lsd = [ref_per_source[i]['lsd_matched'] for i in range(len(ref_per_source))]
+your_lsd = [best_per_source[i]['lsd'] for i in range(len(best_per_source))]
+source_indices = list(range(len(ref_per_source)))
+
+plt.figure(figsize=(12, 6))
+ref_mean = np.mean(ref_lsd)
+your_mean = np.mean(your_lsd)
+plt.plot(source_indices, ref_lsd, 'r-', label=f'Reference (mean: {ref_mean:.4f} dB)', alpha=0.7)
+plt.plot(source_indices, your_lsd, 'b-', label=f'Your Model w={best_guidance} (mean: {your_mean:.4f} dB)', alpha=0.7)
+plt.xlabel('Source Index')
+plt.ylabel('LSD Error (dB)')
+plt.title('LSD Distribution Across Sources')
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.show()
+
+# Save LSD plot
+model_dir = os.path.dirname(MULTI_MODEL_PATHS[MODEL_NAMES.index(best_model)])
+output_dir = model_dir
+os.makedirs(output_dir, exist_ok=True)
+plt.savefig(os.path.join(output_dir, 'lsd_distribution.pdf'), dpi=300, bbox_inches='tight')
+
+# Plot MSE distribution
+ref_mse = [ref_per_source[i]['mse_matched'] for i in range(len(ref_per_source))]
+your_mse = [best_per_source[i]['mse'] for i in range(len(best_per_source))]
+
+plt.figure(figsize=(12, 6))
+ref_mean_mse = np.mean(ref_mse)
+your_mean_mse = np.mean(your_mse)
+plt.plot(source_indices, ref_mse, 'r-', label=f'Reference (mean: {ref_mean_mse:.4f})', alpha=0.7)
+plt.plot(source_indices, your_mse, 'b-', label=f'Your Model w={best_guidance} (mean: {your_mean_mse:.4f})', alpha=0.7)
+plt.xlabel('Source Index')
+plt.ylabel('MSE Error')
+plt.title('MSE Distribution Across Sources')
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.show()
+
+# Save MSE plot
+plt.savefig(os.path.join(output_dir, 'mse_distribution.pdf'), dpi=300, bbox_inches='tight')
+
+print(f"\nDistribution plots saved to {output_dir}/")
+
 # Plot ATF comparisons using the best model (no reloading needed!)
-# print("\n3. Generating ATF comparison plots...")
-# print(f"Using best model for plots: {best_model}")
-#
+print("\n3. Generating ATF comparison plots...")
+print(f"Using best model for plots: {best_model}")
+
 # if best_model and best_model in all_your_predictions:
 #     # Use already loaded model components (efficient!)
 #     set_encoder_best, unet_3d_best, ode_3d_best, config_best = all_your_predictions[best_model]
@@ -731,4 +809,4 @@ print("="*80)
 # else:
 #     print("Could not find best model for plotting")
 #
-#
+

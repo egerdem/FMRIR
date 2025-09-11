@@ -52,7 +52,8 @@ def main(args):
     # This creates a baseline config that can be used immediately
     config = {
         "data": {"data_dir": args.data_dir,
-                 "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
+                 # "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
+                 "src_splits": {"train": [[0, 820], [1024, 8192]], "valid": [820, 922], "test": [922, 1024]}},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
@@ -102,7 +103,7 @@ def main(args):
             "data": {
                 "data_dir": args.data_dir,
                 "src_splits": {
-                    "train": [[0, 820], [1024, 3100]],
+                    # "train": [[0, 820], [1024, 3100]],
                     "valid": [820, 922],
                     "test": [922, 1024]
                 }
@@ -143,9 +144,8 @@ def main(args):
             run = wandb.init(project="FM-RIR-3D", name=experiment_name, config=config)
             config['wandb_run_id'] = run.id
 
-        with open(os.path.join(experiment_dir, "config.json"), 'w') as f:
-            json.dump(config, f, indent=4)
-        print(f"Experiment setup. Config saved to {experiment_dir}")
+        # Config will be saved after data loading to include any corrections
+        print(f"Experiment setup. Config will be saved after data loading.")
 
     MODEL_SAVE_PATH = os.path.join(experiment_dir, "model.pt")
     CHECKPOINT_DIR = os.path.join(experiment_dir, "checkpoints")
@@ -175,6 +175,12 @@ def main(args):
         freq_up_to=model_cfg['freq_up_to'],
         normalize=False
     )
+    
+    # 3. Save the corrected config after data loading (in case src_splits were updated)
+    if experiment_dir:
+        with open(os.path.join(experiment_dir, "config.json"), 'w') as f:
+            json.dump(config, f, indent=4)
+        print(f"Final config saved to {experiment_dir}/config.json")
 
     # 3. Manually apply the TRAINING stats to the VALIDATION data.
     print("Normalizing validation data using training set statistics...")
@@ -270,7 +276,7 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_key', type=str, default="ec2cf1718868be26a8055412b556d952681ee0b6")
 
     # --- Data ---
-    parser.add_argument('--data_dir', type=str, default="ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/")
+    parser.add_argument('--data_dir', type=str, default="ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
     parser.add_argument('--model_name', default="ZZZATF-3D-CrossAttn-UNet", type=str)
@@ -287,7 +293,7 @@ if __name__ == '__main__':
     parser.add_argument('--min_lr', type=float, default=1e-7,
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
-    parser.add_argument('--freq_up_to', type=int, default=64, help='Use only the first N frequency channels')
+    parser.add_argument('--freq_up_to', type=int, default=30, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard', choices=['standard', 'weighted'],

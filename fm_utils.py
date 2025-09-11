@@ -1568,7 +1568,26 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
             self.cubes = data['cubes']
             self.source_coords = data['source_coords']
             self.grid_xyz = data['grid_xyz']
-            # self.sample_info = data.get('sample_info')
+            
+            # Get actual source indices from preprocessed data
+            if 'sample_info' in data:
+                actual_source_ids = data['sample_info'].flatten().tolist()
+                self.actual_src_splits = self._infer_src_splits_from_ids(actual_source_ids)
+                
+                # Check if config matches actual data
+                expected_source_ids = parse_source_indices(src_splits, self.mode)
+                if sorted(actual_source_ids) != sorted(expected_source_ids):
+                    print(f"⚠️  CONFIG MISMATCH DETECTED for {self.mode} data!")
+                    print(f"   Config expects: {len(expected_source_ids)} sources")
+                    print(f"   Preprocessed file contains: {len(actual_source_ids)} sources")
+                    print(f"   Updating config to match preprocessed data...")
+                    
+                    # Update the src_splits to match what's actually in the file
+                    src_splits[self.mode] = self.actual_src_splits
+                    
+            else:
+                self.actual_src_splits = src_splits[self.mode]  # Fallback
+            
             if self.normalize:
                 self.mean = data.get('mean')
                 self.std = data.get('std')
@@ -1651,6 +1670,34 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         self.dummy = torch.nn.Buffer(torch.zeros(1))
         print(f"Loaded {len(self.cubes)} ATF-3D cubes for {self.mode} set.")
         print(f"Cube tensor shape: {self.cubes.shape}")
+
+    def _infer_src_splits_from_ids(self, source_ids):
+        """
+        Infer the src_splits format from actual source IDs in preprocessed data.
+        Returns either [start, end] or [[start1, end1], [start2, end2], ...] format.
+        """
+        sorted_ids = sorted(source_ids)
+        
+        # Find consecutive ranges
+        ranges = []
+        start = sorted_ids[0]
+        prev = sorted_ids[0]
+        
+        for i in range(1, len(sorted_ids)):
+            current = sorted_ids[i]
+            if current != prev + 1:  # Gap found
+                ranges.append([start, prev + 1])  # End is exclusive
+                start = current
+            prev = current
+        
+        # Add the last range
+        ranges.append([start, prev + 1])
+        
+        # Return single range or multiple ranges format
+        if len(ranges) == 1:
+            return ranges[0]  # [start, end]
+        else:
+            return ranges     # [[start1, end1], [start2, end2], ...]
 
     def __len__(self):
         return len(self.cubes)
