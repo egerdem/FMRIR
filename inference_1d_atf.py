@@ -10,10 +10,10 @@ import random
 from model_paths import MODEL_LOAD_PATH
 # Import your necessary classes
 from fm_utils import (
-    ATF3DSampler, LSD,
-    SetEncoder,
-    CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d, CFGVectorFieldODE_3D, CFGVectorFieldODE_3D_V2, EulerSimulator
+    ATF3DSampler, LSD, EulerSimulator
 )
+
+from inference import model_factory
 
 # Set seed for reproducible results
 SEED = 42  # You can use any integer you like
@@ -25,55 +25,6 @@ random.seed(SEED)
 # Ensure deterministic behavior for CUDA operations
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
-
-
-def model_factory(config, model_states_cfg, device):
-    """
-    Reads the config and returns the correctly instantiated and loaded models.
-    """
-    model_cfg = config['model']
-    # Use the presence of the version key to decide which architecture to build
-    architecture = model_cfg.get('architecture_version')
-
-    # --- Instantiate models based on version ---
-    set_encoder = SetEncoder(
-        num_freqs=model_cfg['freq_up_to'],
-        d_model=model_cfg['d_model'],
-        nhead=model_cfg['nhead'],
-        num_layers=model_cfg['num_encoder_layers']
-    ).to(device)
-
-    if architecture == "v2_residual_context":
-        print("--- Creating (v2) architecture ---")
-        unet_3d = CrossAttentionUNet3D_RED3d(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
-            channels=model_cfg['channels'],
-            d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead']
-        ).to(device)
-        ode_3d = CFGVectorFieldODE_3D_V2(unet=unet_3d, set_encoder=set_encoder)
-
-    else:
-        print("--- Creating v1 architecture: standard 3d unet ---")
-        # Instantiate the old U-Net and ODE wrapper for old checkpoints
-        unet_3d = CrossAttentionUNet3D(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
-            channels=model_cfg['channels'],
-            d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead']
-        ).to(device)
-        ode_3d = CFGVectorFieldODE_3D(unet=unet_3d, set_encoder=set_encoder)
-
-    # --- Load weights ---
-    set_encoder.load_state_dict(model_states_cfg['set_encoder'])
-    unet_3d.load_state_dict(model_states_cfg['unet'])
-    set_encoder.eval()
-    unet_3d.eval()
-
-    return set_encoder, unet_3d, ode_3d, architecture
-
 
 def plot_1d_atf_comparison_multi_guidance(ax, freqs, gt_atf, gen_atf_dict, title):
     """Helper function to plot Ground Truth vs. Generated 1D ATF for multiple guidance levels."""
@@ -151,13 +102,13 @@ def main():
 
     # --- Evaluation Configuration ---
     # 10 different sources from 922 to 1024 (indices 0 to 102 in test set)
-    # source_indices = [0, 11, 22, 33, 44, 55, 66, 77, 88, 99]  # 10 sources
-    source_indices = [0, 11, 22]  # 10 sources
+    source_indices = [0, 11, 22, 33, 44, 55, 66, 77, 88, 99]  # 10 sources
+    # source_indices = [0, 11, 22]  # 10 sources
     # 5 different random microphone positions from 0 to 1330
     mic_indices = [156, 423, 789, 1045, 1287, 665]  # 5 microphones
     
     M = 5  # Number of conditioning mics
-    guidance = [0.5, 1.0, 2.0]
+    guidance = [0, 1.0, 1.5]
     num_timesteps = 10
     lsd = LSD()
 

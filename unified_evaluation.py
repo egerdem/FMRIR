@@ -7,13 +7,14 @@ import matplotlib
 matplotlib.use('Qt5Agg', force=True)  # Same as eval_AUTOENCODER.py
 from matplotlib import pyplot as plt
 from inference import model_factory, load_model_and_config
-from model_paths import MULTI_MODEL_PATHS, MODEL_LOAD_PATH
+from model_paths import MULTI_MODEL_PATHS
 
 # Your model imports
 from fm_utils import (
     ATF3DSampler, SetEncoder, 
     CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d, 
-    CFGVectorFieldODE_3D, CFGVectorFieldODE_3D_V2, EulerSimulator
+    CFGVectorFieldODE_3D, CFGVectorFieldODE_3D_V2, EulerSimulator,
+    get_model_info, print_model_info
 )
 
 # Reference model imports
@@ -166,6 +167,7 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                     ts = ts.view(1, -1, 1, 1, 1, 1).expand(x0.shape[0], -1, -1, -1, -1, -1)
                     
                     simulator.ode.guidance_scale = w
+
                     z_est = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                              obs_mask=obs_mask, pooled_context=pooled_context,
                                              paste_observations=True, obs_indices=obs_indices)
@@ -636,6 +638,7 @@ print()
 print("\n1. Loading your 3D Flow Matching models...")
 all_your_results = {}
 all_your_predictions = {}  # Store predictions to avoid reloading best model
+all_model_info = {}  # Store model information
 freq_up_to = None
 
 for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)):
@@ -650,6 +653,33 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
         freq_up_to = config['model'].get('freq_up_to')
         # freq_up_to = your_config['model']['freq_up_to']
         print(f"Model frequency range: {freq_up_to}")
+    
+    # Get model information
+    set_encoder_info = get_model_info(set_encoder, "SetEncoder")
+    unet_info = get_model_info(unet_3d, "UNet3D")
+    
+    # Calculate total model size (SetEncoder + UNet)
+    total_params = set_encoder_info['total_params'] + unet_info['total_params']
+    total_size_mb = set_encoder_info['model_size_mb'] + unet_info['model_size_mb']
+    
+    model_info = {
+        'set_encoder': set_encoder_info,
+        'unet': unet_info,
+        'total_params': total_params,
+        'total_params_str': f"{total_params:,}",
+        'total_size_mb': total_size_mb,
+        'total_size_str': f"{total_size_mb:.2f} MB"
+    }
+    all_model_info[model_name] = model_info
+    
+    # Print model info
+    print(f"\n--- {model_name} Architecture ---")
+    print_model_info(set_encoder, "SetEncoder")
+    print_model_info(unet_3d, "UNet3D")
+    print(f"=== Combined Model ===")
+    print(f"Total parameters: {model_info['total_params_str']}")
+    print(f"Total size: {model_info['total_size_str']}")
+    print("=" * 20)
     
     # Evaluate this model
     model_results, idx_mes_pos_mat = evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval, guidance_scales)
@@ -732,6 +762,12 @@ print("="*80)
 print(f"🏆 BEST MODEL: {best_model}")
 print(f"   Best Guidance Scale: {best_guidance}")
 print(f"   Best LSD: {best_lsd:.4f} dB")
+if best_model in all_model_info:
+    best_model_info = all_model_info[best_model]
+    print(f"   Model Parameters: {best_model_info['total_params_str']}")
+    print(f"   Model Size: {best_model_info['total_size_str']}")
+    print(f"   SetEncoder: {best_model_info['set_encoder']['total_params_str']} params")
+    print(f"   UNet3D: {best_model_info['unet']['total_params_str']} params")
 # print(f"   Improvement over Reference: {ref_results['mean'] - best_lsd:+.4f} dB")
 print("="*80)
 print(f"Note: All models use M={ref_results['num_mics']} observation microphones")
@@ -740,73 +776,135 @@ print(f"      Your models use SAME source-specific microphone selection")
 print(f"      (Different M=5 microphones for each source, as per reference)")
 print("="*80)
 
-# Plot LSD distribution across sources
+# Plot distributions for each model individually and create combined plot
 ref_per_source = ref_results['per_source_errors']
-best_per_source = all_your_results[best_model][M_values[0]][best_guidance]['per_source_errors']
-
-# Get LSD values in source order
-ref_lsd = [ref_per_source[i]['lsd_matched'] for i in range(len(ref_per_source))]
-your_lsd = [best_per_source[i]['lsd'] for i in range(len(best_per_source))]
 source_indices = list(range(len(ref_per_source)))
+ref_lsd = [ref_per_source[i]['lsd_matched'] for i in range(len(ref_per_source))]
+ref_mse = [ref_per_source[i]['mse_matched'] for i in range(len(ref_per_source))]
 
-plt.figure(figsize=(12, 6))
+# Prepare data for combined plot
+all_model_lsd = {}
+all_model_mse = {}
+colors = plt.cm.tab10(np.linspace(0, 1, len(MODEL_NAMES)))
+
+# Plot individual model distributions and collect data for combined plot
+for i, model_name in enumerate(MODEL_NAMES):
+    if model_name in all_your_results:
+        # Get best guidance for this model
+        model_best_guidance = None
+        model_best_lsd = float('inf')
+        for w in guidance_scales:
+            if all_your_results[model_name][M_values[0]][w]['lsd_mean'] < model_best_lsd:
+                model_best_lsd = all_your_results[model_name][M_values[0]][w]['lsd_mean']
+                model_best_guidance = w
+        
+        model_per_source = all_your_results[model_name][M_values[0]][model_best_guidance]['per_source_errors']
+        model_lsd = [model_per_source[j]['lsd'] for j in range(len(model_per_source))]
+        model_mse = [model_per_source[j]['mse'] for j in range(len(model_per_source))]
+        
+        # Store for combined plot
+        all_model_lsd[model_name] = {'values': model_lsd, 'guidance': model_best_guidance, 'color': colors[i]}
+        all_model_mse[model_name] = {'values': model_mse, 'guidance': model_best_guidance, 'color': colors[i]}
+        
+        # Save individual model plots
+        model_dir = os.path.dirname(MULTI_MODEL_PATHS[i])
+        os.makedirs(model_dir, exist_ok=True)
+        
+        # Individual LSD plot
+        plt.figure(figsize=(12, 6))
+        ref_mean = np.mean(ref_lsd)
+        model_mean = np.mean(model_lsd)
+        plt.plot(source_indices, ref_lsd, 'r-', label=f'Reference (mean: {ref_mean:.4f} dB)', alpha=0.7)
+        plt.plot(source_indices, model_lsd, 'b-', label=f'{model_name} w={model_best_guidance} (mean: {model_mean:.4f} dB)', alpha=0.7)
+        plt.xlabel('Source Index')
+        plt.ylabel('LSD Error (dB)')
+        plt.title(f'LSD Distribution - {model_name}')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.savefig(os.path.join(model_dir, 'lsd_distribution.pdf'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        # Individual MSE plot
+        plt.figure(figsize=(12, 6))
+        ref_mean_mse = np.mean(ref_mse)
+        model_mean_mse = np.mean(model_mse)
+        plt.plot(source_indices, ref_mse, 'r-', label=f'Reference (mean: {ref_mean_mse:.4f})', alpha=0.7)
+        plt.plot(source_indices, model_mse, 'b-', label=f'{model_name} w={model_best_guidance} (mean: {model_mean_mse:.4f})', alpha=0.7)
+        plt.xlabel('Source Index')
+        plt.ylabel('MSE Error')
+        plt.title(f'MSE Distribution - {model_name}')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.savefig(os.path.join(model_dir, 'mse_distribution.pdf'), dpi=300, bbox_inches='tight')
+        plt.close()
+        
+        print(f"Individual distribution plots saved to {model_dir}/")
+
+# Create combined plots in parent directory
+parent_dir = os.path.dirname(os.path.dirname(MULTI_MODEL_PATHS[0]))  # Go up two levels
+os.makedirs(parent_dir, exist_ok=True)
+
+# Combined LSD plot
+plt.figure(figsize=(14, 8))
 ref_mean = np.mean(ref_lsd)
-your_mean = np.mean(your_lsd)
-plt.plot(source_indices, ref_lsd, 'r-', label=f'Reference (mean: {ref_mean:.4f} dB)', alpha=0.7)
-plt.plot(source_indices, your_lsd, 'b-', label=f'Your Model w={best_guidance} (mean: {your_mean:.4f} dB)', alpha=0.7)
+plt.plot(source_indices, ref_lsd, 'r-', label=f'Reference (mean: {ref_mean:.4f} dB)', alpha=0.8, linewidth=2)
+
+for model_name, data in all_model_lsd.items():
+    model_mean = np.mean(data['values'])
+    plt.plot(source_indices, data['values'], '-', color=data['color'], 
+            label=f'{model_name} w={data["guidance"]} (mean: {model_mean:.4f} dB)', alpha=0.7)
+
 plt.xlabel('Source Index')
 plt.ylabel('LSD Error (dB)')
-plt.title('LSD Distribution Across Sources')
+plt.title('LSD Distribution Comparison - All Models')
 plt.grid(True, alpha=0.3)
+# plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.legend()
+plt.tight_layout()
+plt.savefig(os.path.join(parent_dir, 'combined_lsd_distribution.pdf'), dpi=300, bbox_inches='tight')
 plt.show()
 
-# Save LSD plot
-model_dir = os.path.dirname(MULTI_MODEL_PATHS[MODEL_NAMES.index(best_model)])
-output_dir = model_dir
-os.makedirs(output_dir, exist_ok=True)
-plt.savefig(os.path.join(output_dir, 'lsd_distribution.pdf'), dpi=300, bbox_inches='tight')
-
-# Plot MSE distribution
-ref_mse = [ref_per_source[i]['mse_matched'] for i in range(len(ref_per_source))]
-your_mse = [best_per_source[i]['mse'] for i in range(len(best_per_source))]
-
-plt.figure(figsize=(12, 6))
+# Combined MSE plot  
+plt.figure(figsize=(14, 8))
 ref_mean_mse = np.mean(ref_mse)
-your_mean_mse = np.mean(your_mse)
-plt.plot(source_indices, ref_mse, 'r-', label=f'Reference (mean: {ref_mean_mse:.4f})', alpha=0.7)
-plt.plot(source_indices, your_mse, 'b-', label=f'Your Model w={best_guidance} (mean: {your_mean_mse:.4f})', alpha=0.7)
+plt.plot(source_indices, ref_mse, 'r-', label=f'Reference (mean: {ref_mean_mse:.4f})', alpha=0.8, linewidth=2)
+
+for model_name, data in all_model_mse.items():
+    model_mean = np.mean(data['values'])
+    plt.plot(source_indices, data['values'], '-', color=data['color'],
+            label=f'{model_name} w={data["guidance"]} (mean: {model_mean:.4f})', alpha=0.7)
+
 plt.xlabel('Source Index')
 plt.ylabel('MSE Error')
-plt.title('MSE Distribution Across Sources')
+plt.title('MSE Distribution Comparison - All Models')
 plt.grid(True, alpha=0.3)
+# plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.legend()
+plt.tight_layout()
+plt.savefig(os.path.join(parent_dir, 'combined_mse_distribution.pdf'), dpi=300, bbox_inches='tight')
 plt.show()
 
-# Save MSE plot
-plt.savefig(os.path.join(output_dir, 'mse_distribution.pdf'), dpi=300, bbox_inches='tight')
-
-print(f"\nDistribution plots saved to {output_dir}/")
+print(f"\nCombined distribution plots saved to {parent_dir}/")
 
 # Plot ATF comparisons using the best model (no reloading needed!)
 print("\n3. Generating ATF comparison plots...")
 print(f"Using best model for plots: {best_model}")
 
-# if best_model and best_model in all_your_predictions:
-#     # Use already loaded model components (efficient!)
-#     set_encoder_best, unet_3d_best, ode_3d_best, config_best = all_your_predictions[best_model]
-#
-#     # Get your model's ATF predictions for plotting (only for best guidance scale)
-#     your_atf_predictions = get_your_model_atf_predictions(
-#         set_encoder_best, ode_3d_best, config_best, device,
-#         atf_mag_gt, ref_config, freq_up_to, num_sources_eval,
-#         single_guidance=best_results['guidance']  # Only compute for best guidance scale
-#     )
-#
-#     # Use the already computed best guidance scale
-#     plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config,
-#                         freq_up_to, num_sources_eval, best_guidance=best_results['guidance'])
-# else:
-#     print("Could not find best model for plotting")
-#
+if best_model and best_model in all_your_predictions:
+    # Use already loaded model components (efficient!)
+    set_encoder_best, unet_3d_best, ode_3d_best, config_best = all_your_predictions[best_model]
+
+    # Get your model's ATF predictions for plotting (only for best guidance scale)
+    your_atf_predictions = get_your_model_atf_predictions(
+        set_encoder_best, ode_3d_best, config_best, device,
+        atf_mag_gt, ref_config, freq_up_to, num_sources_eval,
+        single_guidance=best_results['guidance']  # Only compute for best guidance scale
+    )
+
+    # Use the already computed best guidance scale
+    plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config,
+                        freq_up_to, num_sources_eval, best_guidance=best_results['guidance'])
+else:
+    print("Could not find best model for plotting")
+
 

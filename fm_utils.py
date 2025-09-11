@@ -686,6 +686,51 @@ def model_size_b(model: nn.Module) -> int:
         size += buf.nelement() * buf.element_size()
     return size
 
+def get_model_info(model: nn.Module, model_name: str = "Model") -> dict:
+    """
+    Get comprehensive model information including parameter counts and memory usage.
+    
+    Args:
+        model: PyTorch model
+        model_name: Name for display purposes
+        
+    Returns:
+        Dictionary with model information
+    """
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    non_trainable_params = total_params - trainable_params
+    
+    # Calculate model size in MB using the existing function
+    model_size_bytes = model_size_b(model)
+    model_size_mb = model_size_bytes / (1024 ** 2)
+    
+    info = {
+        'name': model_name,
+        'total_params': total_params,
+        'trainable_params': trainable_params,
+        'non_trainable_params': non_trainable_params,
+        'model_size_bytes': model_size_bytes,
+        'model_size_mb': model_size_mb,
+        'total_params_str': f"{total_params:,}",
+        'trainable_params_str': f"{trainable_params:,}",
+        'model_size_str': f"{model_size_mb:.2f} MB"
+    }
+    
+    return info
+
+def print_model_info(model: nn.Module, model_name: str = "Model"):
+    """Print formatted model information."""
+    info = get_model_info(model, model_name)
+    
+    print(f"=== {info['name']} Information ===")
+    print(f"Total parameters: {info['total_params_str']}")
+    print(f"Trainable parameters: {info['trainable_params_str']}")
+    if info['non_trainable_params'] > 0:
+        print(f"Non-trainable parameters: {info['non_trainable_params']:,}")
+    print(f"Model size: {info['model_size_str']}")
+    print("=" * (len(info['name']) + 18))
+
 
 class Trainer(ABC):
     def __init__(self, models: Dict[str, nn.Module]):

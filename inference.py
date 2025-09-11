@@ -11,7 +11,8 @@ from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, EulerM
                       CFGVectorFieldODE_3D_V2, DDPMScheduler,
                       SetEncoder, SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d,
                         CrossAttentionUNet3D_v3,
-                      DiffusionTransformer3D, CFGVectorFieldODE_DiT_3D)
+                      DiffusionTransformer3D, CFGVectorFieldODE_DiT_3D,
+                      get_model_info, print_model_info)
 
 from model_paths import MULTI_MODEL_PATHS, MODEL_LOAD_PATH
 
@@ -114,7 +115,7 @@ random.seed(SEED)
 
 # --- Multi-Model Configuration ---
 VISUALIZE_slice = True  # Set to True to visualize a single model's slice
-COMPARE = False     # Set to True to show both plots simultaneously
+COMPARE = True     # Set to True to show both plots simultaneously
 
 # Custom model names for legends (optional, will auto-generate if None)
 MODEL_NAMES = [
@@ -133,7 +134,7 @@ z_slice_idx_to_plot = 2
 EXCLUDE_BOUNDARY = False  # Set to True to exclude outermost positions
 BOUNDARY_THICKNESS = 1   # Number of boundary layers to exclude (1 = outermost layer only)
 
-data_path = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"
+data_path = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
 
 
 def create_interior_mask(cube_shape, boundary_thickness=1):
@@ -541,6 +542,22 @@ if __name__ == '__main__':
         # --- 2. Use the factory to get the correct models ---
         set_encoder, unet_3d, ode_3d, _ = model_factory(config, model_states_cfg, device)
 
+        # --- 3. Print Model Information ---
+        print(f"\n--- Model Architecture: {MODEL_NAME} ---")
+        print_model_info(set_encoder, "SetEncoder")
+        print_model_info(unet_3d, "UNet3D")
+        
+        # Combined model info
+        set_encoder_info = get_model_info(set_encoder, "SetEncoder")
+        unet_info = get_model_info(unet_3d, "UNet3D")
+        total_params = set_encoder_info['total_params'] + unet_info['total_params']
+        total_size_mb = set_encoder_info['model_size_mb'] + unet_info['model_size_mb']
+        
+        print(f"=== Combined Model ===")
+        print(f"Total parameters: {total_params:,}")
+        print(f"Total size: {total_size_mb:.2f} MB")
+        print("=" * 20)
+
         # --- 4. Original Inference & Visualization ---
         if config['model'].get('FM_vs_Diff') == 'flow_matching' or config['model'].get('FM_vs_Diff') is None:
             print("--- Using Flow Matching ODE Simulator ---")
@@ -828,9 +845,17 @@ if __name__ == '__main__':
             # Create and load models
             set_encoder, unet_3d, ode_3d, _ = model_factory(config, model_states_cfg, device)
 
-            # Get model name
+            # Get model name and print model info
             model_name = MODEL_NAMES[model_idx] if MODEL_NAMES and model_idx < len(MODEL_NAMES) else get_model_name(model_path)
             model_names_used.append(model_name)
+            
+            # Print model information for each model in comparison
+            print(f"\n--- Model {model_idx + 1} Architecture: {model_name} ---")
+            set_encoder_info = get_model_info(set_encoder, "SetEncoder")
+            unet_info = get_model_info(unet_3d, "UNet3D")
+            total_params = set_encoder_info['total_params'] + unet_info['total_params']
+            total_size_mb = set_encoder_info['model_size_mb'] + unet_info['model_size_mb']
+            print(f"Total parameters: {total_params:,} | Size: {total_size_mb:.2f} MB")
 
             # Run inference for multiple examples
             model_mse_results = []
