@@ -4,7 +4,7 @@ import math
 import argparse
 
 import numpy as np
-from matplotlib import pyplot as plt
+# from matplotlib import pyplot as plt
 from matplotlib.axes._axes import Axes
 import torch
 import torch.nn as nn
@@ -16,8 +16,8 @@ from sklearn.datasets import make_moons, make_circles
 from torchvision import datasets, transforms
 from torchvision.utils import make_grid
 
-import matplotlib
-matplotlib.use('MacOSX')  # Use 'TkAgg' for Linux, 'MacOSX' for macOS, 'Qt5Agg' for Windows
+# import matplotlib
+# matplotlib.use('MacOSX')  # Use 'TkAgg' for Linux, 'MacOSX' for macOS, 'Qt5Agg' for Windows
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 # _ = plt.ion()  # turn on interactive mode
@@ -543,16 +543,16 @@ z, _ = path.p_data.sample(num_samples)
 z = z.view(-1, 1, 32, 32)
 
 # Setup plot
-fig, axes = plt.subplots(1, num_timesteps, figsize=(6 * num_cols * num_timesteps, 6 * num_rows))
+# fig, axes = plt.subplots(1, num_timesteps, figsize=(6 * num_cols * num_timesteps, 6 * num_rows))
 
 # Sample from conditional probability paths and graph
-ts = torch.linspace(0, 1, num_timesteps).to(device)
-for tidx, t in enumerate(ts):
-    tt = t.view(1,1,1,1).expand(num_samples, 1, 1, 1) # (num_samples, 1, 1, 1)
-    xt = path.sample_conditional_path(z, tt) # (num_samples, 1, 32, 32)
-    grid = make_grid(xt, nrow=num_cols, normalize=True, value_range=(-1,1))
-    axes[tidx].imshow(grid.permute(1, 2, 0).cpu(), cmap="gray")
-    axes[tidx].axis("off")
+# ts = torch.linspace(0, 1, num_timesteps).to(device)
+# for tidx, t in enumerate(ts):
+#     tt = t.view(1,1,1,1).expand(num_samples, 1, 1, 1) # (num_samples, 1, 1, 1)
+#     xt = path.sample_conditional_path(z, tt) # (num_samples, 1, 32, 32)
+#     grid = make_grid(xt, nrow=num_cols, normalize=True, value_range=(-1,1))
+#     axes[tidx].imshow(grid.permute(1, 2, 0).cpu(), cmap="gray")
+#     axes[tidx].axis("off")
 # plt.show()
 
 """Part 2: Training for Classifier Free Guidance (CFG) """
