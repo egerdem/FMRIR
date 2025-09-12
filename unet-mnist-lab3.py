@@ -647,10 +647,9 @@ class CFGTrainer(Trainer):
         self.path = path
 
         self.ddpm_scheduler = DDPMScheduler(num_timesteps=1000)
-        # --- NEW: Store scheduler values needed for v-prediction ---
-        self.sqrt_alphas_cumprod = self.ddpm_scheduler.sqrt_alphas_cumprod.to(next(model.parameters()).device)
-        self.sqrt_one_minus_alphas_cumprod = self.ddpm_scheduler.sqrt_one_minus_alphas_cumprod.to(
-            next(model.parameters()).device)
+        # Store scheduler values - device conversion will happen dynamically
+        self.sqrt_alphas_cumprod = self.ddpm_scheduler.sqrt_alphas_cumprod
+        self.sqrt_one_minus_alphas_cumprod = self.ddpm_scheduler.sqrt_one_minus_alphas_cumprod
 
     def get_train_loss_flow(self, batch_size: int) -> torch.Tensor:
         # Step 1: Sample z,y from p_data
@@ -688,8 +687,8 @@ class CFGTrainer(Trainer):
         xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise, timesteps=timesteps)
 
         # 4. Define the v-prediction target
-        sqrt_alpha_t = self.sqrt_alphas_cumprod[timesteps].view(-1, 1, 1, 1)
-        sqrt_one_minus_alpha_t = self.sqrt_one_minus_alphas_cumprod[timesteps].view(-1, 1, 1, 1)
+        sqrt_alpha_t = self.sqrt_alphas_cumprod.to(dev)[timesteps].view(-1, 1, 1, 1)
+        sqrt_one_minus_alpha_t = self.sqrt_one_minus_alphas_cumprod.to(dev)[timesteps].view(-1, 1, 1, 1)
         v_target = sqrt_alpha_t * noise - sqrt_one_minus_alpha_t * x1
 
         # 5. Get model prediction (UNCONDITIONALLY)
