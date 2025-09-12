@@ -14,7 +14,7 @@ import wandb
 # matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
 # import matplotlib.pyplot as plt
 import random
-from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, ConstantLR
 
 def parse_source_indices(src_splits_config, mode: str) -> List[int]:
     """
@@ -806,7 +806,7 @@ class Trainer(ABC):
             # 3. Coast phase (constant low LR) - will hold the min_lr from the cosine phase
             # We use a placeholder scheduler that does nothing, as SequentialLR will hold the last LR.
             # For a total of num_iterations, this will run for (num_iterations - decay_iterations) steps.
-            constant_scheduler = CosineAnnealingLR(opt, T_max=(num_iterations - decay_iterations), eta_min=min_lr)
+            constant_scheduler = ConstantLR(opt, factor=1.0, total_iters=(num_iterations - decay_iterations))
 
             # Chain them all together
             scheduler = SequentialLR(

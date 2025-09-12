@@ -208,7 +208,7 @@ scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG8192DATA_M5to50_freq3
 scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR/trained_mnist_unet.pt /Users/ege/Projects/FMRIR
 
 #BELLİNİ'den locale
-scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG8192DATA_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-152004_iter700000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG8192DATA_M5to100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-184311_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
 #Create'den locale
 

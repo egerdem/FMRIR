@@ -165,12 +165,12 @@ MODEL_NAMES = [
 
 M_range = None
 # SIGMA_SDE = 0.
-M_range = [5, 10]
+M_range = [5, 20]
 num_examples = 5
 num_timesteps = 10
 guidance_scales = [1.0]
-freq_idx_to_plot = 10  # Pick a frequency channel to visualize
-z_slice_idx_to_plot = 8
+freq_idx_to_plot = 15  # Pick a frequency channel to visualize
+z_slice_idx_to_plot = 2
 
 # Option to exclude outermost boundary positions from MSE/LSD calculation
 EXCLUDE_BOUNDARY = False  # Set to True to exclude outermost positions
