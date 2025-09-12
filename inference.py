@@ -593,19 +593,21 @@ if __name__ == '__main__':
         total_params = set_encoder_info['total_params'] + unet_info['total_params']
         total_size_mb = set_encoder_info['model_size_mb'] + unet_info['model_size_mb']
 
+        fm_vs_diff = config['model'].get('FM_vs_Diff')
+
         print(f"=== Combined Model ===")
         print(f"Total parameters: {total_params:,}")
         print(f"Total size: {total_size_mb:.2f} MB")
         print("=" * 20)
 
         # --- 4. Original Inference & Visualization ---
-        if config['model'].get('FM_vs_Diff') == 'flow_matching' or config['model'].get('FM_vs_Diff') is None:
-            print("--- Using Flow Matching ODE Simulator ---")
-            simulator = EulerSimulator(ode=ode_3d)
-        elif config['model'].get('FM_vs_Diff') == 'score_matching':
-            print("--- Using Denoising Diffusion (SDE) Simulator ---")
-            # simulator = EulerMaruyamaSimulator(sde=ode_3d)
-            simulator = None
+        # if config['model'].get('FM_vs_Diff') == 'flow_matching' or config['model'].get('FM_vs_Diff') is None:
+        #     print("--- Using Flow Matching ODE Simulator ---")
+        #     simulator = EulerSimulator(ode=ode_3d)
+        # elif config['model'].get('FM_vs_Diff') == 'score_matching':
+        #     print("--- Using Denoising Diffusion (SDE) Simulator ---")
+        #     simulator = EulerMaruyamaSimulator(sde=ode_3d)
+            # simulator = None
 
 
         # --- SETUP THE PLOT GRID ---
@@ -644,9 +646,7 @@ if __name__ == '__main__':
             # --- Create a sparse observation set on the fly ---
             M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
             obs_indices = torch.randperm(grid_xyz.shape[0])[:M]
-            # print("obs_indices:", obs_indices.shape, obs_indices)
             obs_xyz_abs = grid_xyz[obs_indices]
-            # print("obs_xyz_abs:", obs_xyz_abs.shape, obs_xyz_abs)
             obs_coords_rel = obs_xyz_abs - src_xyz
 
             z_flat = z_true.view(z_true.shape[1], -1)
@@ -722,19 +722,21 @@ if __name__ == '__main__':
 
             for g_idx, w in enumerate(guidance_scales):
 
-                # Start from pure noise
-                x0 = torch.randn_like(z_true)
-                xt = x0.clone()  # The simulation starts from x0
-                # Get conditioning tokens
-                y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
-
-                ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
-                ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
-
-                fm_vs_diff = config['model'].get('FM_vs_Diff', None)
                 # Set the guidance scale on the ODE object
                 if fm_vs_diff == 'flow_matching' or fm_vs_diff == None:
+                    print("--> Using Flow Matching ODE Simulator")
+                    simulator = EulerSimulator(ode=ode_3d)
                     simulator.ode.guidance_scale = w
+
+                    # Start from pure noise
+                    x0 = torch.randn_like(z_true)
+                    xt = x0.clone()  # The simulation starts from x0
+                    # Get conditioning tokens
+                    y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+                    ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
+                    ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
+
                     # Simulation loop
                     x1_recon = simulator.simulate(xt,
                                                   ts,
@@ -749,29 +751,32 @@ if __name__ == '__main__':
                                                   obs_indices=obs_indices
                                                   )
 
-                elif config['model'].get('FM_vs_Diff') == 'score_matching':
+                elif fm_vs_diff == 'score_matching':
+                    # --- DDPM (DDIM) Inference ---
+                    print("--> Using DDIM Sampler")
+
                     ddpm_scheduler = DDPMScheduler(num_timesteps=1000)
-                    num_timesteps = 1000
                     sampler = DDIMSampler(model=unet_3d, set_encoder=set_encoder, scheduler=ddpm_scheduler)
                     num_inference_steps = 100  # Or another value, e.g., 200
 
                     # 2. Prepare initial noise and conditioning
-                    x_t = torch.randn_like(z_true)  # Start with pure noise (at timestep T)
-                    _, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
+                    xt = torch.randn_like(z_true)  # Start with pure noise (at timestep T)
+                    y_tokens, _ = set_encoder(obs_coords_rel, obs_values, obs_mask)
                     model_kwargs = {
                         "context": y_tokens,
                         "context_mask": obs_mask,
                     }
 
-                    # 3. Create the discrete timestep schedule
-                    timesteps = torch.linspace(ddpm_scheduler.num_timesteps - 1, 0, num_inference_steps,
-                                               dtype=torch.long, device=device)
+                    # 2. Create the discrete timestep schedule for backward sampling
+                    inference_timesteps = torch.linspace(ddpm_scheduler.num_timesteps - 1, 0, num_timesteps,
+                                                         dtype=torch.long, device=device)
 
                     # 4. The backward denoising loop
-                    for t in tqdm(timesteps, desc="DDIM Sampling"):
-                        x_t = sampler.step(x_t, t.item(), guidance_scale=w, **model_kwargs)
-                        x_t = xt.float()
-                    x1_recon = x_t  # The final denoised sample
+                    for t_step in tqdm(inference_timesteps, desc=f"DDIM Sampling w={w}"):
+                        xt = sampler.step(xt, t_step.item(), guidance_scale=w, **model_kwargs)
+                        xt = xt.float()
+
+                    x1_recon = xt  # The final denoised sample
 
 
                 # De-normalize and plot

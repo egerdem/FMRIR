@@ -4,7 +4,7 @@
 #SBATCH --output=/users/k24037994/logs/%x_%j.out
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=32G
+#SBATCH --mem=16G
 #SBATCH -p gpu
 
 # shellcheck disable=SC1090
