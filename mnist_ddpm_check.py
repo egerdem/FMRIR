@@ -121,7 +121,7 @@ class DDIMSampler2D:
 # --- Main Training and Inference Logic ---
 if __name__ == '__main__':
     # Hyperparameters
-    NUM_EPOCHS = 5
+    NUM_EPOCHS = 1
     BATCH_SIZE = 128
     LR = 1e-3
 
@@ -155,9 +155,16 @@ if __name__ == '__main__':
 
         print(f"Epoch {epoch + 1}, Loss: {loss.item():.4f}")
 
+    torch.save({
+        'model_state_dict': model.state_dict(),
+    }, 'trained_mnist_unet_sanity.pt')
+    print("Model saved as 'trained_mnist_unet_sanity.pt'")
+
     # Inference
     model.eval()
     sampler = DDIMSampler2D(model=model, scheduler=scheduler)
+    # save model
+
     generated_images = sampler.sample(shape=(100, 1, 28, 28), num_inference_steps=50)
 
     # Plot results
@@ -165,4 +172,6 @@ if __name__ == '__main__':
     plt.figure(figsize=(10, 10))
     plt.imshow(grid.permute(1, 2, 0).cpu(), cmap="gray")
     plt.axis("off")
-    plt.show()
+    # plt.show()
+    #save figure
+    plt.savefig("ddpm_mnist_generated.png")

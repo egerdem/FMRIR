@@ -93,7 +93,7 @@ python trainer-atf-3d.py \
 # SCORE MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "BIG8192DATA_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_700k" \
+    --model_name "BIG8192DATA_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_1000k" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
