@@ -96,7 +96,8 @@ MULTI_MODEL_PATHS = [
 # "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to50_freq20_layer3_d256_eta0_head4_sigma0_lrWARM5k_e4_toe5_unet3v1_setv12_500k_20250911-184726_iter500000/model.pt"
 # "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to50_freq20_layer3_d512_eta1e1_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_500k_20250911-192822_iter500000/model.pt"
 # "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-152004_iter700000/model.pt",
-"/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-184311_iter300000/model.pt"
+# "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-184311_iter300000/model.pt",
+"/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_1000k_20250912-215808_iter1000000/model.pt"
 ]
 
 # MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv12_20250910-160559_iter300000/model.pt"

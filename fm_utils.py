@@ -2034,6 +2034,70 @@ class ConditionalVectorField(nn.Module, ABC):
 #     def diffusion_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
 #         return torch.tensor(self.sigma_sde, device=xt.device)
 
+class DDPM_ODE_Sampler(ODE):
+    """
+    Implements the deterministic Probability Flow ODE sampler for a DDPM.
+    This is equivalent to DDIM sampling with eta=0.
+    """
+    def __init__(self, noise_predictor_network, set_encoder, scheduler, config, guidance_scale=1.0):
+        super().__init__()
+        self.epsilon_theta = noise_predictor_network
+        self.set_encoder = set_encoder
+        self.scheduler = scheduler
+        self.guidance_scale = guidance_scale
+        self.architecture = config['model'].get('architecture_version', 'v1_legacy')
+
+        # Pre-calculate scheduler values and move them to the correct device
+        self.betas = self.scheduler.betas.to(next(self.epsilon_theta.parameters()).device)
+        self.alphas = self.scheduler.alphas.to(next(self.epsilon_theta.parameters()).device)
+        self.alphas_cumprod = self.scheduler.alphas_cumprod.to(next(self.epsilon_theta.parameters()).device)
+
+
+    def get_predicted_noise(self, xt: torch.Tensor, t_continuous: torch.Tensor, **kwargs):
+        """Helper function to get the CFG-combined noise prediction."""
+        obs_coords_rel, obs_values, obs_mask = kwargs['obs_coords_rel'], kwargs['obs_values'], kwargs['obs_mask']
+        guided_y_tokens, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+        unguided_y_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], guided_y_tokens.shape[1], -1)
+        unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
+
+        model_kwargs_guided = {'context': guided_y_tokens, 'context_mask': obs_mask}
+        model_kwargs_unguided = {'context': unguided_y_tokens, 'context_mask': obs_mask}
+
+        if self.architecture in ["v2_residual_context", "v3_attention", "v4_DiT"]:
+            model_kwargs_guided['pooled_context'] = guided_pooled_context
+            model_kwargs_unguided['pooled_context'] = unguided_pooled_context
+
+        # Model expects continuous time in [0, 1]
+        epsilon_theta_guided = self.epsilon_theta(xt, t_continuous, **model_kwargs_guided)
+        epsilon_theta_unguided = self.epsilon_theta(xt, t_continuous, **model_kwargs_unguided)
+
+        return (1 - self.guidance_scale) * epsilon_theta_unguided + self.guidance_scale * epsilon_theta_guided
+
+    def drift_coefficient(self, xt: torch.Tensor, t_continuous: torch.Tensor, **kwargs) -> torch.Tensor:
+        """
+        Calculates the drift for the Probability Flow ODE.
+        Note: The time `t` here is the continuous time in [0, 1]. We need to map it back to
+        discrete timesteps for the scheduler.
+        """
+        # Map continuous time [0, 1] to discrete timesteps [0, T-1]
+        timesteps = (t_continuous.squeeze() * (self.scheduler.num_timesteps - 1)).round().long()
+
+        # Get scheduler values for the current timesteps
+        alpha_bar_t = self.alphas_cumprod[timesteps].view(-1, 1, 1, 1, 1)
+        beta_t = self.betas[timesteps].view(-1, 1, 1, 1, 1)
+        sqrt_one_minus_alpha_bar_t = torch.sqrt(1. - alpha_bar_t)
+
+        # 1. Predict the noise `epsilon` using the network
+        predicted_noise = self.get_predicted_noise(xt, t_continuous, **kwargs)
+
+        # 2. Calculate the drift of the Probability Flow ODE (reverse SDE without the stochastic term)
+        # This is the drift of the forward process `f(x,t)` minus `0.5 * g(t)^2 * score`.
+        # For the VP SDE used in DDPMs, this simplifies to a very stable form.
+        drift = ( ( -0.5 * beta_t / sqrt_one_minus_alpha_bar_t ) * predicted_noise )
+
+        return drift
+
 class DDPMScheduler:
     """
     A scheduler for Denoising Diffusion Probabilistic Models (DDPMs)
@@ -2692,39 +2756,37 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full  # Clean data
 
-        # ... (keep the make_observation_set and set_encoder calls)
         obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
+        # 1. Sample discrete timesteps for DDPM
         timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
-        noise = torch.randn_like(x1)
-        xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise, timesteps=timesteps)
 
-        # --- CHANGE 1: Define the v-prediction target ---
-        sqrt_alpha_t = self.sqrt_alphas_cumprod[timesteps].view(-1, 1, 1, 1, 1)
-        sqrt_one_minus_alpha_t = self.sqrt_one_minus_alphas_cumprod[timesteps].view(-1, 1, 1, 1, 1)
-        v_target = sqrt_alpha_t * noise - sqrt_one_minus_alpha_t * x1
-        # -----------------------------------------------
+        # 2. Create the noise (our target) and the noised sample `xt`
+        noise_target = torch.randn_like(x1)
+        xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
+        xt = xt.float() # ensure float32
 
-        # ... (keep the CFG logic)
+        # 3. Apply Classifier-Free Guidance during training
         is_conditional_mask = (torch.rand(batch_size, device=dev) > self.eta)
         null_tokens = self.set_encoder.y_null_token.expand(batch_size, y_tokens.shape[1], -1)
         null_context = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, -1)
         final_tokens = torch.where(is_conditional_mask.view(-1, 1, 1), y_tokens, null_tokens)
         final_pooled_context = torch.where(is_conditional_mask.view(-1, 1), pooled_context, null_context)
+
         model_kwargs = {'context': final_tokens, 'context_mask': obs_mask}
-        if self.version in ["v2_residual_context", "v3_attention"]:
+        if self.version in ["v2_residual_context", "v3_attention", "v4_DiT"]:
             model_kwargs['pooled_context'] = final_pooled_context
 
+        # 4. Pass continuous-time equivalent to the model
         continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
         continuous_time = continuous_time.view(-1, 1, 1, 1, 1)
 
-        # The model now predicts 'v'
-        predicted_v = self.model(xt, continuous_time, **model_kwargs)
+        # The model's job is to predict the noise that was added
+        predicted_noise = self.model(xt, continuous_time, **model_kwargs)
 
-        # --- CHANGE 2: The loss is now on the v_target ---
-        loss = torch.mean(torch.square(predicted_v - v_target))
-        # ------------------------------------------------
+        # 5. The loss is the mean squared error between the predicted noise and the actual noise
+        loss = torch.mean(torch.square(predicted_noise - noise_target))
 
         return loss
 
@@ -2736,43 +2798,33 @@ class ATF3DTrainer(Trainer):
 
 
     @torch.no_grad()
+    @torch.no_grad()
     def get_val_loss_ddpm(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
         z_full, src_xyz, _ = valid_sampler.sample(batch_size)
 
         dev = next(self.model.parameters()).device
-        z_full = z_full.to(dev)
-        src_xyz = src_xyz.to(dev)
+        z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
 
         x1 = z_full
 
         obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-        # --- CHANGE 1: Sample discrete timesteps ---
-        # Sample integer timesteps from [0, T-1] for each item in the batch
         timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
-
-        # --- CHANGE 2: Use the scheduler to create the noisy sample xt ---
-        noise_target = torch.randn_like(x1)  # This is epsilon
+        noise_target = torch.randn_like(x1)
         xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
         xt = xt.float()
-        model_kwargs = {
-            'context': y_tokens,
-            'context_mask': obs_mask
-        }
 
-        if self.version == "v2_residual_context" or self.version == "v3_attention":
+        model_kwargs = {'context': y_tokens, 'context_mask': obs_mask}
+        if self.version in ["v2_residual_context", "v3_attention", "v4_DiT"]:
             model_kwargs['pooled_context'] = pooled_context
 
-        # --- CHANGE 3: Pass normalized continuous time to the model ---
-        # The FourierEncoder expects time in [0, 1], so we normalize the discrete timesteps
         continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
-        continuous_time = continuous_time.view(-1, 1, 1, 1, 1)  # Reshape for the model
+        continuous_time = continuous_time.view(-1, 1, 1, 1, 1)
 
         predicted_noise = self.model(xt, continuous_time, **model_kwargs)
 
-        # --- The loss remains the same ---
         loss = torch.mean(torch.square(predicted_noise - noise_target))
 
         return loss
