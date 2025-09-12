@@ -121,7 +121,7 @@ class DDIMSampler2D:
 # --- Main Training and Inference Logic ---
 if __name__ == '__main__':
     # Hyperparameters
-    NUM_EPOCHS = 1
+    NUM_EPOCHS = 100
     BATCH_SIZE = 128
     LR = 1e-3
 
