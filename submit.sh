@@ -1,8 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=fm_rir_train
-#SBATCH --output=fm_rir_%j.out
-#SBATCH --time=08:00:00
+#SBATCH --output=/scratch/users/%u/%j.out
+#SBATCH --time=02:00:00
 #SBATCH --gres=gpu:1
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 
 # --- Setup Environment ---
@@ -16,7 +17,6 @@ EXP_ROOT="/home/ubuntu/SDN-Python/experiments"
 
 # --- Option 1: Start a NEW training run ---
 # Leave RESUME_CHECKPOINT empty to start from scratch
- RESUME_CHECKPOINT=""
  python trainer-unet-spectrogram.py \
      --iterations 50000 \
      --batch_size 250 \

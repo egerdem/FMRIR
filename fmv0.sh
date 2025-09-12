@@ -1,32 +1,34 @@
 #!/bin/bash -l
 #SBATCH --job-name=ATF_M5_gf_lr5e3
-#SBATCH --time=1:00:00
+#SBATCH --time=2:00:00
+#SBATCH --output=/scratch/users/%u_%j.out
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH -p gpu
-#SBATCH --output=/scratch/users/%x_%j.out
 
 source "$HOME/fmvenv/bin/activate"
 
-cd "$HOME/FMRIR" || exit
-
 python trainer-atf-3d.py \
-    --model_name "M5to50_freq20_layer4_d256_head8_sigma0_lrWARM5k_e4_toe6_unet4" \
+    --model_name "BIG8192DATA_VALSplit_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_700k" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
-    --num_iterations 300000 \
-    --version "v1_legacy" \
+    --num_iterations 700000 \
     --lr 1e-4 \
+    --min_lr 1e-5 \
     --warmup_iterations 5000 \
-    --min_lr 1e-6 \
+    --decay_iterations 500000 \
+    --version "v1_legacy" \
+    --setencoder_version "v12" \
+    --freq_up_to 20 \
     --channels 32,64,128,256 \
-    --d_model 256 \
+    --d_model 512 \
     --nhead 8 \
-    --num_encoder_layers 4 \
+    --num_encoder_layers 3 \
     --M_range 5,50 \
-    --eta 0.1 \
-    --sigma 0 \
+    --eta 0. \
+    --sigma 0. \
+    --FM_vs_Diff "score_matching" \
     --validation_interval 100 \
     --checkpoint_interval 100000
