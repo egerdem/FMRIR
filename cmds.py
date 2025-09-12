@@ -89,16 +89,17 @@ python trainer-atf-3d.py \
     --setencoder_version "v12" \
     --validation_interval 100 \
     --checkpoint_interval 100000
+# --decay_iterations
+# 500000 \
 
-# SCORE MATCHING
+    # SCORE MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "BIG8192DATA_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_1000k" \
+    --model_name "BIG8192DATA_DDPM_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_300k" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
-    --num_iterations 1000000 \
-    --decay_iterations 500000 \
+    --num_iterations 300000 \
     --lr 1e-4 \
     --min_lr 1e-5 \
     --warmup_iterations 5000 \
@@ -111,7 +112,8 @@ python trainer-atf-3d.py \
     --num_encoder_layers 3 \
     --M_range 5,50 \
     --eta 0. \
-    --FM_vs_Diff "flow_matching" \
+    --sigma 0 \
+    --FM_vs_Diff "score_matching" \
     --validation_interval 100 \
     --checkpoint_interval 1000000
 
@@ -208,7 +210,7 @@ scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG8192DATA_M5to50_freq2
 scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR/ddpm_mnist_generated.png /Users/ege/Projects/FMRIR
 
 #BELLİNİ'den locale
-scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG8192DATA_M5to100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-184311_iter300000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG8192DATA_DDPM_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_300k_20250912-234059_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
 #Create'den locale
 

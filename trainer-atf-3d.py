@@ -45,6 +45,7 @@ def calculate_and_cache_coord_stats(train_sampler, cache_path="coord_stats.pt"):
 
     return coord_mean, coord_std
 
+
 def main(args):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -53,13 +54,16 @@ def main(args):
     config = {
         "data": {"data_dir": args.data_dir,
                  # "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
-                 "src_splits": {"train": [[0, 820], [1024, 8192]], "valid": [820, 922], "test": [922, 1024]}},
+                 # "src_splits": {"train": [[0, 820], [1024, 8192]], "valid": [820, 922], "test": [922, 1024]}},
+                 "src_splits": {"train": [[0, 820], [1324, 8192]], "valid": [[820, 922], [1024, 1324]],
+                                "test": [922, 1024]}},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
                   "FM_vs_Diff": args.FM_vs_Diff},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
-                     "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations, "min_lr": args.min_lr,
+                     "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
+                     "min_lr": args.min_lr,
                      "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
                      "validation_interval": args.validation_interval},
         "experiments_dir": args.experiments_dir
@@ -88,7 +92,7 @@ def main(args):
             experiment_dir = os.path.dirname(parent) if os.path.basename(parent) == 'checkpoints' else parent
             experiment_name = os.path.basename(experiment_dir)
 
-             # Initialize WandB if enabled and resume run
+            # Initialize WandB if enabled and resume run
             if args.wandb:
                 wandb.login(key=args.wandb_key)
                 run_id = resume_checkpoint_state.get('wandb_run_id')
@@ -175,7 +179,7 @@ def main(args):
         freq_up_to=model_cfg['freq_up_to'],
         normalize=False
     )
-    
+
     # 3. Save the corrected config after data loading (in case src_splits were updated)
     if experiment_dir:
         with open(os.path.join(experiment_dir, "config.json"), 'w') as f:
@@ -238,8 +242,8 @@ def main(args):
         grid_xyz=atf_train_sampler.grid_xyz,
         version=model_cfg.get("architecture_version"),
         setencoderversion=model_cfg.get("setencoder_version"),
-        coord_mean = coord_mean,  # Pass the mean here
-        coord_std = coord_std  # Pass the std here
+        coord_mean=coord_mean,  # Pass the mean here
+        coord_std=coord_std  # Pass the std here
     )
 
     training_cfg['warmup_iterations'] = args.warmup_iterations
@@ -290,8 +294,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_iterations', type=int, default=200)
     parser.add_argument('--batch_size', type=int, default=4)  # NOTE: Must be small for 3D models
     parser.add_argument('--lr', type=float, default=1e-4, help="now it is peak learning rate after warm-up.")
-    parser.add_argument('--warmup_iterations', type=int, default=5000, help="Number of iterations for linear LR warm-up.")
-    parser.add_argument('--decay_iterations', type=int, default=100000, help="Number of iterations for the cosine decay phase. The rest will be constant min_lr.")
+    parser.add_argument('--warmup_iterations', type=int, default=5000,
+                        help="Number of iterations for linear LR warm-up.")
+    parser.add_argument('--decay_iterations', type=int, default=100000,
+                        help="Number of iterations for the cosine decay phase. The rest will be constant min_lr.")
     parser.add_argument('--min_lr', type=float, default=1e-7,
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
@@ -304,9 +310,10 @@ if __name__ == '__main__':
     parser.add_argument('--FM_vs_Diff', type=str, default='score_matching', choices=['flow_matching', 'score_matching'])
     parser.add_argument('--checkpoint_interval', type=int, default=20000)
     parser.add_argument('--validation_interval', type=int, default=20)
-    parser.add_argument('--version', type=str, default="v3_attention", help='Model architecture version, e.g. v1, v2, etc.')
-    parser.add_argument('--setencoder_version', type=str, default="v3", help='setencoder architecture version, e.g. v12:merged feature, v3:pos embed')
-
+    parser.add_argument('--version', type=str, default="v3_attention",
+                        help='Model architecture version, e.g. v1, v2, etc.')
+    parser.add_argument('--setencoder_version', type=str, default="v3",
+                        help='setencoder architecture version, e.g. v12:merged feature, v3:pos embed')
 
     # --- Paths ---
     parser.add_argument('--experiments_dir', type=str, default="experiments_3d")
