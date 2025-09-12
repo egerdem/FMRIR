@@ -931,6 +931,51 @@ class MNISTUNet(ConditionalVectorField):
 
         return x
 
+class DDIMSampler2D:
+    """ A 2D-compatible DDIM sampler for MNIST. """
+
+    def __init__(self, model, scheduler):
+        self.model = model
+        self.scheduler = scheduler
+        self.num_timesteps = scheduler.num_timesteps
+
+    @torch.no_grad()
+    def _get_predicted_original_sample(self, noisy_sample, t, predicted_noise):
+        sqrt_alpha_t = self.scheduler.sqrt_alphas_cumprod.to(noisy_sample.device)[t].view(-1, 1, 1, 1)
+        sqrt_one_minus_alpha_t = self.scheduler.sqrt_one_minus_alphas_cumprod.to(noisy_sample.device)[t].view(-1, 1, 1,
+                                                                                                              1)
+        pred_original_sample = (noisy_sample - sqrt_one_minus_alpha_t * predicted_noise) / (sqrt_alpha_t + 1e-8)
+        return pred_original_sample
+
+    @torch.no_grad()
+    def step(self, xt, t, guidance_scale=1.0, y=None):
+        device = xt.device
+
+        t_discrete = torch.full((xt.shape[0],), t, dtype=torch.long, device=device)
+        t_continuous = (t_discrete.float() / self.num_timesteps).view(-1, 1, 1, 1)
+
+        # --- CFG Logic ---
+        # The model now predicts 'v'
+        guided_pred_v = self.model(xt, t_continuous, y=y)
+        unguided_pred_v = self.model(xt, t_continuous, y=None)  # y=None triggers unconditional
+
+        predicted_v = (1 - guidance_scale) * unguided_pred_v + guidance_scale * guided_pred_v
+
+        # Convert predicted 'v' back to predicted 'noise' (epsilon)
+        sqrt_alpha_t = self.scheduler.sqrt_alphas_cumprod.to(device)[t_discrete].view(-1, 1, 1, 1)
+        sqrt_one_minus_alpha_t = self.scheduler.sqrt_one_minus_alphas_cumprod.to(device)[t_discrete].view(-1, 1, 1, 1)
+        predicted_noise = sqrt_alpha_t * predicted_v + sqrt_one_minus_alpha_t * xt
+
+        # --- DDIM Update Rule ---
+        alpha_bar_t = self.scheduler.alphas_cumprod[t].to(device)
+        alpha_bar_t_prev = self.scheduler.alphas_cumprod[t - 1] if t > 0 else torch.tensor(1.0, device=device)
+
+        pred_x0 = self._get_predicted_original_sample(xt, t_discrete, predicted_noise)
+        pred_dir_xt = torch.sqrt(1. - alpha_bar_t_prev) * predicted_noise
+        xt_prev = torch.sqrt(alpha_bar_t_prev) * pred_x0 + pred_dir_xt
+
+        return xt_prev
+
 """Training a U-Net for Classifier-Free Guidance"""
 
 # Initialize probability path: already done before
@@ -964,7 +1009,7 @@ if __name__ == '__main__':
     if args.loss == "flow":
         trainer.train(num_epochs = 500, device=device, lr=1e-3, loss_type="flow", batch_size=250)
     elif args.loss == "ddpm":
-        trainer.train(num_epochs = 500, device=device, lr=1e-3, loss_type="ddpm", batch_size=250, mnist_sampler=sampler)
+        trainer.train(num_epochs = 3000, device=device, lr=1e-3, loss_type="ddpm", batch_size=250, mnist_sampler=sampler)
 
     # Save the trained model
     torch.save({
