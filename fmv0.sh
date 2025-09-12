@@ -1,15 +1,17 @@
 #!/bin/bash -l
 #SBATCH --job-name=ATF_M5_gf_lr5e3
 #SBATCH --time=2:00:00
-#SBATCH --output=/scratch/users/%u_%j.out
+#SBATCH --output=/users/k24037994/logs/%x_%j.out
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH -p gpu
 
-source "$HOME/fmvenv/bin/activate"
+# shellcheck disable=SC1090
+source ~/fmvenv/bin/activate
+cd ~/FMRIR
 
-python trainer-atf-3d.py \
+python -u trainer-atf-3d.py \
     --model_name "BIG8192DATA_VALSplit_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_700k" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
