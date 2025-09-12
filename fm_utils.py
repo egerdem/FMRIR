@@ -1752,7 +1752,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         indices = torch.randperm(len(self.cubes))[:num_samples]
         z_full_batch = self.cubes[indices]
         src_xyz_batch = self.source_coords[indices]
-        return z_full_batch.to(self.dummy.device), src_xyz_batch.to(self.dummy.device)
+        return z_full_batch.to(self.dummy.device), src_xyz_batch.to(self.dummy.device), indices
 
 
 class SetEncoder_v12(nn.Module):
@@ -2498,7 +2498,12 @@ class ATF3DTrainer(Trainer):
         self.loss_type = loss_type
         self.FM_vs_Diff = FM_vs_Diff
 
-        self.ddpm_scheduler = DDPMScheduler(num_timesteps=1000)
+        if self.FM_vs_Diff == 'score_matching':
+            self.ddpm_scheduler = DDPMScheduler(num_timesteps=1000)
+            # --- NEW: Store scheduler values needed for v-prediction ---
+            self.sqrt_alphas_cumprod = self.ddpm_scheduler.sqrt_alphas_cumprod.to(next(model.parameters()).device)
+            self.sqrt_one_minus_alphas_cumprod = self.ddpm_scheduler.sqrt_one_minus_alphas_cumprod.to(
+                next(model.parameters()).device)
 
         if self.loss_type == 'weighted':
             print("--- Using PERCEPTUALLY WEIGHTED training loss. ---")
@@ -2639,56 +2644,47 @@ class ATF3DTrainer(Trainer):
         return loss
 
     def get_train_loss_ddpm(self, **kwargs):
-
         batch_size = kwargs.get('batch_size')
-        # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
         z_full, src_xyz = self.path.p_data.sample(batch_size)
 
         dev = next(self.model.parameters()).device
-        z_full = z_full.to(dev)
-        src_xyz = src_xyz.to(dev)
+        z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
 
-        x1 = z_full
+        x1 = z_full  # Clean data
 
-        # 2. Create the sparse observation set on the fly
+        # ... (keep the make_observation_set and set_encoder calls)
         obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-        # 3. Encode the observations into conditioning tokens
-        y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
-
-        # --- CHANGE 1: Sample discrete timesteps ---
-        # Sample integer timesteps from [0, T-1] for each item in the batch
         timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
+        noise = torch.randn_like(x1)
+        xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise, timesteps=timesteps)
 
-        # --- CHANGE 2: Use the scheduler to create the noisy sample xt ---
-        noise_target = torch.randn_like(x1)  # This is epsilon
-        xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
-        xt = xt.float()
-        # 5. Apply Classifier-Free Guidance during training
-        # With probability eta, replace conditioning tokens with the null token
-        is_conditional_mask = (torch.rand(batch_size, device=x1.device) > self.eta)
+        # --- CHANGE 1: Define the v-prediction target ---
+        sqrt_alpha_t = self.sqrt_alphas_cumprod[timesteps].view(-1, 1, 1, 1, 1)
+        sqrt_one_minus_alpha_t = self.sqrt_one_minus_alphas_cumprod[timesteps].view(-1, 1, 1, 1, 1)
+        v_target = sqrt_alpha_t * noise - sqrt_one_minus_alpha_t * x1
+        # -----------------------------------------------
 
-        # Broadcast y_null_token and select based on the mask
+        # ... (keep the CFG logic)
+        is_conditional_mask = (torch.rand(batch_size, device=dev) > self.eta)
         null_tokens = self.set_encoder.y_null_token.expand(batch_size, y_tokens.shape[1], -1)
         null_context = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, -1)
         final_tokens = torch.where(is_conditional_mask.view(-1, 1, 1), y_tokens, null_tokens)
         final_pooled_context = torch.where(is_conditional_mask.view(-1, 1), pooled_context, null_context)
-
         model_kwargs = {'context': final_tokens, 'context_mask': obs_mask}
-
-        if self.version == "v2_residual_context" or self.version == "v3_attention":
+        if self.version in ["v2_residual_context", "v3_attention"]:
             model_kwargs['pooled_context'] = final_pooled_context
 
-        # --- CHANGE 3: Pass normalized continuous time to the model ---
-        # The FourierEncoder expects time in [0, 1], so we normalize the discrete timesteps
         continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
-        continuous_time = continuous_time.view(-1, 1, 1, 1, 1)  # Reshape for the model
+        continuous_time = continuous_time.view(-1, 1, 1, 1, 1)
 
-        # The 3D U-Net's forward pass must accept `context` and `context_mask`
-        predicted_noise = self.model(xt, continuous_time, **model_kwargs) #predicted noise
+        # The model now predicts 'v'
+        predicted_v = self.model(xt, continuous_time, **model_kwargs)
 
-        # --- Standard Loss ---
-        loss = torch.mean(torch.square(predicted_noise - noise_target))
+        # --- CHANGE 2: The loss is now on the v_target ---
+        loss = torch.mean(torch.square(predicted_v - v_target))
+        # ------------------------------------------------
 
         return loss
 
@@ -3035,154 +3031,154 @@ class Decoder(nn.Module):
 
 
 #
-class SpecUNet(ConditionalVectorField):
-    def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int):
-        super().__init__()
-        # Initial convolution: (bs, 1, freq, time) -> (bs, c_0, freq, time)
-        self.init_conv = nn.Sequential(nn.Conv2d(1, channels[0], kernel_size=3, padding=1), nn.BatchNorm2d(channels[0]),
-                                       nn.SiLU())
+# class SpecUNet(ConditionalVectorField):
+#     def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int):
+#         super().__init__()
+#         # Initial convolution: (bs, 1, freq, time) -> (bs, c_0, freq, time)
+#         self.init_conv = nn.Sequential(nn.Conv2d(1, channels[0], kernel_size=3, padding=1), nn.BatchNorm2d(channels[0]),
+#                                        nn.SiLU())
+#
+#         # Initialize time embedder
+#         self.time_embedder = FourierEncoder(t_embed_dim)
+#
+#         # **MODIFICATION: Replace nn.Embedding with an MLP for positional encoding**
+#         # This MLP will take the coordinate vector 'y' and project it to the embedding dimension.
+#         self.y_embedder = nn.Sequential(
+#             nn.Linear(y_dim, y_embed_dim),
+#             nn.SiLU(),
+#             nn.Linear(y_embed_dim, y_embed_dim)
+#         )
+#
+#         # Encoders, Midcoders, and Decoders
+#         encoders = []
+#         decoders = []
+#         for (curr_c, next_c) in zip(channels[:-1], channels[1:]):
+#             encoders.append(Encoder(curr_c, next_c, num_residual_layers, t_embed_dim, y_embed_dim))
+#             decoders.append(Decoder(next_c, curr_c, num_residual_layers, t_embed_dim, y_embed_dim))
+#         self.encoders = nn.ModuleList(encoders)
+#         self.decoders = nn.ModuleList(reversed(decoders))
+#
+#         self.midcoder = Midcoder(channels[-1], num_residual_layers, t_embed_dim, y_embed_dim)
+#
+#         # Final convolution
+#         self.final_conv = nn.Conv2d(channels[0], 1, kernel_size=3, padding=1)
+#
+#     def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
+#         """
+#         Args:
+#         - x: (bs, 1, freq_bins, time_bins)
+#         - t: (bs, 1, 1, 1)
+#         - y: (bs, 6) <- Now a tensor of 6D coordinates , was y: (bs,)
+#         Returns:
+#         - u_t^theta(x|y): (bs, 1, freq_bins, time_bins)
+#         """
+#         # Embed t and y
+#         t_embed = self.time_embedder(t)
+#
+#         # **MODIFICATION: The y_embedder is now an MLP**
+#         y_embed = self.y_embedder(y)
+#
+#         # Initial convolution
+#         x = self.init_conv(x)  # (bs, c_0, freq_bins, time_bins)
+#
+#         residuals = []
+#
+#         # Encoders
+#         for encoder in self.encoders:
+#             x = encoder(x, t_embed, y_embed)
+#             residuals.append(x.clone())
+#
+#         # Midcoder
+#         x = self.midcoder(x, t_embed, y_embed)
+#
+#         # Decoders
+#         for decoder in self.decoders:
+#             res = residuals.pop()
+#             x = x + res
+#             x = decoder(x, t_embed, y_embed)
+#
+#         # Final convolution
+#         x = self.final_conv(x)  # (bs, 1, freq_bins, time_bins)
+#
+#         return x
 
-        # Initialize time embedder
-        self.time_embedder = FourierEncoder(t_embed_dim)
-
-        # **MODIFICATION: Replace nn.Embedding with an MLP for positional encoding**
-        # This MLP will take the coordinate vector 'y' and project it to the embedding dimension.
-        self.y_embedder = nn.Sequential(
-            nn.Linear(y_dim, y_embed_dim),
-            nn.SiLU(),
-            nn.Linear(y_embed_dim, y_embed_dim)
-        )
-
-        # Encoders, Midcoders, and Decoders
-        encoders = []
-        decoders = []
-        for (curr_c, next_c) in zip(channels[:-1], channels[1:]):
-            encoders.append(Encoder(curr_c, next_c, num_residual_layers, t_embed_dim, y_embed_dim))
-            decoders.append(Decoder(next_c, curr_c, num_residual_layers, t_embed_dim, y_embed_dim))
-        self.encoders = nn.ModuleList(encoders)
-        self.decoders = nn.ModuleList(reversed(decoders))
-
-        self.midcoder = Midcoder(channels[-1], num_residual_layers, t_embed_dim, y_embed_dim)
-
-        # Final convolution
-        self.final_conv = nn.Conv2d(channels[0], 1, kernel_size=3, padding=1)
-
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
-        """
-        Args:
-        - x: (bs, 1, freq_bins, time_bins)
-        - t: (bs, 1, 1, 1)
-        - y: (bs, 6) <- Now a tensor of 6D coordinates , was y: (bs,)
-        Returns:
-        - u_t^theta(x|y): (bs, 1, freq_bins, time_bins)
-        """
-        # Embed t and y
-        t_embed = self.time_embedder(t)
-
-        # **MODIFICATION: The y_embedder is now an MLP**
-        y_embed = self.y_embedder(y)
-
-        # Initial convolution
-        x = self.init_conv(x)  # (bs, c_0, freq_bins, time_bins)
-
-        residuals = []
-
-        # Encoders
-        for encoder in self.encoders:
-            x = encoder(x, t_embed, y_embed)
-            residuals.append(x.clone())
-
-        # Midcoder
-        x = self.midcoder(x, t_embed, y_embed)
-
-        # Decoders
-        for decoder in self.decoders:
-            res = residuals.pop()
-            x = x + res
-            x = decoder(x, t_embed, y_embed)
-
-        # Final convolution
-        x = self.final_conv(x)  # (bs, 1, freq_bins, time_bins)
-
-        return x
-
-class ATFUNet(ConditionalVectorField):
-    def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int,
-                 input_channels: int, output_channels: int):
-        super().__init__()
-
-        # --- MODIFICATION 1: Change input channels ---
-        # The U-Net accepts an image with [freq_channels + 1] channels (freq bins + mask)
-        self.init_conv = nn.Sequential(
-            nn.Conv2d(input_channels, channels[0], kernel_size=3, padding=1),
-            nn.BatchNorm2d(channels[0]),
-            nn.SiLU()
-        )
-
-        # Initialize time embedder
-        self.time_embedder = FourierEncoder(t_embed_dim)
-
-        # --- MODIFICATION 2: Adjust y_embedder for 4D conditioning ---
-        # The MLP now takes the 4D coordinate vector [xs, ys, zs, zm] as input.
-        self.y_embedder = nn.Sequential(
-            nn.Linear(y_dim, y_embed_dim),
-            nn.SiLU(),
-            nn.Linear(y_embed_dim, y_embed_dim)
-        )
-
-        # Encoders, Midcoders, and Decoders
-        encoders = []
-        decoders = []
-        for (curr_c, next_c) in zip(channels[:-1], channels[1:]):
-            encoders.append(Encoder(curr_c, next_c, num_residual_layers, t_embed_dim, y_embed_dim))
-            decoders.append(Decoder(next_c, curr_c, num_residual_layers, t_embed_dim, y_embed_dim))
-        self.encoders = nn.ModuleList(encoders)
-        self.decoders = nn.ModuleList(reversed(decoders))
-
-        self.midcoder = Midcoder(channels[-1], num_residual_layers, t_embed_dim, y_embed_dim)
-
-        # --- MODIFICATION 3: Change output channels ---
-        # The final layer outputs [freq_channels + 1] channels (freq bins + optional mask channel)
-        self.final_conv = nn.Conv2d(channels[0], output_channels, kernel_size=3, padding=1)
-
-    def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
-        """
-        Args:
-        - x: (bs, C_in, H, W) where C_in = freq_channels + 1 (freq bins + mask)
-        - t: (bs, 1, 1, 1) # same
-        - y: (bs, 4) <- New conditioning shape, was (bs, 6), and BEFORE was y: (bs,) for mnist
-        Returns:
-        - u_t^theta(x|y): (bs, C_out, H, W) where C_out = freq_channels + 1
-        """
-        # Embed t and y
-        t_embed = self.time_embedder(t)
-
-        # **MODIFICATION: The y_embedder is now an MLP**
-        y_embed = self.y_embedder(y)
-
-        # Initial convolution
-        x = self.init_conv(x)
-
-        residuals = []
-
-        # Encoders
-        for encoder in self.encoders:
-            x = encoder(x, t_embed, y_embed)
-            residuals.append(x.clone())
-
-        # Midcoder
-        x = self.midcoder(x, t_embed, y_embed)
-
-        # Decoders
-        for decoder in self.decoders:
-            res = residuals.pop()
-            x = x + res
-            x = decoder(x, t_embed, y_embed)
-
-        # Final convolution
-        x = self.final_conv(x)
-
-        return x
+# class ATFUNet(ConditionalVectorField):
+#     def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int,
+#                  input_channels: int, output_channels: int):
+#         super().__init__()
+#
+#         # --- MODIFICATION 1: Change input channels ---
+#         # The U-Net accepts an image with [freq_channels + 1] channels (freq bins + mask)
+#         self.init_conv = nn.Sequential(
+#             nn.Conv2d(input_channels, channels[0], kernel_size=3, padding=1),
+#             nn.BatchNorm2d(channels[0]),
+#             nn.SiLU()
+#         )
+#
+#         # Initialize time embedder
+#         self.time_embedder = FourierEncoder(t_embed_dim)
+#
+#         # --- MODIFICATION 2: Adjust y_embedder for 4D conditioning ---
+#         # The MLP now takes the 4D coordinate vector [xs, ys, zs, zm] as input.
+#         self.y_embedder = nn.Sequential(
+#             nn.Linear(y_dim, y_embed_dim),
+#             nn.SiLU(),
+#             nn.Linear(y_embed_dim, y_embed_dim)
+#         )
+#
+#         # Encoders, Midcoders, and Decoders
+#         encoders = []
+#         decoders = []
+#         for (curr_c, next_c) in zip(channels[:-1], channels[1:]):
+#             encoders.append(Encoder(curr_c, next_c, num_residual_layers, t_embed_dim, y_embed_dim))
+#             decoders.append(Decoder(next_c, curr_c, num_residual_layers, t_embed_dim, y_embed_dim))
+#         self.encoders = nn.ModuleList(encoders)
+#         self.decoders = nn.ModuleList(reversed(decoders))
+#
+#         self.midcoder = Midcoder(channels[-1], num_residual_layers, t_embed_dim, y_embed_dim)
+#
+#         # --- MODIFICATION 3: Change output channels ---
+#         # The final layer outputs [freq_channels + 1] channels (freq bins + optional mask channel)
+#         self.final_conv = nn.Conv2d(channels[0], output_channels, kernel_size=3, padding=1)
+#
+#     def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
+#         """
+#         Args:
+#         - x: (bs, C_in, H, W) where C_in = freq_channels + 1 (freq bins + mask)
+#         - t: (bs, 1, 1, 1) # same
+#         - y: (bs, 4) <- New conditioning shape, was (bs, 6), and BEFORE was y: (bs,) for mnist
+#         Returns:
+#         - u_t^theta(x|y): (bs, C_out, H, W) where C_out = freq_channels + 1
+#         """
+#         # Embed t and y
+#         t_embed = self.time_embedder(t)
+#
+#         # **MODIFICATION: The y_embedder is now an MLP**
+#         y_embed = self.y_embedder(y)
+#
+#         # Initial convolution
+#         x = self.init_conv(x)
+#
+#         residuals = []
+#
+#         # Encoders
+#         for encoder in self.encoders:
+#             x = encoder(x, t_embed, y_embed)
+#             residuals.append(x.clone())
+#
+#         # Midcoder
+#         x = self.midcoder(x, t_embed, y_embed)
+#
+#         # Decoders
+#         for decoder in self.decoders:
+#             res = residuals.pop()
+#             x = x + res
+#             x = decoder(x, t_embed, y_embed)
+#
+#         # Final convolution
+#         x = self.final_conv(x)
+#
+#         return x
 
 
 class CrossAttentionBlock3D(nn.Module):
@@ -3270,7 +3266,6 @@ class CrossAttentionUNet3D(nn.Module):
         # Store the crop indices
         self.crop_start = pad_front
         self.crop_end = pad_front + input_size
-
 
         # --- DYNAMICALLY BUILD THE U-NET ---
 
@@ -3515,6 +3510,7 @@ class CrossAttentionUNet3D_v3(nn.Module):
 
     def forward(self, x, t, context, context_mask, pooled_context):
         x = F.pad(x, self.padding_tuple, mode='reflect')
+        x = x.float()
         t_emb = self.time_embedder(t.squeeze())
 
         # --- Encoder ---

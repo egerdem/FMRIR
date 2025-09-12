@@ -52,7 +52,7 @@ class DDIMSampler:
 
         # --- Classifier-Free Guidance ---
         # Get guided prediction
-        guided_pred_noise = self.model(xt, t_continuous, **kwargs)
+        guided_pred_v = self.model(xt, t_continuous, **kwargs)
 
         # Get unguided prediction
         null_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
@@ -60,10 +60,17 @@ class DDIMSampler:
         if "pooled_context" in kwargs_unguided:
             kwargs_unguided["pooled_context"] = null_context
 
-        unguided_pred_noise = self.model(xt, t_continuous, **kwargs_unguided)
+        unguided_pred_v = self.model(xt, t_continuous, **kwargs_unguided)
 
         # Combine predictions
-        predicted_noise = (1 - guidance_scale) * unguided_pred_noise + guidance_scale * guided_pred_noise
+        predicted_v = (1 - guidance_scale) * unguided_pred_v + guidance_scale * guided_pred_v
+
+        # --- NEW: Convert predicted 'v' back to predicted 'noise' (epsilon) ---
+        sqrt_alpha_t = self.scheduler.sqrt_alphas_cumprod.to(device)[t_discrete].view(-1, 1, 1, 1, 1)
+        sqrt_one_minus_alpha_t = self.scheduler.sqrt_one_minus_alphas_cumprod.to(device)[t_discrete].view(-1, 1, 1, 1,
+                                                                                                          1)
+        # Formula: epsilon = sqrt(alpha_bar_t) * v + sqrt(1 - alpha_bar_t) * x_t
+        predicted_noise = sqrt_alpha_t * predicted_v + sqrt_one_minus_alpha_t * xt
 
         # --- DDIM Update Rule ---
         # 1. Get alphas for current and previous timesteps
@@ -86,18 +93,53 @@ def calculate_lsd_unified(estimation, ground_truth, freq_dim=1):
     """
     Unified LSD calculation that works for both 3D spatial and microphone-based data.
     Same as unified_evaluation.py for consistency.
-    
+
     Args:
-        estimation: Model prediction
-        ground_truth: Ground truth
+        estimation: Model prediction (should be in dB domain)
+        ground_truth: Ground truth (should be in dB domain)
         freq_dim: Dimension along which frequency is stored (1 for [B,F,Z,Y,X], 0 for [F,Z,Y,X])
-    
+
     Returns:
-        LSD value in dB (normalized domain)
+        LSD value in dB
     """
     squared_error = (estimation - ground_truth) ** 2
+    # print("shape of squared error: ", squared_error.shape)
     lsd_per_position = torch.sqrt(torch.mean(squared_error, dim=freq_dim))
+    # print(torch.mean(squared_error, dim=freq_dim))
+    # print("shape of mean", torch.mean(squared_error, dim=freq_dim).shape)
+    # print("lsd shape ", lsd_per_position.shape, lsd_per_position)
     return torch.mean(lsd_per_position)
+
+def calculate_slice_metrics(pred_cube, gt_cube, freq_idx, z_slice_idx):
+    """
+    Calculate MSE and LSD for a specific slice.
+    
+    Args:
+        pred_cube: Predicted cube [freq, z, y, x] (denormalized, dB domain)
+        gt_cube: Ground truth cube [freq, z, y, x] (denormalized, dB domain)
+        freq_idx: Frequency index to extract
+        z_slice_idx: Z-slice index to extract
+        
+    Returns:
+        dict: {'mse': float, 'lsd': float}
+    """
+    # Extract the specific slice
+    pred_slice = pred_cube[freq_idx, z_slice_idx, :, :]  # [y, x]
+    gt_slice = gt_cube[freq_idx, z_slice_idx, :, :]      # [y, x]
+    
+    # MSE on the slice (in dB domain)
+    slice_mse = torch.mean((pred_slice - gt_slice) ** 2).item()
+    
+    # LSD for the slice - we need frequency dimension, so add it back
+    pred_slice_freq = pred_cube[:, z_slice_idx, :, :].unsqueeze(0)  # [1, freq, y, x]
+    gt_slice_freq = gt_cube[:, z_slice_idx, :, :].unsqueeze(0)      # [1, freq, y, x]
+
+    print(pred_slice_freq.shape, gt_slice_freq.shape)
+    
+    # LSD calculation (already in dB domain)
+    slice_lsd = calculate_lsd_unified(pred_slice_freq, gt_slice_freq, freq_dim=1).item()
+    
+    return {'mse': slice_mse, 'lsd': slice_lsd}
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import json
 
@@ -115,7 +157,7 @@ random.seed(SEED)
 
 # --- Multi-Model Configuration ---
 VISUALIZE_slice = True  # Set to True to visualize a single model's slice
-COMPARE = True     # Set to True to show both plots simultaneously
+COMPARE = False     # line errors but only for few num_example sources
 
 # Custom model names for legends (optional, will auto-generate if None)
 MODEL_NAMES = [
@@ -123,10 +165,10 @@ MODEL_NAMES = [
 
 M_range = None
 # SIGMA_SDE = 0.
-M_range = [5,10]
+M_range = [5,50]
 num_examples = 5
 num_timesteps = 10
-guidance_scales = [1.0, 2, 3]
+guidance_scales = [1.0]
 freq_idx_to_plot = 15  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 2
 
@@ -140,11 +182,11 @@ data_path = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
 def create_interior_mask(cube_shape, boundary_thickness=1):
     """
     Create a boolean mask to select interior positions, excluding boundary layers.
-    
+
     Args:
         cube_shape: Shape of the cube (freq, z, y, x) or (z, y, x)
         boundary_thickness: Number of boundary layers to exclude
-    
+
     Returns:
         mask: Boolean mask where True = interior position, False = boundary position
         interior_indices: Flat indices of interior positions
@@ -153,27 +195,27 @@ def create_interior_mask(cube_shape, boundary_thickness=1):
         _, nz, ny, nx = cube_shape
     else:  # (z, y, x)
         _, _, nz, ny, nx = cube_shape
-    
+
     # Create 3D mask for interior positions
     mask_3d = torch.zeros(nz, ny, nx, dtype=torch.bool)
-    
+
     # Set interior region to True
     z_start, z_end = boundary_thickness, nz - boundary_thickness
-    y_start, y_end = boundary_thickness, ny - boundary_thickness  
+    y_start, y_end = boundary_thickness, ny - boundary_thickness
     x_start, x_end = boundary_thickness, nx - boundary_thickness
-    
+
     mask_3d[z_start:z_end, y_start:y_end, x_start:x_end] = True
-    
+
     # Convert to flat indices
     interior_indices = torch.nonzero(mask_3d.flatten()).squeeze(-1)
-    
+
     total_positions = nz * ny * nx
     interior_positions = len(interior_indices)
     boundary_positions = total_positions - interior_positions
-    
+
     print(f"Interior mask: {interior_positions}/{total_positions} positions "
           f"({boundary_positions} boundary positions excluded)")
-    
+
     return mask_3d, interior_indices
 
 def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
@@ -354,7 +396,7 @@ def run_single_inference(set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz
         # Calculate BOTH MSE and LSD for comprehensive comparison
         x1_recon_denorm = (x1_recon * std + mean)
         z_true_denorm = (z_true * std + mean)
-        
+
         if exclude_boundary:
             # Create interior mask for this cube
             mask_3d, interior_indices = create_interior_mask(z_true.shape, boundary_thickness)
@@ -364,23 +406,21 @@ def run_single_inference(set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz
             z_flat = z_true.view(z_true.shape[1], -1)       # [freq, 1331]
             x1_flat_denorm = x1_recon_denorm.view(x1_recon_denorm.shape[1], -1)
             z_flat_denorm = z_true_denorm.view(z_true_denorm.shape[1], -1)
-            
+
             # Select interior positions
             x1_interior = x1_flat[:, interior_indices]      # [freq, interior_count]
             z_interior = z_flat[:, interior_indices]        # [freq, interior_count]
             x1_interior_denorm = x1_flat_denorm[:, interior_indices]
             z_interior_denorm = z_flat_denorm[:, interior_indices]
-            
+
             # Calculate metrics on interior only
             mse = torch.mean((x1_interior_denorm - z_interior_denorm) ** 2).item()
-            lsd_normalized = calculate_lsd_unified(x1_interior.T, z_interior.T, freq_dim=1)
-            lsd_db = lsd_normalized.item() * std
+            lsd_db = calculate_lsd_unified(x1_interior_denorm.T, z_interior_denorm.T, freq_dim=1).item()
         else:
             # Full cube calculation
             mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
-            lsd_normalized = calculate_lsd_unified(x1_recon, z_true, freq_dim=1)
-            lsd_db = lsd_normalized.item() * std
-        
+            lsd_db = calculate_lsd_unified(x1_recon_denorm, z_true_denorm, freq_dim=1).item()
+
         # Return both metrics
         mse_results.append({'mse': mse, 'lsd': lsd_db})
 
@@ -394,15 +434,15 @@ def plot_dual_metric_comparison(all_results, model_names, guidance_scales, save_
 
     # Store results for printing under plots
     results_text_lines = []
-    
+
     for i, (model_name, results_data) in enumerate(zip(model_names, all_results)):
         # Extract MSE and LSD data
         mse_data = [[result['mse'] for result in example] for example in results_data]
         lsd_data = [[result['lsd'] for result in example] for example in results_data]
-        
+
         mse_array = np.array(mse_data)
         lsd_array = np.array(lsd_data)
-        
+
         mean_mse = np.mean(mse_array, axis=0)
         std_mse = np.std(mse_array, axis=0)
         mean_lsd = np.mean(lsd_array, axis=0)
@@ -411,7 +451,7 @@ def plot_dual_metric_comparison(all_results, model_names, guidance_scales, save_
         # MSE plot (only add label to first plot for shared legend)
         ax1.plot(guidance_scales, mean_mse, 'o-', label=model_name, color=colors[i], linewidth=2, markersize=6)
         ax1.fill_between(guidance_scales, mean_mse - std_mse, mean_mse + std_mse, alpha=0.2, color=colors[i])
-        
+
         # LSD plot (no label to avoid duplicate legend)
         ax2.plot(guidance_scales, mean_lsd, 'o-', color=colors[i], linewidth=2, markersize=6)
         ax2.fill_between(guidance_scales, mean_lsd - std_lsd, mean_lsd + std_lsd, alpha=0.2, color=colors[i])
@@ -431,7 +471,7 @@ def plot_dual_metric_comparison(all_results, model_names, guidance_scales, save_
     ax1.set_title('MSE: ', fontsize=14, fontweight='bold')
     ax1.grid(True, alpha=0.3)
     ax1.set_yscale('log')
-    
+
     # Configure LSD plot
     ax2.set_xlabel('Guidance Scale (w)', fontsize=12)
     ax2.set_ylabel(f'LSD ({cube_label}) [dB]', fontsize=12)
@@ -440,8 +480,8 @@ def plot_dual_metric_comparison(all_results, model_names, guidance_scales, save_
     ax2.set_yscale('log')
 
     # Add single shared legend at the top center of the figure
-    fig.legend(ax1.get_legend_handles_labels()[0], ax1.get_legend_handles_labels()[1], 
-              loc='upper center', bbox_to_anchor=(0.5, 0.98), ncol=min(len(model_names), 2), 
+    fig.legend(ax1.get_legend_handles_labels()[0], ax1.get_legend_handles_labels()[1],
+              loc='upper center', bbox_to_anchor=(0.5, 0.98), ncol=min(len(model_names), 2),
               fontsize=9, frameon=True, fancybox=True, shadow=True)
 
     # Add text box with statistics
@@ -451,7 +491,7 @@ def plot_dual_metric_comparison(all_results, model_names, guidance_scales, save_
 
     # Add results text under the plots
     results_text = "\n".join(results_text_lines[:-1])  # Remove last empty line
-    fig.text(0.5, 0.08, results_text, ha='center', va='bottom', fontsize=9, 
+    fig.text(0.5, 0.08, results_text, ha='center', va='bottom', fontsize=9,
              bbox=dict(boxstyle='round', facecolor='lightgray', alpha=0.8))
 
     plt.tight_layout()
@@ -483,7 +523,7 @@ if __name__ == '__main__':
     # --- Load minimal config for data samplers (needed for both modes) ---
     checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
     config = checkpoint.get('config', {})
-    data_dir = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"  # Override with local
+    data_dir = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"  # Override with local
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
 
@@ -546,13 +586,13 @@ if __name__ == '__main__':
         print(f"\n--- Model Architecture: {MODEL_NAME} ---")
         print_model_info(set_encoder, "SetEncoder")
         print_model_info(unet_3d, "UNet3D")
-        
+
         # Combined model info
         set_encoder_info = get_model_info(set_encoder, "SetEncoder")
         unet_info = get_model_info(unet_3d, "UNet3D")
         total_params = set_encoder_info['total_params'] + unet_info['total_params']
         total_size_mb = set_encoder_info['model_size_mb'] + unet_info['model_size_mb']
-        
+
         print(f"=== Combined Model ===")
         print(f"Total parameters: {total_params:,}")
         print(f"Total size: {total_size_mb:.2f} MB")
@@ -573,21 +613,21 @@ if __name__ == '__main__':
         num_cols = 3 + len(guidance_scales)
         # Increase figure height to accommodate title and metrics
         fig, axes = plt.subplots(num_examples, num_cols, figsize=(4.5 * num_cols, 4.5 * num_examples), squeeze=False)
-        
+
         # Split long model name for better title formatting
         model_name_parts = MODEL_NAME.split('_')
         title_line1 = '_'.join(model_name_parts[:4])  # First 4 parts
         title_line2 = '_'.join(model_name_parts[4:])  # Rest of the parts
-        
+
         # Two-line title with smaller font
         fig.suptitle(
             f"3D Conditional Generation (Freq Idx={freq_idx_to_plot}, Z-Slice={z_slice_idx_to_plot})\n{title_line1}\n{title_line2}",
             fontsize=12, y=0.98)
-        
+
         # Move validation loss info closer to title
         best_val_loss = checkpoint.get('best_val_loss', {})
         best_iteration = checkpoint.get('best_iteration', {})
-        fig.text(0.5, 0.90, f"Best Val Loss: {best_val_loss:.4f} at Iteration {best_iteration}", 
+        fig.text(0.5, 0.90, f"Best Val Loss: {best_val_loss:.4f} at Iteration {best_iteration}",
                 ha='center', fontsize=10)
 
         center_np = np.array(center)
@@ -595,10 +635,11 @@ if __name__ == '__main__':
         for row in range(num_examples):
         # Get a random ground truth sample
 
-            z_true, src_xyz = test_sampler.sample(1)
+            z_true, src_xyz, srcind = test_sampler.sample(1)
             z_true, src_xyz = z_true.to(device), src_xyz.to(device)
-
-            # z_true, src_xyz = test_sampler.cubes[922-922].unsqueeze(0).to(device), test_sampler.source_coords[922-922].unsqueeze(0).to(device)
+            srcind = 0,9,94
+            # srcind = [97]
+            z_true, src_xyz = test_sampler.cubes[srcind[0]].unsqueeze(0).to(device), test_sampler.source_coords[srcind[0]].unsqueeze(0).to(device)
 
             # --- Create a sparse observation set on the fly ---
             M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
@@ -648,7 +689,7 @@ if __name__ == '__main__':
             pos_sc = axes[row, 2].get_position(fig)
             x_mid_M = (pos_gt.x1 + pos_sc.x0) * 0.5
             y_mid_row = (pos_gt.y0 + pos_gt.y1) * 0.5
-            fig.text(x_mid_M - 0.03, y_mid_row, f"M={M}", ha='center', va='center', fontsize=9)
+            fig.text(x_mid_M - 0.03, y_mid_row, f"M={M} \nsrc ind ={srcind[0]}", ha='left', va='center', fontsize=9)
 
             gs = axes[row, 0].get_gridspec()
             axes[row, 0].remove()
@@ -741,34 +782,38 @@ if __name__ == '__main__':
                 if EXCLUDE_BOUNDARY:
                     # Create interior mask for this cube
                     mask_3d, interior_indices = create_interior_mask(z_true.shape, BOUNDARY_THICKNESS)
-                    
+
                     # Flatten cubes and select interior positions only
                     x1_flat = x1_recon.view(x1_recon.shape[1], -1)  # [freq, 1331]
                     z_flat = z_true.view(z_true.shape[1], -1)       # [freq, 1331]
                     x1_flat_denorm = x1_recon_denorm.view(x1_recon_denorm.shape[1], -1)
                     z_flat_denorm = z_true_denorm.view(z_true_denorm.shape[1], -1)
-                    
+
                     # Select interior positions
                     x1_interior = x1_flat[:, interior_indices]      # [freq, interior_count]
                     z_interior = z_flat[:, interior_indices]        # [freq, interior_count]
                     x1_interior_denorm = x1_flat_denorm[:, interior_indices]
                     z_interior_denorm = z_flat_denorm[:, interior_indices]
-                    
+
                     # Calculate metrics on interior only
-                    lsd_normalized = calculate_lsd_unified(x1_interior.T, z_interior.T, freq_dim=1)
-                    lsd_db = lsd_normalized.item() * std
+                    lsd_db = calculate_lsd_unified(x1_interior_denorm.T, z_interior_denorm.T, freq_dim=1).item()
                     mse = torch.mean((x1_interior_denorm - z_interior_denorm) ** 2).item()
-                    
+
                     metric_label = f"Interior ({len(interior_indices)}/1331 pos)"
                 else:
                     # Full cube calculation
-                    lsd_normalized = calculate_lsd_unified(x1_recon, z_true, freq_dim=1)
-                    lsd_db = lsd_normalized.item() * std
+                    lsd_db = calculate_lsd_unified(x1_recon_denorm, z_true_denorm, freq_dim=1).item()
                     mse = torch.mean((x1_recon_denorm - z_true_denorm) ** 2).item()
-                    
+
                     metric_label = "Full Cube (1331 pos)"
                 
-                print(f"Row {row}, w={w}: MSE = {mse:.4f}, LSD = {lsd_db:.4f} dB ({metric_label})")
+                # ALSO calculate slice-specific metrics for comparison
+                slice_metrics = calculate_slice_metrics(x1_recon_denorm[0], z_true_denorm[0], 
+                                                      freq_idx_to_plot, z_slice_idx_to_plot)
+
+                print(f"Row {row}, w={w}:")
+                print(f"  Full Cube - MSE: {mse:.4f}, LSD: {lsd_db:.4f} dB ({metric_label})")
+                print(f"  Slice Only - MSE: {slice_metrics['mse']:.4f}, LSD: {slice_metrics['lsd']:.4f} dB")
 
                 col_idx = g_idx + 3
 
@@ -780,13 +825,14 @@ if __name__ == '__main__':
                 axes[row, col_idx].set_title(f"w={w}" if row == 0 else "")
                 axes[row, col_idx].axis('off')
 
-                # Add both metrics under the plot in a box with white background
+                # Add both full cube and slice metrics under the plot
                 metric_suffix = "Int" if EXCLUDE_BOUNDARY else "Full"
-                metric_text = f"MSE: {mse:.3f} ({metric_suffix})\nLSD: {lsd_db:.3f} dB ({metric_suffix})"
+                metric_text = (f"Full: MSE={mse:.3f}, LSD={lsd_db:.3f}dB ({metric_suffix})\n"
+                             f"Slice: MSE={slice_metrics['mse']:.3f}, LSD={slice_metrics['lsd']:.3f}dB")
                 text_box = axes[row, col_idx].text(0.5, -0.15, metric_text,
                                                  transform=axes[row, col_idx].transAxes,
                                                  ha='center', va='top', fontsize=8,
-                                                 bbox=dict(facecolor='white', alpha=0.8, 
+                                                 bbox=dict(facecolor='white', alpha=0.8,
                                                          edgecolor='none', pad=2))
 
             # Shared colorbar for GT and generated columns (exclude scatter input)
@@ -848,7 +894,7 @@ if __name__ == '__main__':
             # Get model name and print model info
             model_name = MODEL_NAMES[model_idx] if MODEL_NAMES and model_idx < len(MODEL_NAMES) else get_model_name(model_path)
             model_names_used.append(model_name)
-            
+
             # Print model information for each model in comparison
             print(f"\n--- Model {model_idx + 1} Architecture: {model_name} ---")
             set_encoder_info = get_model_info(set_encoder, "SetEncoder")
