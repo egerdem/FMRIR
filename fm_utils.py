@@ -2582,7 +2582,7 @@ class ATF3DTrainer(Trainer):
     def get_train_loss_flow_matching(self, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
         # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
-        z_full, src_xyz = self.path.p_data.sample(batch_size)
+        z_full, src_xyz, _ = self.path.p_data.sample(batch_size)
 
         dev = next(self.model.parameters()).device
         z_full = z_full.to(dev)
@@ -2655,7 +2655,7 @@ class ATF3DTrainer(Trainer):
 
     def get_train_loss_ddpm(self, **kwargs):
         batch_size = kwargs.get('batch_size')
-        z_full, src_xyz = self.path.p_data.sample(batch_size)
+        z_full, src_xyz, _ = self.path.p_data.sample(batch_size)
 
         dev = next(self.model.parameters()).device
         z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
@@ -2708,7 +2708,7 @@ class ATF3DTrainer(Trainer):
     @torch.no_grad()
     def get_val_loss_ddpm(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
-        z_full, src_xyz = valid_sampler.sample(batch_size)
+        z_full, src_xyz, _ = valid_sampler.sample(batch_size)
 
         dev = next(self.model.parameters()).device
         z_full = z_full.to(dev)
@@ -2750,7 +2750,7 @@ class ATF3DTrainer(Trainer):
     @torch.no_grad()
     def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
-        z_full, src_xyz = valid_sampler.sample(batch_size)
+        z_full, src_xyz, _ = valid_sampler.sample(batch_size)
 
         dev = next(self.model.parameters()).device
         z_full = z_full.to(dev)
@@ -3771,7 +3771,7 @@ class DiTTrainer3D(Trainer):
 
     def get_train_loss(self, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
-        z_full, src_xyz = self.path.p_data.sample(batch_size)
+        z_full, src_xyz, _ = self.path.p_data.sample(batch_size)
         dev = next(self.model.parameters()).device
         z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
         x1 = z_full
@@ -3810,7 +3810,7 @@ class DiTTrainer3D(Trainer):
     @torch.no_grad()
     def get_valid_loss(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
-        z_full, src_xyz = valid_sampler.sample(batch_size)
+        z_full, src_xyz, _ = valid_sampler.sample(batch_size)
         dev = next(self.model.parameters()).device
         z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
         x1 = z_full

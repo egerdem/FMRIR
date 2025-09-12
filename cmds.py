@@ -93,22 +93,23 @@ python trainer-atf-3d.py \
 # SCORE MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "BIG8192DATA_M5to100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k" \
+    --model_name "BIG8192DATA_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_700k" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
-    --num_iterations 300000 \
+    --num_iterations 1000000 \
+    --decay_iterations 500000 \
+    --lr 1e-4 \
+    --min_lr 1e-5 \
+    --warmup_iterations 5000 \
     --version "v1_legacy" \
     --setencoder_version "v12" \
     --freq_up_to 20 \
-    --lr 1e-4 \
-    --warmup_iterations 5000 \
-    --min_lr 1e-5 \
     --channels 32,64,128,256 \
     --d_model 512 \
     --nhead 8 \
     --num_encoder_layers 3 \
-    --M_range 5,100 \
+    --M_range 5,50 \
     --eta 0. \
     --FM_vs_Diff "flow_matching" \
     --validation_interval 100 \
