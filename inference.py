@@ -165,12 +165,12 @@ MODEL_NAMES = [
 
 M_range = None
 # SIGMA_SDE = 0.
-M_range = [5,50]
+M_range = [5, 10]
 num_examples = 5
 num_timesteps = 10
 guidance_scales = [1.0]
-freq_idx_to_plot = 15  # Pick a frequency channel to visualize
-z_slice_idx_to_plot = 2
+freq_idx_to_plot = 10  # Pick a frequency channel to visualize
+z_slice_idx_to_plot = 8
 
 # Option to exclude outermost boundary positions from MSE/LSD calculation
 EXCLUDE_BOUNDARY = False  # Set to True to exclude outermost positions
@@ -637,9 +637,9 @@ if __name__ == '__main__':
 
             z_true, src_xyz, srcind = test_sampler.sample(1)
             z_true, src_xyz = z_true.to(device), src_xyz.to(device)
-            srcind = 0,9,94
+            # srcind = 0,9,94
             # srcind = [97]
-            z_true, src_xyz = test_sampler.cubes[srcind[0]].unsqueeze(0).to(device), test_sampler.source_coords[srcind[0]].unsqueeze(0).to(device)
+            # z_true, src_xyz = test_sampler.cubes[srcind[0]].unsqueeze(0).to(device), test_sampler.source_coords[srcind[0]].unsqueeze(0).to(device)
 
             # --- Create a sparse observation set on the fly ---
             M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()

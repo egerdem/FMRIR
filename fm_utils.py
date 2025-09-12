@@ -763,6 +763,7 @@ class Trainer(ABC):
 
     def train(self, num_iterations: int, device: torch.device, lr: float,
               warmup_iterations: Optional[int] = None,
+              decay_iterations: Optional[int] = None,
               min_lr: Optional[float] = None,
               valid_sampler: Optional[Sampleable] = None,
               save_path: str = "model.pt",
@@ -784,28 +785,37 @@ class Trainer(ABC):
         # Start
         opt = self.get_optimizer(lr)
 
-        # --- NEW: Create the Learning Rate Scheduler ---
-        # --- MODIFIED: Create the new Learning Rate Scheduler with Warm-up ---
+        # --- MODIFIED: Create the new 3-Phase Learning Rate Scheduler ---
         if warmup_iterations > 0:
-            print(f"Using LR schedule: Warm-up for {warmup_iterations} iterations, then Cosine Annealing.")
-            # Scheduler for the warm-up phase (min to max)
+            # If decay_iterations is not specified, default to the old behavior (decay over all iterations)
+            if decay_iterations is None or decay_iterations <= warmup_iterations:
+                decay_iterations = num_iterations
+                print(
+                    f"Using 2-Phase LR schedule: Warm-up for {warmup_iterations} iters, then Cosine Annealing for {num_iterations - warmup_iterations} iters.")
+            else:
+                print(
+                    f"Using 3-Phase LR schedule: Warm-up ({warmup_iterations} iters) -> Cosine Decay ({decay_iterations - warmup_iterations} iters) -> Coast ({num_iterations - decay_iterations} iters).")
+
+            # 1. Warm-up phase (linear increase)
             warmup_scheduler = LinearLR(opt, start_factor=0.01, end_factor=1.0, total_iters=warmup_iterations)
 
-            # Scheduler for the decay phase (max to min)
-            # T_max is the number of steps for the decay phase
-            cosine_t_max = num_iterations - warmup_iterations
+            # 2. Decay phase (cosine annealing)
+            cosine_t_max = decay_iterations - warmup_iterations
             cosine_scheduler = CosineAnnealingLR(opt, T_max=cosine_t_max, eta_min=min_lr)
 
-            # Chain them together
+            # 3. Coast phase (constant low LR) - will hold the min_lr from the cosine phase
+            # We use a placeholder scheduler that does nothing, as SequentialLR will hold the last LR.
+            # For a total of num_iterations, this will run for (num_iterations - decay_iterations) steps.
+            constant_scheduler = CosineAnnealingLR(opt, T_max=(num_iterations - decay_iterations), eta_min=min_lr)
+
+            # Chain them all together
             scheduler = SequentialLR(
                 opt,
-                schedulers=[warmup_scheduler, cosine_scheduler],
-                milestones=[warmup_iterations]
+                schedulers=[warmup_scheduler, cosine_scheduler, constant_scheduler],
+                milestones=[warmup_iterations, decay_iterations]  # Define the transition points
             )
         else:
             # Fallback to the original scheduler if no warm-up is specified
-            # It will anneal the LR from its starting value down to nearly zero
-            # over the total number of training iterations.
             print("Using LR schedule: Cosine Annealing without warm-up.")
             scheduler = CosineAnnealingLR(opt, T_max=num_iterations, eta_min=min_lr)
 

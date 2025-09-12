@@ -602,7 +602,7 @@ guidance_scales = [1.0]
 M_values = [5]
 num_sources_eval = None  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
-random_M_sampling = True
+random_M_sampling = False
 
 def get_model_name(model_path):
     """Extract model name from path (same as inference_1d_atf.py)"""

@@ -59,7 +59,7 @@ def main(args):
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
                   "FM_vs_Diff": args.FM_vs_Diff},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
-                     "warmup_iterations": args.warmup_iterations, "min_lr": args.min_lr,
+                     "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations, "min_lr": args.min_lr,
                      "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
                      "validation_interval": args.validation_interval},
         "experiments_dir": args.experiments_dir
@@ -252,6 +252,7 @@ def main(args):
         device=device,
         lr=training_cfg['lr'],
         warmup_iterations=training_cfg['warmup_iterations'],
+        decay_iterations=training_cfg['decay_iterations'],
         min_lr=training_cfg['min_lr'],
         batch_size=training_cfg['batch_size'],
         valid_sampler=atf_valid_sampler,
@@ -290,6 +291,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', type=int, default=4)  # NOTE: Must be small for 3D models
     parser.add_argument('--lr', type=float, default=1e-4, help="now it is peak learning rate after warm-up.")
     parser.add_argument('--warmup_iterations', type=int, default=5000, help="Number of iterations for linear LR warm-up.")
+    parser.add_argument('--decay_iterations', type=int, default=100000, help="Number of iterations for the cosine decay phase. The rest will be constant min_lr.")
     parser.add_argument('--min_lr', type=float, default=1e-7,
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])

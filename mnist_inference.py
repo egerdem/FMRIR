@@ -6,7 +6,9 @@ Loads trained model and runs inference using modules from the main training scri
 import torch
 from matplotlib import pyplot as plt
 from torchvision.utils import make_grid
-
+import matplotlib
+matplotlib.use('Qt5Agg', force=True)  # or 'TkAgg'
+from matplotlib import pyplot as plt
 # Import all necessary classes from the main training script
 from unet_mnist_lab3 import (
     device, path, MNISTUNet, CFGVectorFieldODE, EulerSimulator
@@ -34,12 +36,13 @@ def load_trained_model(model_path: str):
     return unet
 
 # Load the trained model
-unet = load_trained_model('trained_mnist_unet.pt')
+unet = load_trained_model('trained_mnist_ddpm.pt')
 
 # Play with these!
 samples_per_class = 10
-num_timesteps = 100
-guidance_scales = [1.0, 3.0, 5.0]
+num_timesteps = 1000
+guidance_scales = [1.0]
+# guidance_scales = [1.0]
 
 # Graph
 fig, axes = plt.subplots(1, len(guidance_scales), figsize=(10 * len(guidance_scales), 10))
@@ -60,7 +63,7 @@ for idx, w in enumerate(guidance_scales):
 
     # Plot
     grid = make_grid(x1, nrow=samples_per_class, normalize=True, value_range=(-1,1))
-    axes[idx].imshow(grid.permute(1, 2, 0).cpu(), cmap="gray")
-    axes[idx].axis("off")
-    axes[idx].set_title(f"Guidance: $w={w:.1f}$", fontsize=25)
+    axes.imshow(grid.permute(1, 2, 0).cpu(), cmap="gray")
+    axes.axis("off")
+    axes.set_title(f"Guidance: $w={w:.1f}$", fontsize=25)
 plt.show()
