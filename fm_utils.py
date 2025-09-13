@@ -16,6 +16,53 @@ import wandb
 import random
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, ConstantLR, _LRScheduler
 
+def get_dataset_version_from_model_name(model_name: str) -> str:
+    """
+    Determine dataset version based on model name.
+    
+    Args:
+        model_name: The model name string
+        
+    Returns:
+        Dataset version string ('r1', 'r2', 'r3', 'r4')
+    """
+    if model_name is None:
+        return 'r1'
+    
+    model_name_upper = model_name.upper()
+    
+    if 'BIG_8192R4' in model_name_upper:
+        return 'r4'
+    elif 'BIG8192' in model_name_upper:
+        return 'r3'
+    elif 'BIGDATA' in model_name_upper:
+        return 'r2'
+    else:
+        return 'r1'
+
+def get_src_splits_for_version(dataset_version: str) -> dict:
+    """
+    Get the source splits configuration for a given dataset version.
+    
+    Args:
+        dataset_version: Dataset version ('r1', 'r2', 'r3', 'r4')
+        
+    Returns:
+        Dictionary with src_splits configuration
+    """
+    dataset_configs = {
+        'r1': {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]},
+        'r2': {"train": [[0, 820], [1024, 4096]], "valid": [820, 922], "test": [922, 1024]},
+        'r3': {"train": [[0, 820], [1024, 8192]], "valid": [820, 922], "test": [922, 1024]},
+        'r4': {"train": [[0, 820], [1324, 8192]], "valid": [[820, 922], [1024, 1324]], "test": [922, 1024]}
+    }
+    
+    if dataset_version not in dataset_configs:
+        print(f"Warning: Unknown dataset version '{dataset_version}', defaulting to 'r1'")
+        dataset_version = 'r20'
+    
+    return dataset_configs[dataset_version]
+
 def parse_source_indices(src_splits_config, mode: str) -> List[int]:
     """
     Parse source indices from src_splits configuration.
@@ -1635,7 +1682,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         Loads and serves full 3D ATF magnitude cubes.
         Each sample is a tensor of shape [64, 11, 11, 11] (freq, Z, Y, X).
         """
-    def __init__(self, data_path: str, mode: str, src_splits: dict, freq_up_to: int, normalize: bool = True):
+    def __init__(self, data_path: str, mode: str, src_splits: dict, freq_up_to: int, normalize: bool = True, model_name: str = None):
         super().__init__()
         self.mode = mode
         self.src_splits = src_splits
@@ -1643,118 +1690,127 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         self.mean = None
         self.std = None
         self.freq_up_to = freq_up_to
+        
+        # Determine dataset version from model name
+        self.dataset_version = get_dataset_version_from_model_name(model_name)
+        print(f"Using dataset version: {self.dataset_version} (from model_name: {model_name})")
+        
         # Use a distinct cache file to avoid clobbering 2D slice caches
-        # processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}.pt')
-        processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}.pt')
+        # Include dataset version in filename
+        processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}_{self.dataset_version}.pt')
 
+        # Check if preprocessed file exists and matches config
+        recreate_file = False
         if os.path.exists(processed_file):
             print(f"Loading pre-processed ATF-3D {self.mode} data from {processed_file}")
             data = torch.load(processed_file)
-            self.cubes = data['cubes']
-            self.source_coords = data['source_coords']
-            self.grid_xyz = data['grid_xyz']
             
-            # Get actual source indices from preprocessed data
+            # Check if config matches actual data
             if 'sample_info' in data:
                 actual_source_ids = data['sample_info'].flatten().tolist()
-                self.actual_src_splits = self._infer_src_splits_from_ids(actual_source_ids)
-                
-                # Check if config matches actual data
                 expected_source_ids = parse_source_indices(src_splits, self.mode)
+                
                 if sorted(actual_source_ids) != sorted(expected_source_ids):
                     print(f"⚠️  CONFIG MISMATCH DETECTED for {self.mode} data!")
                     print(f"   Config expects: {len(expected_source_ids)} sources")
                     print(f"   Preprocessed file contains: {len(actual_source_ids)} sources")
-                    print(f"   Updating config to match preprocessed data...")
-                    
-                    # Update the src_splits to match what's actually in the file
-                    src_splits[self.mode] = self.actual_src_splits
-                    
+                    print(f"   Recreating preprocessed file to match config...")
+                    recreate_file = True
+                else:
+                    # Data matches config, load it
+                    self.cubes = data['cubes']
+                    self.source_coords = data['source_coords']
+                    self.grid_xyz = data['grid_xyz']
+                    if self.normalize:
+                        self.mean = data.get('mean')
+                        self.std = data.get('std')
             else:
-                self.actual_src_splits = src_splits[self.mode]  # Fallback
-            
-            if self.normalize:
-                self.mean = data.get('mean')
-                self.std = data.get('std')
-
+                print(f"   Warning: No sample_info in preprocessed file, recreating...")
+                recreate_file = True
         else:
-            print(f"Processing ATF-3D {self.mode} data from .npz files...")
-            source_indices = parse_source_indices(src_splits, self.mode)
-            all_cubes = []
-            all_source_coords = []
-            all_sample_info = []
-
-            # --- Grid construction (assuming it's constant for all sources) ---
-            # --- Colleague's Fix 1: Establish a canonical grid order and permutation ---
-            first_npz_file = os.path.join(data_path, f"data_s{source_indices[0] + 1:04d}.npz")
-            with np.load(first_npz_file) as data:
-                mic_pos = data['posMic']  # shape (1331, 3)
-                x, y, z = mic_pos[:, 0], mic_pos[:, 1], mic_pos[:, 2]
-
-                # Sort by z, then y, then x to get a canonical C-style row-major order
-                perm = np.lexsort((x, y, z))
-
-                unique_x, unique_y, unique_z = sorted(np.unique(x)), sorted(np.unique(y)), sorted(np.unique(z))
-                self.nx, self.ny, self.nz = len(unique_x), len(unique_y), len(unique_z)
-
-            # Create the canonical grid that matches the flattened order
-            zz, yy, xx = torch.meshgrid(
-                torch.tensor(unique_z, dtype=torch.float32),
-                torch.tensor(unique_y, dtype=torch.float32),
-                torch.tensor(unique_x, dtype=torch.float32),
-                indexing='ij'
-            )
-            self.grid_xyz = torch.stack([xx, yy, zz], dim=-1).view(-1, 3)
-
-            for src_id in tqdm(source_indices, desc=f"Loading {self.mode} NPZ files"):
-                npz_file = os.path.join(data_path, f"data_s{src_id + 1:04d}.npz")
-                if not os.path.exists(npz_file): continue
-
-                with np.load(npz_file) as data_single:
-
-                    atf_mag_algn = data_single['atf_mag_algn']  # (1331, 64)
-                    np_of_mics, np_of_freqs = atf_mag_algn.shape
-                    source_pos = data_single['posSrc']  # (3,)
-
-                    # Reorder rows into the canonical layout using the permutation
-                    atf_perm = torch.tensor(atf_mag_algn[perm], dtype=torch.float32)  # [1331, 64]
-
-                    # chatgpt version: cube = atf_perm.T.view(64, nz, ny, nx)
-                    # Reshape the ordered data into the 3D cube
-                    full_cube = atf_perm.T.contiguous().view(np_of_freqs, self.nz, self.ny, self.nx)  # [64, 11, 11, 11]
-                    cube = full_cube[:self.freq_up_to, :, :, :]
-
-                    all_cubes.append(cube)
-                    all_source_coords.append(torch.tensor(source_pos, dtype=torch.float32))
-                    all_sample_info.append(torch.tensor([src_id], dtype=torch.int32))
-
-            self.cubes = torch.stack(all_cubes)
-            self.source_coords = torch.stack(all_source_coords)
-            self.sample_info = torch.stack(all_sample_info)
-
-            if self.normalize and self.mode == 'train':
-                self.mean = self.cubes.mean()
-                self.std = self.cubes.std()
-                self.cubes = (self.cubes - self.mean) / (self.std + 1e-8)
-
-
-            # --- Colleague's Fix 2: Save the grid and its dimensions with the cache ---
-            save_data = {
-                'cubes': self.cubes,
-                'source_coords': self.source_coords,
-                'sample_info': self.sample_info,
-                'grid_xyz': self.grid_xyz,
-                'nxnyz': (self.nx, self.ny, self.nz),
-            }
-
-            if self.normalize:
-                save_data.update({'mean': self.mean, 'std': self.std})
-            torch.save(save_data, processed_file)
-            print(f"Saved processed ATF-3D {self.mode} data to {processed_file}")
+            recreate_file = True
+            
+        if recreate_file:
+            self._create_preprocessed_data(data_path, src_splits, processed_file)
 
         self.dummy = torch.nn.Buffer(torch.zeros(1))
         print(f"Loaded {len(self.cubes)} ATF-3D cubes for {self.mode} set.")
         print(f"Cube tensor shape: {self.cubes.shape}")
+
+    def _create_preprocessed_data(self, data_path, src_splits, processed_file):
+        """
+        Create preprocessed data from NPZ files according to the config.
+        """
+        print(f"Processing ATF-3D {self.mode} data from .npz files...")
+        source_indices = parse_source_indices(src_splits, self.mode)
+        all_cubes = []
+        all_source_coords = []
+        all_sample_info = []
+
+        # --- Grid construction (assuming it's constant for all sources) ---
+        # --- Colleague's Fix 1: Establish a canonical grid order and permutation ---
+        first_npz_file = os.path.join(data_path, f"data_s{source_indices[0] + 1:04d}.npz")
+        with np.load(first_npz_file) as data:
+            mic_pos = data['posMic']  # shape (1331, 3)
+            x, y, z = mic_pos[:, 0], mic_pos[:, 1], mic_pos[:, 2]
+
+            # Sort by z, then y, then x to get a canonical C-style row-major order
+            perm = np.lexsort((x, y, z))
+
+            unique_x, unique_y, unique_z = sorted(np.unique(x)), sorted(np.unique(y)), sorted(np.unique(z))
+            self.nx, self.ny, self.nz = len(unique_x), len(unique_y), len(unique_z)
+
+        # Create the canonical grid that matches the flattened order
+        zz, yy, xx = torch.meshgrid(
+            torch.tensor(unique_z, dtype=torch.float32),
+            torch.tensor(unique_y, dtype=torch.float32),
+            torch.tensor(unique_x, dtype=torch.float32),
+            indexing='ij'
+        )
+        self.grid_xyz = torch.stack([xx, yy, zz], dim=-1).view(-1, 3)
+
+        for src_id in tqdm(source_indices, desc=f"Loading {self.mode} NPZ files"):
+            npz_file = os.path.join(data_path, f"data_s{src_id + 1:04d}.npz")
+            if not os.path.exists(npz_file): continue
+
+            with np.load(npz_file) as data_single:
+                atf_mag_algn = data_single['atf_mag_algn']  # (1331, 64)
+                np_of_mics, np_of_freqs = atf_mag_algn.shape
+                source_pos = data_single['posSrc']  # (3,)
+
+                # Reorder rows into the canonical layout using the permutation
+                atf_perm = torch.tensor(atf_mag_algn[perm], dtype=torch.float32)  # [1331, 64]
+
+                # Reshape the ordered data into the 3D cube
+                full_cube = atf_perm.T.contiguous().view(np_of_freqs, self.nz, self.ny, self.nx)  # [64, 11, 11, 11]
+                cube = full_cube[:self.freq_up_to, :, :, :]
+
+                all_cubes.append(cube)
+                all_source_coords.append(torch.tensor(source_pos, dtype=torch.float32))
+                all_sample_info.append(torch.tensor([src_id], dtype=torch.int32))
+
+        self.cubes = torch.stack(all_cubes)
+        self.source_coords = torch.stack(all_source_coords)
+        self.sample_info = torch.stack(all_sample_info)
+
+        if self.normalize and self.mode == 'train':
+            self.mean = self.cubes.mean()
+            self.std = self.cubes.std()
+            self.cubes = (self.cubes - self.mean) / (self.std + 1e-8)
+
+        # Save the processed data
+        save_data = {
+            'cubes': self.cubes,
+            'source_coords': self.source_coords,
+            'sample_info': self.sample_info,
+            'grid_xyz': self.grid_xyz,
+            'nxnyz': (self.nx, self.ny, self.nz),
+        }
+
+        if self.normalize:
+            save_data.update({'mean': self.mean, 'std': self.std})
+        torch.save(save_data, processed_file)
+        print(f"Saved processed ATF-3D {self.mode} data to {processed_file}")
 
     def _infer_src_splits_from_ids(self, source_ids):
         """
@@ -2037,6 +2093,77 @@ class ConditionalVectorField(nn.Module, ABC):
 class DDPM_ODE_Sampler(ODE):
     """
     Implements the deterministic Probability Flow ODE sampler for a DDPM.
+    This is equivalent to DDIM sampling with eta=0 and is often more stable.
+    """
+
+    def __init__(self, noise_predictor_network, set_encoder, scheduler, config, guidance_scale=1.0):
+        super().__init__()
+        self.epsilon_theta = noise_predictor_network
+        self.set_encoder = set_encoder
+        self.scheduler = scheduler
+        self.guidance_scale = guidance_scale
+
+        # Determine architecture from config to correctly call the forward pass
+        self.architecture = config['model'].get('architecture_version', 'v1_legacy')
+
+        # Pre-calculate scheduler values and move them to the model's device
+        device = next(self.epsilon_theta.parameters()).device
+        self.alphas_cumprod = self.scheduler.alphas_cumprod.to(device)
+        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - self.alphas_cumprod)
+        self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
+
+    def get_predicted_noise(self, xt: torch.Tensor, t_continuous: torch.Tensor, **kwargs):
+        """Helper function to get the CFG-combined noise prediction."""
+        # This part handles context extraction and CFG, same as your DDIMSampler
+        obs_coords_rel, obs_values, obs_mask = kwargs['obs_coords_rel'], kwargs['obs_values'], kwargs['obs_mask']
+        guided_y_tokens, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+        unguided_y_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], guided_y_tokens.shape[1], -1)
+        unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
+
+        model_kwargs_guided = {'context': guided_y_tokens, 'context_mask': obs_mask}
+        model_kwargs_unguided = {'context': unguided_y_tokens, 'context_mask': obs_mask}
+
+        if self.architecture in ["v2_residual_context", "v3_attention", "v4_DiT"]:
+            model_kwargs_guided['pooled_context'] = guided_pooled_context
+            model_kwargs_unguided['pooled_context'] = unguided_pooled_context
+
+        epsilon_theta_guided = self.epsilon_theta(xt, t_continuous.squeeze(), **model_kwargs_guided)
+        epsilon_theta_unguided = self.epsilon_theta(xt, t_continuous.squeeze(), **model_kwargs_unguided)
+
+        return (1 - self.guidance_scale) * epsilon_theta_unguided + self.guidance_scale * epsilon_theta_guided
+
+    def drift_coefficient(self, xt: torch.Tensor, t_continuous: torch.Tensor, **kwargs) -> torch.Tensor:
+        """
+        Calculates the drift for the Probability Flow ODE from a noise prediction.
+        The time `t` here is the continuous time in [0, 1].
+        """
+        # Map continuous time [0, 1] to discrete timesteps [0, T-1] for the scheduler
+        timesteps = (t_continuous.squeeze() * (self.scheduler.num_timesteps - 1)).round().long()
+
+        # Get scheduler values for the current timesteps
+        alpha_bar_t = self.alphas_cumprod[timesteps].view(-1, 1, 1, 1, 1)
+        sqrt_one_minus_alpha_bar_t = self.sqrt_one_minus_alphas_cumprod[timesteps].view(-1, 1, 1, 1, 1)
+        sqrt_alpha_bar_t = self.sqrt_alphas_cumprod[timesteps].view(-1, 1, 1, 1, 1)
+
+        # 1. Predict the noise `epsilon` using the network
+        predicted_noise = self.get_predicted_noise(xt, t_continuous, **kwargs)
+
+        # 2. Predict the original sample (x0) from the noise prediction
+        # Formula: x_0 = (x_t - sqrt(1 - alpha_bar_t) * epsilon) / sqrt(alpha_bar_t)
+        pred_x0 = (xt - sqrt_one_minus_alpha_bar_t * predicted_noise) / sqrt_alpha_bar_t
+
+        # 3. Calculate the drift for the ODE. This is a stable formulation for the VP SDE's reverse ODE.
+        # It's derived from the score-based representation u_t = f(x,t) - 0.5 * g(t)^2 * s_t(x)
+        # where f is the forward drift and s_t is the score.
+        beta_t = self.scheduler.betas.to(xt.device)[timesteps].view(-1, 1, 1, 1, 1)
+        drift = -0.5 * beta_t * (xt + pred_x0) / sqrt_one_minus_alpha_bar_t
+
+        return drift
+
+class DDPM_ODE_Sampler_old(ODE):
+    """
+    Implements the deterministic Probability Flow ODE sampler for a DDPM.
     This is equivalent to DDIM sampling with eta=0.
     """
     def __init__(self, noise_predictor_network, set_encoder, scheduler, config, guidance_scale=1.0):
@@ -2119,7 +2246,7 @@ class DDPMScheduler:
     def _cosine_schedule(self, timesteps, s=0.008):
         """ Creates a cosine beta schedule. """
         steps = timesteps + 1
-        x = torch.linspace(0, timesteps, steps, dtype=torch.float64)
+        x = torch.linspace(0, timesteps, steps, dtype=torch.float32)
         alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
         alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
         betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])

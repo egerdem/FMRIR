@@ -14,16 +14,19 @@ from fm_utils import (model_factory,
                       )
 
 
-def calculate_and_cache_coord_stats(train_sampler, cache_path="coord_stats.pt"):
+def calculate_and_cache_coord_stats(train_sampler, dataset_version="r1"):
     """
     Calculates and caches the mean and std of relative coordinates for the training set.
+    Cache file is specific to the dataset version to ensure correct statistics.
     """
+    cache_path = f"coord_stats_{dataset_version}.pt"
+    
     if os.path.exists(cache_path):
         print(f"Loading cached coordinate stats from {cache_path}")
         stats = torch.load(cache_path)
         return stats['mean'], stats['std']
 
-    print("Calculating coordinate stats for the first time... (this may take a moment)")
+    print(f"Calculating coordinate stats for dataset version {dataset_version}... (this may take a moment)")
     all_rel_coords = []
 
     # Iterate through all training sources to get all possible relative coordinates
@@ -39,9 +42,13 @@ def calculate_and_cache_coord_stats(train_sampler, cache_path="coord_stats.pt"):
     coord_mean = full_coords_tensor.mean(dim=0)
     coord_std = full_coords_tensor.std(dim=0)
 
-    # Cache the results for future runs
+    # Cache the results for future runs with dataset version info
     print(f"Saving coordinate stats to {cache_path}")
-    torch.save({'mean': coord_mean, 'std': coord_std}, cache_path)
+    print(f"Training set size: {len(train_sampler.source_coords)} sources")
+    print(f"Coordinate mean: {coord_mean}")
+    print(f"Coordinate std: {coord_std}")
+    torch.save({'mean': coord_mean, 'std': coord_std, 'dataset_version': dataset_version, 
+                'num_sources': len(train_sampler.source_coords)}, cache_path)
 
     return coord_mean, coord_std
 
@@ -51,12 +58,14 @@ def main(args):
 
     # --- 1. Initial Config from Arguments ---
     # This creates a baseline config that can be used immediately
+    # Determine dataset version and src_splits from model name
+    from fm_utils import get_dataset_version_from_model_name, get_src_splits_for_version
+    dataset_version = get_dataset_version_from_model_name(args.model_name)
+    src_splits_config = get_src_splits_for_version(dataset_version)
+    
     config = {
         "data": {"data_dir": args.data_dir,
-                 # "src_splits": {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}},
-                 # "src_splits": {"train": [[0, 820], [1024, 8192]], "valid": [820, 922], "test": [922, 1024]}},
-                 "src_splits": {"train": [[0, 820], [1324, 8192]], "valid": [[820, 922], [1024, 1324]],
-                                "test": [922, 1024]}},
+                 "src_splits": src_splits_config},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
@@ -167,7 +176,8 @@ def main(args):
         mode='train',
         src_splits=data_cfg['src_splits'],
         freq_up_to=model_cfg['freq_up_to'],
-        normalize=True
+        normalize=True,
+        model_name=args.model_name
     )
 
     # 2. Create the validation sampler, but load the data RAW (normalize=False).
@@ -177,7 +187,8 @@ def main(args):
         mode='valid',
         src_splits=data_cfg['src_splits'],
         freq_up_to=model_cfg['freq_up_to'],
-        normalize=False
+        normalize=False,
+        model_name=args.model_name
     )
 
     # 3. Save the corrected config after data loading (in case src_splits were updated)
@@ -196,7 +207,7 @@ def main(args):
 
     # ### <<< NEW: Calculate (or load) coordinate statistics
     # The cache file will be created in the same directory you run the script from.
-    coord_mean, coord_std = calculate_and_cache_coord_stats(atf_train_sampler)
+    coord_mean, coord_std = calculate_and_cache_coord_stats(atf_train_sampler, dataset_version)
     print(f"Using Coordinate Stats -> Mean: {coord_mean.numpy()}, Std: {coord_std.numpy()}")
 
     # --- Model and Trainer Initialization ---
@@ -284,7 +295,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
-    parser.add_argument('--model_name', default="ZZZATF-3D-CrossAttn-UNet", type=str)
+    parser.add_argument('--model_name', default="BIG_8192R4_ZZZATF-3D-CrossAttn-UNet", type=str)
     parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128])
     parser.add_argument('--d_model', type=int, default=512, help='Dimension for tokens and context.')
     parser.add_argument('--nhead', type=int, default=8, help='Number of attention heads.')
@@ -301,7 +312,7 @@ if __name__ == '__main__':
     parser.add_argument('--min_lr', type=float, default=1e-7,
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
-    parser.add_argument('--freq_up_to', type=int, default=30, help='Use only the first N frequency channels')
+    parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard', choices=['standard', 'weighted'],

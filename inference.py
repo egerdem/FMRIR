@@ -10,11 +10,12 @@ from tqdm import tqdm
 from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, EulerMaruyamaSimulator,
                       CFGVectorFieldODE_3D_V2, DDPMScheduler,
                       SetEncoder, SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d,
-                        CrossAttentionUNet3D_v3,
+                        CrossAttentionUNet3D_v3, DDPM_ODE_Sampler,
                       DiffusionTransformer3D, CFGVectorFieldODE_DiT_3D,
                       get_model_info, print_model_info)
 
 from model_paths import MULTI_MODEL_PATHS, MODEL_LOAD_PATH
+
 
 
 class DDIMSampler:
@@ -52,7 +53,7 @@ class DDIMSampler:
 
         # --- Classifier-Free Guidance ---
         # Get guided prediction
-        guided_pred_v = self.model(xt, t_continuous, **kwargs)
+        guided_predicted_noise = self.model(xt, t_continuous, **kwargs)
 
         # Get unguided prediction
         null_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
@@ -60,27 +61,27 @@ class DDIMSampler:
         if "pooled_context" in kwargs_unguided:
             kwargs_unguided["pooled_context"] = null_context
 
-        unguided_pred_v = self.model(xt, t_continuous, **kwargs_unguided)
+        if "context" in kwargs_unguided:
+            y_tokens = kwargs_unguided["context"]
+            null_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], y_tokens.shape[1], -1)
+            kwargs_unguided["context"] = null_tokens
+
+
+        unguided_predicted_noise = self.model(xt, t_continuous, **kwargs_unguided)
 
         # Combine predictions
-        predicted_v = (1 - guidance_scale) * unguided_pred_v + guidance_scale * guided_pred_v
-
-        # --- NEW: Convert predicted 'v' back to predicted 'noise' (epsilon) ---
-        sqrt_alpha_t = self.scheduler.sqrt_alphas_cumprod.to(device)[t_discrete].view(-1, 1, 1, 1, 1)
-        sqrt_one_minus_alpha_t = self.scheduler.sqrt_one_minus_alphas_cumprod.to(device)[t_discrete].view(-1, 1, 1, 1,
-                                                                                                          1)
-        # Formula: epsilon = sqrt(alpha_bar_t) * v + sqrt(1 - alpha_bar_t) * x_t
-        predicted_noise = sqrt_alpha_t * predicted_v + sqrt_one_minus_alpha_t * xt
+        predicted_noise = (1 - guidance_scale) * unguided_predicted_noise + guidance_scale * guided_predicted_noise
 
         # --- DDIM Update Rule ---
         # 1. Get alphas for current and previous timesteps
         alpha_bar_t = self.scheduler.alphas_cumprod[t].to(device)
         alpha_bar_t_prev = self.scheduler.alphas_cumprod[t - 1] if t > 0 else torch.tensor(1.0, device=device)
 
-        # 2. Predict the original sample (x0)
+        # 2. Predict the original sample (x0) using the final predicted noise
         pred_x0 = self._get_predicted_original_sample(xt, t_discrete, predicted_noise)
 
         # 3. Calculate the direction pointing to x0
+        # This term uses sqrt(1 - alpha_bar_{t-1})
         pred_dir_xt = torch.sqrt(1. - alpha_bar_t_prev) * predicted_noise
 
         # 4. Calculate the final sample x_{t-1}
@@ -169,8 +170,8 @@ M_range = [5, 20]
 num_examples = 5
 num_timesteps = 10
 guidance_scales = [1.0]
-freq_idx_to_plot = 15  # Pick a frequency channel to visualize
-z_slice_idx_to_plot = 2
+freq_idx_to_plot = 25  # Pick a frequency channel to visualize
+z_slice_idx_to_plot = 5
 
 # Option to exclude outermost boundary positions from MSE/LSD calculation
 EXCLUDE_BOUNDARY = False  # Set to True to exclude outermost positions
@@ -303,7 +304,8 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
         print("inference.py")
         # CFGVectorFieldODE_3D_V2 is compatible with both v2 and v3 U-Nets
 
-        if architecture == "v1_legacy":
+        if architecture == "v1_legacy" or architecture == None:
+            print("v1 legacy")
             ode_sde_wrapper = CFGVectorFieldODE_3D(unet=main_model, set_encoder=set_encoder)
         else:
             ode_sde_wrapper = CFGVectorFieldODE_3D_V2(unet=main_model, set_encoder=set_encoder)
@@ -754,29 +756,53 @@ if __name__ == '__main__':
                 elif fm_vs_diff == 'score_matching':
                     # --- DDPM (DDIM) Inference ---
                     print("--> Using DDIM Sampler")
-
                     ddpm_scheduler = DDPMScheduler(num_timesteps=1000)
-                    sampler = DDIMSampler(model=unet_3d, set_encoder=set_encoder, scheduler=ddpm_scheduler)
-                    num_inference_steps = 100  # Or another value, e.g., 200
+
+                    # Create the new ODE wrapper with the DDPM-trained model
+                    ddpm_ode = DDPM_ODE_Sampler(
+                        noise_predictor_network=unet_3d,
+                        set_encoder=set_encoder,
+                        scheduler=ddpm_scheduler,
+                        config=config
+                    )
+
+                    simulator = EulerSimulator(ode=ddpm_ode)
+                    simulator.ode.guidance_scale = w
+
+                    # ddpm_scheduler = DDPMScheduler(num_timesteps=1000)
+                    # sampler = DDIMSampler(model=unet_3d, set_encoder=set_encoder, scheduler=ddpm_scheduler)
+                    # num_inference_steps = 50  # Or another value, e.g., 200
 
                     # 2. Prepare initial noise and conditioning
                     xt = torch.randn_like(z_true)  # Start with pure noise (at timestep T)
-                    y_tokens, _ = set_encoder(obs_coords_rel, obs_values, obs_mask)
-                    model_kwargs = {
-                        "context": y_tokens,
-                        "context_mask": obs_mask,
+                    xt = xt.float()
+                    y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
+                    # model_kwargs = {
+                    #     "context": y_tokens,
+                    #     "context_mask": obs_mask,
+                    # }
+
+                    # Create timesteps for simulation
+                    ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
+                    ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
+
+                    simulation_kwargs = {
+                        "obs_coords_rel": obs_coords_rel,
+                        "obs_values": obs_values,
+                        "obs_mask": obs_mask,
+                        "pooled_context": pooled_context
                     }
 
                     # 2. Create the discrete timestep schedule for backward sampling
-                    inference_timesteps = torch.linspace(ddpm_scheduler.num_timesteps - 1, 0, num_timesteps,
-                                                         dtype=torch.long, device=device)
+                    # inference_timesteps = torch.linspace(ddpm_scheduler.num_timesteps - 1, 0, num_timesteps,
+                    #                                      dtype=torch.long, device=device)
 
                     # 4. The backward denoising loop
-                    for t_step in tqdm(inference_timesteps, desc=f"DDIM Sampling w={w}"):
-                        xt = sampler.step(xt, t_step.item(), guidance_scale=w, **model_kwargs)
-                        xt = xt.float()
+                    # for t_step in tqdm(inference_timesteps, desc=f"DDIM Sampling w={w}"):
+                    #     xt = sampler.step(xt, t_step.item(), guidance_scale=w, **model_kwargs)
+                    #     xt = xt.float()
 
-                    x1_recon = xt  # The final denoised sample
+                    x1_recon = simulator.simulate(xt, ts, **simulation_kwargs)
 
 
                 # De-normalize and plot
@@ -919,7 +945,6 @@ if __name__ == '__main__':
                 z_true, src_xyz = z_true.to(device), src_xyz.to(device)
 
                 # Run inference for this example
-                print("not using run_single_inference")
                 mse_results, M = run_single_inference(
                     set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz, M_range,
                     guidance_scales, num_timesteps, mean, std, device, EXCLUDE_BOUNDARY, BOUNDARY_THICKNESS

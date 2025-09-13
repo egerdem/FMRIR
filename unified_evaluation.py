@@ -353,7 +353,7 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
     return result
 
 
-def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, best_guidance=None):
+def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, best_guidance=None, output_dir=None):
     """
     Plot ATF comparisons with 3 methods: True, Reference, Your Model for multiple combinations
     
@@ -393,6 +393,7 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
 
     # Create frequency axes for both models
     ref_freq_bins = ref_config['num_freq']  # 64 bins
+
     fs = ref_config['fs']  # 2000 Hz
     
     # Reference frequency axis (0 to 1000 Hz, 64 bins)
@@ -403,13 +404,18 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
     
     print(f"Reference freq range: 0-{freq_ref[-1]:.0f} Hz ({ref_freq_bins} bins)")
     print(f"Your model freq range: 0-{freq_yours[-1]:.0f} Hz ({freq_up_to} bins)")
-    
+    fftlen_algn = 128
+    freq_axis = np.arange(1, fftlen_algn // 2 + 1) / fftlen_algn * fs
+    freq_axis = freq_axis[:freq_up_to]  # Ensure it matches model's frequency count
+
+    print("be careful about frequency axis, there is redundacny")
+
     plt.rcParams["font.size"] = 18  # Same as eval_AUTOENCODER.py
     
     # Create output directory (same structure as inference_1d_atf.py)
-    output_dir = "artifacts/eval/atf_comparisons"
-    os.makedirs(output_dir, exist_ok=True)
-    
+    # output_dir = "artifacts/eval/atf_comparisons"
+    # os.makedirs(output_dir, exist_ok=True)
+
     if atf_mag_est_yours is not None:
         # Multiple source and microphone combinations (similar to inference_1d_atf.py)
         total_sources_for_plots = min(num_sources_eval, atf_mag_gt.shape[2]) if num_sources_eval is not None else atf_mag_gt.shape[2]
@@ -440,10 +446,10 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
                 
                 # Plot all three methods with correct frequency axes
                 # All models plot the same frequency range for comparison (0-312 Hz)
-                ax.plot(freq_yours, atf_mag_gt[mic_idx, :freq_up_to, src_idx], 'k--', label="True", linewidth=2)
-                ax.plot(freq_yours, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="Reference", linewidth=1.5)
+                ax.plot(freq_axis, atf_mag_gt[mic_idx, :freq_up_to, src_idx], 'k--', label="True", linewidth=2)
+                ax.plot(freq_axis, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="Reference", linewidth=1.5)
                 print(f"Plotting Source {src_idx+922}, Mic {mic_idx} (index {i+1}/5)")
-                ax.plot(freq_yours, atf_mag_est_yours_best[mic_idx, :, src_idx], 'b-', 
+                ax.plot(freq_axis, atf_mag_est_yours_best[mic_idx, :, src_idx], 'b-',
                        label=f"Your Model (w={best_guidance})", linewidth=1.5)
                 
                 ax.set_xscale('log')
@@ -600,9 +606,9 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 guidance_scales = [1.0]
 M_values = [5]
-num_sources_eval = None  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
+num_sources_eval = 5  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
-random_M_sampling = True
+random_M_sampling = False
 
 def get_model_name(model_path):
     """Extract model name from path (same as inference_1d_atf.py)"""
@@ -623,7 +629,7 @@ print("\n1. Loading your 3D Flow Matching models...")
 all_your_results = {}
 all_your_predictions = {}  # Store predictions to avoid reloading best model
 all_model_info = {}  # Store model information
-freq_up_to = 20
+freq_up_to = 30
 
 for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)):
     print(f"Loading model {i+1}/{len(MULTI_MODEL_PATHS)}: {model_name}")
@@ -882,7 +888,7 @@ if best_model and best_model in all_your_predictions:
 
     # Use the already computed best guidance scale
     plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config,
-                        freq_up_to, num_sources_eval, best_guidance=best_results['guidance'])
+                        freq_up_to, num_sources_eval, best_guidance=best_results['guidance'], output_dir = os.path.dirname(MULTI_MODEL_PATHS[-1]))
 else:
     print("Could not find best model for plotting")
 
