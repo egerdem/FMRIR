@@ -62,7 +62,7 @@ def load_reference_model(device, freq_up_to):
     # Return FULL reference data (don't truncate here - let evaluation function handle it)
     return atf_mag_est, atf_mag_gt, config, data
 
-def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval=None, guidance_scales=None, random_M_sampling=False):
+def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval=None, guidance_scales=None, random_M_sampling=False, model_name=None):
     """
     Evaluate your 3D model.
     
@@ -77,11 +77,11 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
     # Load data
     train_sampler = ATF3DSampler(
         data_path=data_dir, mode='train', src_splits=src_split, 
-        normalize=True, freq_up_to=freq_up_to
+        normalize=True, freq_up_to=freq_up_to, model_name=model_name
     )
     test_sampler = ATF3DSampler(
         data_path=data_dir, mode='test', src_splits=src_split, 
-        normalize=False, freq_up_to=freq_up_to
+        normalize=False, freq_up_to=freq_up_to, model_name=model_name
     )
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
     
@@ -433,7 +433,7 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
         # Get microphone coordinates for titles
         data_path = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
         train_sampler = ATF3DSampler(data_path=data_path, mode='train', src_splits={'train': [[0, 820], [1024, 8192]]},
-                                   normalize=True, freq_up_to=freq_up_to)
+                                   normalize=True, freq_up_to=freq_up_to, model_name=model_name)
         grid_xyz = train_sampler.grid_xyz
         
         for src_idx in source_indices:
@@ -502,11 +502,11 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
     # Load normalized data
     train_sampler = ATF3DSampler(
         data_path=data_path, mode='train', src_splits=src_split, 
-        normalize=True, freq_up_to=freq_up_to
+        normalize=True, freq_up_to=freq_up_to, model_name=model_name
     )
     test_sampler = ATF3DSampler(
         data_path=data_path, mode='test', src_splits=src_split, 
-        normalize=False, freq_up_to=freq_up_to
+        normalize=False, freq_up_to=freq_up_to, model_name=model_name
     )
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
     
@@ -606,7 +606,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 guidance_scales = [1.0]
 M_values = [5]
-num_sources_eval = 5  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
+num_sources_eval = None  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
 random_M_sampling = False
 
@@ -629,7 +629,7 @@ print("\n1. Loading your 3D Flow Matching models...")
 all_your_results = {}
 all_your_predictions = {}  # Store predictions to avoid reloading best model
 all_model_info = {}  # Store model information
-freq_up_to = 30
+freq_up_to = None
 
 for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)):
     print(f"Loading model {i+1}/{len(MULTI_MODEL_PATHS)}: {model_name}")
@@ -672,7 +672,8 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
     print("=" * 20)
     
     # Evaluate this model
-    model_results, idx_mes_pos_mat = evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval, guidance_scales, random_M_sampling=random_M_sampling)
+    model_results, idx_mes_pos_mat = evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval, guidance_scales, random_M_sampling=random_M_sampling,
+                                                         model_name=model_name)
     all_your_results[model_name] = model_results
     
     # Store model components for later plotting (avoid reloading best model)

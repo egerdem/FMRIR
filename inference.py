@@ -166,9 +166,9 @@ MODEL_NAMES = [
 M_range = None
 # SIGMA_SDE = 0.
 M_range = [5, 20]
-num_examples = 1
-num_timesteps = 500
-guidance_scales = [1.0]
+num_examples = 3
+num_timesteps = 10
+guidance_scales = [1.0, 5]
 freq_idx_to_plot = 5  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
 
@@ -530,6 +530,7 @@ if __name__ == '__main__':
 
     if VISUALIZE_slice:
         MODEL_NAME = get_model_name(MODEL_LOAD_PATH)
+
         print(f"=== SINGLE MODEL MODE ===")
         print(f"Model artifact: {MODEL_NAME}")
 
@@ -560,12 +561,12 @@ if __name__ == '__main__':
     # --- 1. Data Loading (Shared for both modes) ---
     # Create train sampler to get normalization stats and grid coordinates
     train_sampler = ATF3DSampler(
-        data_path=data_dir, mode='train', src_splits=src_split, normalize=True, freq_up_to=freq_up_to
-    )
+        data_path=data_dir, mode='train', src_splits=src_split, normalize=True, freq_up_to=freq_up_to,
+    model_name = MODEL_NAME)
     # Create test sampler with raw data
     test_sampler = ATF3DSampler(
-        data_path=data_dir, mode='test', src_splits=src_split, normalize=False, freq_up_to=freq_up_to
-    )
+        data_path=data_dir, mode='test', src_splits=src_split, normalize=False, freq_up_to=freq_up_to,
+    model_name = MODEL_NAME)
     # Normalize the test data using the stats from the training set
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
 

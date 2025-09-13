@@ -318,8 +318,8 @@ if __name__ == '__main__':
     parser.add_argument('--loss_type', type=str, default='standard', choices=['standard', 'weighted'],
                         help='Type of loss function for training: "standard" MSE or "weighted" perceptual MSE.')
 
-    parser.add_argument('--FM_vs_Diff', type=str, default='score_matching', choices=['flow_matching', 'score_matching'])
-    parser.add_argument('--checkpoint_interval', type=int, default=20000)
+    parser.add_argument('--FM_vs_Diff', type=str, default='flow_matching', choices=['flow_matching', 'score_matching'])
+    parser.add_argument('--checkpoint_interval', type=int, default=3)
     parser.add_argument('--validation_interval', type=int, default=20)
     parser.add_argument('--version', type=str, default="v3_attention",
                         help='Model architecture version, e.g. v1, v2, etc.')

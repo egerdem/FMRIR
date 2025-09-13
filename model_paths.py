@@ -98,7 +98,8 @@ MULTI_MODEL_PATHS = [
 # "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-152004_iter700000/model.pt",
 # "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-184311_iter300000/model.pt",
 # "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_1000k_20250912-215808_iter1000000/model.pt"
-"/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to50_freq30_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-151853_iter700000/model.pt"
+# "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to50_freq30_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-151853_iter700000/model.pt",
+"/Users/ege/Projects/FMRIR/artifacts/BIG_8192R4_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k_20250913-180149_iter800000_/model_loss56e3.pt"
 ]
 
 # MODEL_LOAD_PATH =  "/Users/ege/Projects/FMRIR/artifacts/BIGDATA_M5to50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_unet4v1_setv12_20250910-160559_iter300000/model.pt"
@@ -117,3 +118,4 @@ MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to50_freq20
 MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_DDPM_M5to50_freq20_layer3_d512_eta1e1_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_300k_20250911-204420_iter300000/model.pt"
 MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/BIG8192DATA_M5to50_freq30_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250912-151853_iter700000/model.pt"
 MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/BIG_8192R4_DDPM_M5to50_freq20_layer3_d512_eta1e1_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k_20250913-174009_iter800000/model.pt"
+MODEL_LOAD_PATH = "/Users/ege/Projects/FMRIR/artifacts/BIG_8192R4_ZZZATF-3D-CrossAttn-UNet_20250913-195755_iter200/model.pt"

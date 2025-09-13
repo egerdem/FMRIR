@@ -233,7 +233,7 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/pro
 #
 # scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG_8192R4_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k_20250913-172426_iter800000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG_8192R4_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k_20250913-180149_iter800000 /Users/ege/Projects/FMRIR/artifacts
 
 #BELLİNİ'den locale
 scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG_8192R4_DDPM_M5to50_freq20_layer3_d512_eta1e1_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k_20250913-174009_iter800000 /Users/ege/Projects/FMRIR/artifacts
