@@ -92,7 +92,7 @@ python trainer-atf-3d.py \
 # --decay_iterations
 # 500000 \
 
-    # SCORE MATCHING
+# FLOW MATCHING
 
 python trainer-atf-3d.py \
     --model_name "BIG_8192R4_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k" \
@@ -103,7 +103,7 @@ python trainer-atf-3d.py \
     --lr 1e-4 \
     --min_lr 1e-5 \
     --warmup_iterations 5000 \
-    --decay_iterations 800000 \
+    --decay_iterations 500000 \
     --version "v1_legacy" \
     --setencoder_version "v12" \
     --freq_up_to 20 \
@@ -118,6 +118,31 @@ python trainer-atf-3d.py \
     --validation_interval 100 \
     --checkpoint_interval 100000
 
+#SCORE DDPM
+
+python trainer-atf-3d.py \
+    --model_name "BIG_8192R4_DDOM_M5to50_freq20_layer3_d512_eta1e1_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k" \
+    --data_dir ~/DATA \
+    --experiments_dir ~/FMRIR_experiments \
+    --batch_size 4 \
+    --num_iterations 800000 \
+    --lr 1e-4 \
+    --min_lr 1e-5 \
+    --warmup_iterations 5000 \
+    --decay_iterations 500000 \
+    --version "v1_legacy" \
+    --setencoder_version "v12" \
+    --freq_up_to 20 \
+    --channels 32,64,128,256 \
+    --d_model 512 \
+    --nhead 8 \
+    --num_encoder_layers 3 \
+    --M_range 5,50 \
+    --eta 0.1 \
+    --sigma 0 \
+    --FM_vs_Diff "score_matching" \
+    --validation_interval 100 \
+    --checkpoint_interval 100000
 
 # python trainer-DiT-3d.py \
 #     --model_name "M5to50_freq20_d512_head8_patch4_dept12_sigma0_lrWARM5k_e4_toe5_DiTNetv3_setv3" \
@@ -211,7 +236,7 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/pro
 scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG_8192R4_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k_20250913-172426_iter800000 /Users/ege/Projects/FMRIR/artifacts
 
 #BELLİNİ'den locale
-scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG8192DATA_DDPM_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_300k_20250912-234059_iter300000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG_8192R4_DDPM_M5to50_freq20_layer3_d512_eta1e1_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k_20250913-174009_iter800000 /Users/ege/Projects/FMRIR/artifacts
 
 #Create'den locale
 

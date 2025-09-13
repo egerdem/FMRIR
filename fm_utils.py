@@ -16,6 +16,68 @@ import wandb
 import random
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, ConstantLR, _LRScheduler
 
+class SetEncoder(nn.Module):
+    """
+    Encodes a sparse set of observations into a sequence of tokens and a pooled context vector,
+    using a dedicated positional encoding for the coordinates.
+    """
+
+    def __init__(self, num_freqs, d_model, nhead, num_layers):
+        super().__init__()
+        self.d_model = d_model
+
+        # ### <<< CHANGE 1: Create two separate MLPs
+
+        # An MLP for the "what": the ATF values
+        self.value_tokenizer = nn.Sequential(
+            nn.Linear(num_freqs, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model)
+        )
+
+        # A separate MLP for the "where": the relative coordinates. This is our positional encoding.
+        self.positional_encoder = nn.Sequential(
+            nn.Linear(3, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, d_model)
+        )
+
+        # Transformer encoder remains the same
+        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=True)
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        self.y_null_token = nn.Parameter(torch.randn(1, 1, d_model))
+
+    def forward(self, obs_coords_rel, obs_values, obs_mask):
+        """
+        Args:
+            obs_coords_rel (Tensor): Relative mic coordinates [B, M_max, 3]
+            obs_values (Tensor): ATF magnitudes at those mics [B, M_max, 20]
+            obs_mask (Tensor): Boolean mask indicating valid observations [B, M_max]
+        """
+        # ### <<< CHANGE 2: Process values and positions separately
+
+        # 1. Create value embeddings
+        value_tokens = self.value_tokenizer(obs_values)
+
+        # 2. Create positional embeddings
+        positional_tokens = self.positional_encoder(obs_coords_rel)
+
+        # 3. Add them together to get the final input tokens for the transformer
+        tokens = value_tokens + positional_tokens
+
+        # 4. Use transformer to let observations communicate with each other
+        padding_mask = ~obs_mask
+        encoded_tokens = self.transformer_encoder(tokens, src_key_padding_mask=padding_mask)
+
+        # 5. Create the pooled context vector (this logic remains the same)
+        masked_tokens = encoded_tokens.masked_fill(~obs_mask.unsqueeze(-1), 0.0)
+        num_valid_tokens = obs_mask.sum(dim=1, keepdim=True)
+        pooled_context = masked_tokens.sum(dim=1) / (num_valid_tokens + 1e-8)
+
+        return encoded_tokens, pooled_context
+
+
 def get_dataset_version_from_model_name(model_name: str) -> str:
     """
     Determine dataset version based on model name.
@@ -1112,11 +1174,11 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         self.mean = None
         self.std = None
         self.freq_up_to = freq_up_to
-        
+
         # Determine dataset version from model name
         self.dataset_version = get_dataset_version_from_model_name(model_name)
         print(f"Using dataset version: {self.dataset_version} (from model_name: {model_name})")
-        
+
         # Use a distinct cache file to avoid clobbering 2D slice caches
         # Include dataset version in filename
         processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}_{self.dataset_version}.pt')
@@ -1126,12 +1188,12 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         if os.path.exists(processed_file):
             print(f"Loading pre-processed ATF-3D {self.mode} data from {processed_file}")
             data = torch.load(processed_file)
-            
+
             # Check if config matches actual data
             if 'sample_info' in data:
                 actual_source_ids = data['sample_info'].flatten().tolist()
                 expected_source_ids = parse_source_indices(src_splits, self.mode)
-                
+
                 if sorted(actual_source_ids) != sorted(expected_source_ids):
                     print(f"⚠️  CONFIG MISMATCH DETECTED for {self.mode} data!")
                     print(f"   Config expects: {len(expected_source_ids)} sources")
@@ -1151,7 +1213,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
                 recreate_file = True
         else:
             recreate_file = True
-            
+
         if recreate_file:
             self._create_preprocessed_data(data_path, src_splits, processed_file)
 
@@ -1220,7 +1282,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
             self.std = self.cubes.std()
             self.cubes = (self.cubes - self.mean) / (self.std + 1e-8)
 
-        # Save the processed data
+    # Save the processed data
         save_data = {
             'cubes': self.cubes,
             'source_coords': self.source_coords,

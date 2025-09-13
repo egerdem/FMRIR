@@ -8,10 +8,9 @@ import random
 from tqdm import tqdm
 
 from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, EulerMaruyamaSimulator,
-                      CFGVectorFieldODE_3D_V2, DDPMScheduler,
-                      SetEncoder, SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d,
-                        CrossAttentionUNet3D_v3, DDPM_ODE_Sampler,
-                      DiffusionTransformer3D, CFGVectorFieldODE_DiT_3D,
+                      CFGVectorFieldODE_3D_V2, DDPMScheduler, SetEncoder,
+                      SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d,
+                      CrossAttentionUNet3D_v3, DDPM_ODE_Sampler,
                       get_model_info, print_model_info)
 
 from model_paths import MULTI_MODEL_PATHS, MODEL_LOAD_PATH
@@ -167,10 +166,10 @@ MODEL_NAMES = [
 M_range = None
 # SIGMA_SDE = 0.
 M_range = [5, 20]
-num_examples = 5
-num_timesteps = 10
+num_examples = 1
+num_timesteps = 500
 guidance_scales = [1.0]
-freq_idx_to_plot = 25  # Pick a frequency channel to visualize
+freq_idx_to_plot = 5  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
 
 # Option to exclude outermost boundary positions from MSE/LSD calculation
@@ -756,7 +755,7 @@ if __name__ == '__main__':
                 elif fm_vs_diff == 'score_matching':
                     # --- DDPM (DDIM) Inference ---
                     print("--> Using DDIM Sampler")
-                    ddpm_scheduler = DDPMScheduler(num_timesteps=1000)
+                    ddpm_scheduler = DDPMScheduler(num_timesteps=num_timesteps)
 
                     # Create the new ODE wrapper with the DDPM-trained model
                     ddpm_ode = DDPM_ODE_Sampler(
