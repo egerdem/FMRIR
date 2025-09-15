@@ -45,9 +45,9 @@ import torch.nn as nn
 import matplotlib.pyplot as plt
 
 # --- Simulation Parameters (match your training run) ---
-NUM_ITERATIONS = 1000000
+NUM_ITERATIONS = 700000
 WARMUP_ITERATIONS = 5000
-DECAY_ITERATIONS = 500000
+DECAY_ITERATIONS = 700000
 PEAK_LR = 1e-4
 MIN_LR = 1e-5
 

@@ -1102,7 +1102,7 @@ class Trainer(ABC):
 
                     if iteration > checkpoint_interval:
                         print(iteration, checkpoint_interval)
-                        filename_part_formatted = f"model_{best_val_loss:.5f}_{iteration}.pt"
+                        filename_part_formatted = f"model_{iteration}_{best_val_loss:.5f}.pt"
                         # Get the directory where the main model.pt is saved (same as save_path directory)
                         experiment_dir = os.path.dirname(save_path)
                         MODEL_SAVE_PATH = os.path.join(experiment_dir, filename_part_formatted)
@@ -1214,6 +1214,8 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
                     if self.normalize:
                         self.mean = data.get('mean')
                         self.std = data.get('std')
+                    recreate_file = False
+                    print("no need to recreate preprocessing files")
             else:
                 print(f"   Warning: No sample_info in preprocessed file, recreating...")
                 recreate_file = True
