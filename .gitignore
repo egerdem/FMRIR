@@ -33,4 +33,4 @@ artifacts/*
 /artifacts/eval
 *.pdf
 
-
+RESULTS/*
