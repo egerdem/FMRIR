@@ -2017,25 +2017,6 @@ class ATF3DTrainer(Trainer):
         # --- Standard Loss ---
         loss = torch.mean(torch.square(ut_theta - ut_ref))
         
-        # --- Monitor LSD Error (for understanding, not optimization) ---
-        try:
-            from inference import calculate_lsd_unified
-            # De-normalize to dB domain for LSD calculation
-            z_pred_denorm = xt * self.path.p_data.std + self.path.p_data.mean.item()
-            z_true_denorm = z_full * self.path.p_data.std + self.path.p_data.mean.item()
-            
-            # Calculate LSD for batch and average
-            lsd_batch = [calculate_lsd_unified(z_pred_denorm[i], z_true_denorm[i], freq_dim=0).item() 
-                        for i in range(batch_size)]
-            lsd_error = np.mean(lsd_batch)
-            print(f"\n--- LSD Error: {lsd_error} ---")
-            
-            # Log to wandb alongside validation loss
-            wandb.log({"val_lsd_error": lsd_error})
-            
-        except:
-            pass  # Skip if LSD calculation fails
-        
         return loss
 
     def get_valid_loss(self, **kwargs):
