@@ -73,7 +73,7 @@ def main(args):
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
                      "min_lr": args.min_lr,
-                     "M_range": args.M_range, "M_sampling_mode": args.M_sampling_mode, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
+                     "M_range": args.M_range, "M_sampling_mode": args.M_sampling_mode, "val_lofic": args.val_logic, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
                      "validation_interval": args.validation_interval},
         "experiments_dir": args.experiments_dir
     }
@@ -250,6 +250,7 @@ def main(args):
         eta=training_cfg['eta'],
         M_range=training_cfg['M_range'],
         M_sampling_mode=training_cfg['M_sampling_mode'],
+        val_logic=training_cfg.get('val_logic', 'old_random_unfixed'),
         sigma=training_cfg['sigma'],
         loss_type=training_cfg.get('loss_type'),
         FM_vs_Diff=model_cfg['FM_vs_Diff'],
@@ -317,6 +318,7 @@ if __name__ == '__main__':
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
     parser.add_argument('--M_sampling_mode', type=str, default='range', choices=['range', 'discrete'],
                         help='Mode for M sampling: "range" for legacy random sampling from M_range, "discrete" for sampling from specific M values')
+    parser.add_argument('--val_logic', type=str, default='old_random_unfixed', choices=['old_random_unfixed', 'koyamas'])
     parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)

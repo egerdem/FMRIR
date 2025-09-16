@@ -165,10 +165,10 @@ MODEL_NAMES = [
 
 M_range = None
 # SIGMA_SDE = 0.
-M_range = [5, 101]
+M_range = [5, 20]
 num_examples = 5
 num_timesteps = 10
-guidance_scales = [1]
+guidance_scales = [1,2,3,5]
 freq_idx_to_plot = 10  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
 

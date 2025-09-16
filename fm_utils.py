@@ -1686,7 +1686,7 @@ class CFGTrainer(Trainer):
         return loss_per_sample.mean()
 
 class ATF3DTrainer(Trainer):
-    def __init__(self, path, model, set_encoder, eta, M_range, M_sampling_mode, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str, version: bool, setencoderversion: str,
+    def __init__(self, path, model, set_encoder, eta, M_range, M_sampling_mode, val_logic, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str, version: bool, setencoderversion: str,
                  coord_mean: torch.Tensor, coord_std: torch.Tensor, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
         self.path = path
@@ -1694,6 +1694,7 @@ class ATF3DTrainer(Trainer):
         self.eta = eta
         self.M_range = (int(M_range[0]), int(M_range[1]))
         self.M_sampling_mode = M_sampling_mode
+        self.val_logic = val_logic
         self.sigma = sigma
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
 
@@ -1724,6 +1725,11 @@ class ATF3DTrainer(Trainer):
             print(f"--- Training will use random M from range [{self.M_range[0]}, {self.M_range[1]}] ---")
         else:
             print(f"--- Training will use discrete M values from list {self.M_range} ---")
+
+        if self.val_logic == "koyamas":
+            print("--- Using KOYAMA et al. validation logic with fixed M=5 and predetermined mic positions. ---")
+        elif self.val_logic == "old_random_unfixed":
+            print("--- Using OLD random unfixed validation logic with random mic positions each time. ---")
 
         # Load predetermined microphone positions for validation
         # Assumes the file is in the same directory as the script
@@ -1776,7 +1782,7 @@ class ATF3DTrainer(Trainer):
             else:
                 # Validation: use fixed M=5 and predetermined positions
                 M = 5
-                if self.idx_mes_pos_mat is not None:
+                if self.val_logic == "koyamas" and self.idx_mes_pos_mat is not None:
                     # Use predetermined positions from the loaded file
                     # idx_mes_pos_mat shape: [1024, 1331] - 1024 permutations of mic indices
                     # Use the first 5 indices from the first permutation
@@ -1784,10 +1790,9 @@ class ATF3DTrainer(Trainer):
                     obs_indices = torch.tensor(fixed_indices_for_M, device=dev, dtype=torch.long)
                     # if i == 0:  # Print only for first sample to avoid spam
                         # print(f"--- Validation: Using predetermined positions {self.idx_mes_pos_mat[0, :M]} with M=5 ---")
-                else:
-                    assert False, "idx_mes_pos_mat not loaded"
+                elif self.val_logic == "old_random_unfixed":
                     # Fallback to random if file not loaded
-                    # obs_indices = torch.randperm(N, device=dev)[:M]
+                    obs_indices = torch.randperm(N, device=dev)[:M]
                     # if i == 0:  # Print only for first sample to avoid spam
                         # print(f"--- Validation: Using random positions (fallback) with M=5 ---")
 
@@ -1954,35 +1959,35 @@ class ATF3DTrainer(Trainer):
 
     @torch.no_grad()
     @torch.no_grad()
-    def get_val_loss_ddpm(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
-        batch_size = kwargs.get('batch_size')
-        z_full, src_xyz, _ = valid_sampler.sample(batch_size)
-
-        dev = next(self.model.parameters()).device
-        z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
-
-        x1 = z_full
-
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, mode='val')
-        y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
-
-        timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
-        noise_target = torch.randn_like(x1)
-        xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
-        xt = xt.float()
-
-        model_kwargs = {'context': y_tokens, 'context_mask': obs_mask}
-        if self.version in ["v2_residual_context", "v3_attention", "v4_DiT"]:
-            model_kwargs['pooled_context'] = pooled_context
-
-        continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
-        continuous_time = continuous_time.view(-1, 1, 1, 1, 1)
-
-        predicted_noise = self.model(xt, continuous_time, **model_kwargs)
-
-        loss = torch.mean(torch.square(predicted_noise - noise_target))
-
-        return loss
+    # def get_val_loss_ddpm(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
+    #     batch_size = kwargs.get('batch_size')
+    #     z_full, src_xyz, _ = valid_sampler.sample(batch_size)
+    #
+    #     dev = next(self.model.parameters()).device
+    #     z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
+    #
+    #     x1 = z_full
+    #
+    #     obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, mode='val')
+    #     y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+    #
+    #     timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
+    #     noise_target = torch.randn_like(x1)
+    #     xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
+    #     xt = xt.float()
+    #
+    #     model_kwargs = {'context': y_tokens, 'context_mask': obs_mask}
+    #     if self.version in ["v2_residual_context", "v3_attention", "v4_DiT"]:
+    #         model_kwargs['pooled_context'] = pooled_context
+    #
+    #     continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
+    #     continuous_time = continuous_time.view(-1, 1, 1, 1, 1)
+    #
+    #     predicted_noise = self.model(xt, continuous_time, **model_kwargs)
+    #
+    #     loss = torch.mean(torch.square(predicted_noise - noise_target))
+    #
+    #     return loss
 
     @torch.no_grad()
     def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
