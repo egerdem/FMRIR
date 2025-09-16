@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, List, Type, Tuple, Dict, Union
 import math
 import os
+import time
 import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
@@ -942,6 +943,10 @@ class Trainer(ABC):
         # --- State Tracking ---
         best_val_loss = float("inf")
         best_iteration = start_iteration
+        
+        # --- Timing Tracking ---
+        training_start_time = time.time()
+        best_val_loss_time = None
 
         # Unified resume logic: load from an explicit checkpoint path/state if provided
         # checkpoint = None
@@ -1068,6 +1073,7 @@ class Trainer(ABC):
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
+                    best_val_loss_time = time.time()
                     print(
                         f"** [Iter {iteration}] New best val. loss found for: train loss: {loss.item():.5f} and val loss: {best_val_loss:.5f}. Saving model. **")
 
@@ -1160,7 +1166,41 @@ class Trainer(ABC):
             torch.save(final_checkpoint_state, final_ckpt_path)
 
         self.model.eval()
+        
+        # --- Calculate and Print Timing Information ---
+        training_end_time = time.time()
+        total_training_time = training_end_time - training_start_time
+        
+        # Calculate time to best validation loss
+        if best_val_loss_time is not None:
+            time_to_best_val_loss = best_val_loss_time - training_start_time
+        else:
+            time_to_best_val_loss = total_training_time
+        
+        # Calculate time per epoch
+        total_epochs = (iteration + 1) * batch_size / dataset_size
+        time_per_epoch = total_training_time / total_epochs if total_epochs > 0 else 0
+        
+        # Convert seconds to hours, minutes, seconds for better readability
+        def format_time(seconds):
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = seconds % 60
+            if hours > 0:
+                return f"{hours}h {minutes}m {secs:.1f}s"
+            elif minutes > 0:
+                return f"{minutes}m {secs:.1f}s"
+            else:
+                return f"{secs:.1f}s"
+        
         print(f"--- Training finished. Best validation loss was {best_val_loss:.5f} at iteration {best_iteration}. ---")
+        print(f"--- TIMING SUMMARY ---")
+        print(f"Total training time: {format_time(total_training_time)}")
+        print(f"Time to reach best validation loss: {format_time(time_to_best_val_loss)}")
+        print(f"Time per epoch: {format_time(time_per_epoch)}")
+        print(f"Total epochs completed: {total_epochs:.2f}")
+        print("--- END TIMING SUMMARY ---")
+        
         return best_val_loss
 
 class ATF3DSampler(torch.nn.Module, Sampleable):

@@ -96,7 +96,7 @@ python trainer-atf-3d.py \
 
 python trainer-atf-3d.py \
     --model_name "BIG_8192R4_ICASSP_M5_100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay700_unet4v1_setv12_800k" \
-    --data_dir ~/DATA/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200 \
+    --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 800000 \
