@@ -99,7 +99,7 @@ python trainer-atf-3d.py \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
-    --num_iterations 500000 \
+    --num_iterations 800000 \
     --lr 1e-4 \
     --min_lr 1e-5 \
     --warmup_iterations 5000 \
@@ -112,12 +112,12 @@ python trainer-atf-3d.py \
     --nhead 8 \
     --num_encoder_layers 3 \
     --M_range 5,50 \
-    --M_sampling_mode "range"
+    --M_sampling_mode "range" \
     --eta 0. \
     --sigma 0 \
     --FM_vs_Diff "flow_matching" \
     --validation_interval 100 \
-    --checkpoint_interval 200000
+    --checkpoint_interval 300000
 
 #SCORE DDPM
 

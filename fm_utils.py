@@ -1782,7 +1782,7 @@ class ATF3DTrainer(Trainer):
                     # Use the first 5 indices from the first permutation
                     obs_indices = torch.tensor(self.idx_mes_pos_mat[0, :M], device=dev, dtype=torch.long)
                     if i == 0:  # Print only for first sample to avoid spam
-                        print(f"--- Validation: Using predetermined positions {self.idx_mes_pos_mat[0, :M]} with M=5 ---")
+                        # print(f"--- Validation: Using predetermined positions {self.idx_mes_pos_mat[0, :M]} with M=5 ---")
                 else:
                     assert False, "idx_mes_pos_mat not loaded"
                     # Fallback to random if file not loaded
