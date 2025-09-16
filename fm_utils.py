@@ -13,6 +13,7 @@ import wandb
 import random
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, ConstantLR, _LRScheduler
 
+
 class SetEncoder(nn.Module):
     """
     Encodes a sparse set of observations into a sequence of tokens and a pooled context vector,
@@ -78,18 +79,18 @@ class SetEncoder(nn.Module):
 def get_dataset_version_from_model_name(model_name: str) -> str:
     """
     Determine dataset version based on model name.
-    
+
     Args:
         model_name: The model name string
-        
+
     Returns:
         Dataset version string ('r1', 'r2', 'r3', 'r4')
     """
     if model_name is None:
         return 'r1'
-    
+
     model_name_upper = model_name.upper()
-    
+
     if 'BIG_8192R4' in model_name_upper:
         return 'r4'
     elif 'BIG8192' in model_name_upper:
@@ -99,13 +100,14 @@ def get_dataset_version_from_model_name(model_name: str) -> str:
     else:
         return 'r1'
 
+
 def get_src_splits_for_version(dataset_version: str) -> dict:
     """
     Get the source splits configuration for a given dataset version.
-    
+
     Args:
         dataset_version: Dataset version ('r1', 'r2', 'r3', 'r4')
-        
+
     Returns:
         Dictionary with src_splits configuration
     """
@@ -115,27 +117,28 @@ def get_src_splits_for_version(dataset_version: str) -> dict:
         'r3': {"train": [[0, 820], [1024, 8192]], "valid": [820, 922], "test": [922, 1024]},
         'r4': {"train": [[0, 820], [1324, 8192]], "valid": [[820, 922], [1024, 1324]], "test": [922, 1024]}
     }
-    
+
     if dataset_version not in dataset_configs:
         print(f"Warning: Unknown dataset version '{dataset_version}', defaulting to 'r1'")
         dataset_version = 'r20'
-    
+
     return dataset_configs[dataset_version]
+
 
 def parse_source_indices(src_splits_config, mode: str) -> List[int]:
     """
     Parse source indices from src_splits configuration.
     Supports both old format [start, end] and new format [[start1, end1], [start2, end2], ...]
-    
+
     Args:
         src_splits_config: Dictionary containing src_splits configuration
         mode: Mode string ('train', 'valid', 'test')
-    
+
     Returns:
         List of source indices
     """
     split_config = src_splits_config[mode]
-    
+
     # Check if it's the new format (list of lists) or old format (single list)
     if isinstance(split_config[0], list):
         # New format: [[start1, end1], [start2, end2], ...]
@@ -146,6 +149,7 @@ def parse_source_indices(src_splits_config, mode: str) -> List[int]:
     else:
         # Old format: [start, end]
         return list(range(split_config[0], split_config[1]))
+
 
 def model_factory(config, device):
     """
@@ -256,6 +260,7 @@ class ThreePhaseScheduler(_LRScheduler):
             # Phase 3: Coast at min_lr
             return [self.min_lr]
 
+
 # early stopping taken from: https://github.com/sigsep/open-unmix-pytorch/blob/master/openunmix/utils.py#L72
 
 class EarlyStopping(object):
@@ -301,7 +306,6 @@ class EarlyStopping(object):
             self.is_better = lambda a, best: a < best - min_delta
         if mode == "max":
             self.is_better = lambda a, best: a > best + min_delta
-
 
 
 class Sampleable(ABC):
@@ -717,7 +721,7 @@ class EulerSimulator(Simulator):
             # Re-combine the updated data with the original, unchanged mask
             x_next = torch.cat([updated_xt_data, xt_mask], dim=1)
 
-        else:# Case 3: The shapes are incompatible.
+        else:  # Case 3: The shapes are incompatible.
             raise ValueError(
                 f"Incompatible shapes for Euler. `xt` is {xt.shape} "
                 f"output `drift` is {drift.shape}."
@@ -742,13 +746,12 @@ class EulerSimulator(Simulator):
                 t_next = t + h
                 known_path_slice = (1 - t_next) * x0 + t_next * z_true
 
-            # Replace the values at the M known locations
+                # Replace the values at the M known locations
                 x_next = x_next * (1 - paste_mask) + known_path_slice * paste_mask
             else:
                 assert False, "For pasting, z_true and x0 must be provided in kwargs."
 
         return x_next
-
 
     @torch.no_grad()
     def simulate_trajectory(self, x: torch.Tensor, max_timesteps: int, y: torch.Tensor):
@@ -757,18 +760,18 @@ class EulerSimulator(Simulator):
         """
         ts = torch.linspace(0, 1, max_timesteps + 1).to(x.device)
         trajectory = [x.clone()]
-        
+
         for i in range(max_timesteps):
             t_current = ts[i]
-            t_next = ts[i+1]
+            t_next = ts[i + 1]
             h = t_next - t_current
-            
+
             # Reshape t for drift_coefficient
             t_reshaped = t_current.view(1, 1, 1, 1).expand(x.shape[0], -1, -1, -1)
 
             x = self.step(x, t_reshaped, h, y=y)
             trajectory.append(x.clone())
-            
+
         return torch.stack(trajectory)
 
 
@@ -779,7 +782,8 @@ class EulerMaruyamaSimulator(Simulator):
     def step(self, xt: torch.Tensor, t: torch.Tensor, h: torch.Tensor, **kwargs):
         # print("diffusion coefficient: ", self.sde.diffusion_coefficient(xt, t, **kwargs) )
         return xt + self.sde.drift_coefficient(xt, t, **kwargs) * h + self.sde.diffusion_coefficient(xt, t,
-                                    **kwargs) * torch.sqrt(h) * torch.randn_like(xt)
+                                                                                                     **kwargs) * torch.sqrt(
+            h) * torch.randn_like(xt)
 
 
 def record_every(num_timesteps: int, record_every: int) -> torch.Tensor:
@@ -795,7 +799,9 @@ def record_every(num_timesteps: int, record_every: int) -> torch.Tensor:
         ]
     )
 
+
 MiB = 1024 ** 2
+
 
 def model_size_b(model: nn.Module) -> int:
     """
@@ -812,25 +818,26 @@ def model_size_b(model: nn.Module) -> int:
         size += buf.nelement() * buf.element_size()
     return size
 
+
 def get_model_info(model: nn.Module, model_name: str = "Model") -> dict:
     """
     Get comprehensive model information including parameter counts and memory usage.
-    
+
     Args:
         model: PyTorch model
         model_name: Name for display purposes
-        
+
     Returns:
         Dictionary with model information
     """
     total_params = sum(p.numel() for p in model.parameters())
     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     non_trainable_params = total_params - trainable_params
-    
+
     # Calculate model size in MB using the existing function
     model_size_bytes = model_size_b(model)
     model_size_mb = model_size_bytes / (1024 ** 2)
-    
+
     info = {
         'name': model_name,
         'total_params': total_params,
@@ -842,13 +849,14 @@ def get_model_info(model: nn.Module, model_name: str = "Model") -> dict:
         'trainable_params_str': f"{trainable_params:,}",
         'model_size_str': f"{model_size_mb:.2f} MB"
     }
-    
+
     return info
+
 
 def print_model_info(model: nn.Module, model_name: str = "Model"):
     """Print formatted model information."""
     info = get_model_info(model, model_name)
-    
+
     print(f"=== {info['name']} Information ===")
     print(f"Total parameters: {info['total_params_str']}")
     print(f"Trainable parameters: {info['trainable_params_str']}")
@@ -856,6 +864,7 @@ def print_model_info(model: nn.Module, model_name: str = "Model"):
         print(f"Non-trainable parameters: {info['non_trainable_params']:,}")
     print(f"Model size: {info['model_size_str']}")
     print("=" * (len(info['name']) + 18))
+
 
 class Trainer(ABC):
     def __init__(self, models: Dict[str, nn.Module]):
@@ -897,7 +906,7 @@ class Trainer(ABC):
               checkpoint_interval: Optional[int] = None,
               start_iteration: int = 0,
               config: dict = None,
-              early_stopping_patience: int = 1400, #was 1000
+              early_stopping_patience: int = 1400,  # was 1000
               resume_checkpoint_path: Optional[str] = None,
               resume_checkpoint_state: Optional[dict] = None,
               **kwargs):
@@ -943,7 +952,7 @@ class Trainer(ABC):
         # --- State Tracking ---
         best_val_loss = float("inf")
         best_iteration = start_iteration
-        
+
         # --- Timing Tracking ---
         training_start_time = time.time()
         best_val_loss_time = None
@@ -1058,7 +1067,8 @@ class Trainer(ABC):
             # Calculate and display the current epoch number**
             current_lr = scheduler.get_last_lr()[0]
             current_epoch = (iteration + 1) * batch_size / dataset_size
-            wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration, "learning_rate": current_lr})
+            wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration,
+                       "learning_rate": current_lr})
 
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
@@ -1144,7 +1154,6 @@ class Trainer(ABC):
         # --- Save final checkpoint ---
         final_iteration = iteration + 1
         if final_iteration == num_iterations or flag_save:
-
             final_ckpt_path = os.path.join(checkpoint_path, f"ckpt_final_{final_iteration}.pt")
             print(f"\n--- Saving final checkpoint at iteration {final_iteration} to {final_ckpt_path} ---")
 
@@ -1166,21 +1175,21 @@ class Trainer(ABC):
             torch.save(final_checkpoint_state, final_ckpt_path)
 
         self.model.eval()
-        
+
         # --- Calculate and Print Timing Information ---
         training_end_time = time.time()
         total_training_time = training_end_time - training_start_time
-        
+
         # Calculate time to best validation loss
         if best_val_loss_time is not None:
             time_to_best_val_loss = best_val_loss_time - training_start_time
         else:
             time_to_best_val_loss = total_training_time
-        
+
         # Calculate time per epoch
         total_epochs = (iteration + 1) * batch_size / dataset_size
         time_per_epoch = total_training_time / total_epochs if total_epochs > 0 else 0
-        
+
         # Convert seconds to hours, minutes, seconds for better readability
         def format_time(seconds):
             hours = int(seconds // 3600)
@@ -1192,7 +1201,7 @@ class Trainer(ABC):
                 return f"{minutes}m {secs:.1f}s"
             else:
                 return f"{secs:.1f}s"
-        
+
         print(f"--- Training finished. Best validation loss was {best_val_loss:.5f} at iteration {best_iteration}. ---")
         print(f"--- TIMING SUMMARY ---")
         print(f"Total training time: {format_time(total_training_time)}")
@@ -1200,15 +1209,18 @@ class Trainer(ABC):
         print(f"Time per epoch: {format_time(time_per_epoch)}")
         print(f"Total epochs completed: {total_epochs:.2f}")
         print("--- END TIMING SUMMARY ---")
-        
+
         return best_val_loss
+
 
 class ATF3DSampler(torch.nn.Module, Sampleable):
     """
         Loads and serves full 3D ATF magnitude cubes.
         Each sample is a tensor of shape [64, 11, 11, 11] (freq, Z, Y, X).
         """
-    def __init__(self, data_path: str, mode: str, src_splits: dict, freq_up_to: int, normalize: bool = True, model_name: str = None):
+
+    def __init__(self, data_path: str, mode: str, src_splits: dict, freq_up_to: int, normalize: bool = True,
+                 model_name: str = None):
         super().__init__()
         self.mode = mode
         self.src_splits = src_splits
@@ -1228,7 +1240,8 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         #     processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}.pt')
 
         # else:
-        processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}_{self.dataset_version}.pt')
+        processed_file = os.path.join(data_path,
+                                      f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}_{self.dataset_version}.pt')
 
         # Check if preprocessed file exists and matches config
         recreate_file = False
@@ -1331,7 +1344,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
             self.std = self.cubes.std()
             self.cubes = (self.cubes - self.mean) / (self.std + 1e-8)
 
-    # Save the processed data
+        # Save the processed data
         save_data = {
             'cubes': self.cubes,
             'source_coords': self.source_coords,
@@ -1351,27 +1364,27 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         Returns either [start, end] or [[start1, end1], [start2, end2], ...] format.
         """
         sorted_ids = sorted(source_ids)
-        
+
         # Find consecutive ranges
         ranges = []
         start = sorted_ids[0]
         prev = sorted_ids[0]
-        
+
         for i in range(1, len(sorted_ids)):
             current = sorted_ids[i]
             if current != prev + 1:  # Gap found
                 ranges.append([start, prev + 1])  # End is exclusive
                 start = current
             prev = current
-        
+
         # Add the last range
         ranges.append([start, prev + 1])
-        
+
         # Return single range or multiple ranges format
         if len(ranges) == 1:
             return ranges[0]  # [start, end]
         else:
-            return ranges     # [[start1, end1], [start2, end2], ...]
+            return ranges  # [[start1, end1], [start2, end2], ...]
 
     def __len__(self):
         return len(self.cubes)
@@ -1458,7 +1471,6 @@ class ConditionalVectorField(nn.Module, ABC):
         pass
 
 
-
 class DDPM_ODE_Sampler(ODE):
     """
     Implements the deterministic Probability Flow ODE sampler for a DDPM.
@@ -1531,7 +1543,6 @@ class DDPM_ODE_Sampler(ODE):
         return drift
 
 
-
 class CFGVectorFieldODE_3D(ODE):
     """
     An ODE wrapper for the 3D U-Net and SetEncoder for the ATF_3D.
@@ -1564,6 +1575,7 @@ class CFGVectorFieldODE_3D(ODE):
         combined_field = (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
 
         return combined_field
+
 
 class CFGVectorFieldODE_3D_V2(ODE):
     """
@@ -1610,6 +1622,7 @@ class CFGVectorFieldODE_3D_V2(ODE):
         combined_field = (1 - self.guidance_scale) * unguided_vector_field + self.guidance_scale * guided_vector_field
 
         return combined_field
+
 
 class CFGTrainer(Trainer):
     def __init__(self, path: GaussianConditionalProbabilityPath, model: ConditionalVectorField, eta: float, y_dim: int,
@@ -1685,16 +1698,16 @@ class CFGTrainer(Trainer):
 
         return loss_per_sample.mean()
 
+
 class ATF3DTrainer(Trainer):
-    def __init__(self, path, model, set_encoder, eta, M_range, M_sampling_mode, val_logic, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str, version: bool, setencoderversion: str,
+    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str,
+                 version: bool, setencoderversion: str,
                  coord_mean: torch.Tensor, coord_std: torch.Tensor, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
         self.path = path
         self.set_encoder = set_encoder
         self.eta = eta
         self.M_range = (int(M_range[0]), int(M_range[1]))
-        self.M_sampling_mode = M_sampling_mode
-        self.val_logic = val_logic
         self.sigma = sigma
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
 
@@ -1719,31 +1732,11 @@ class ATF3DTrainer(Trainer):
             print("--- Using PERCEPTUALLY WEIGHTED training loss. ---")
         else:
             print("--- Using STANDARD training loss. ---")
-        
-        print(f"--- Using M sampling mode: {self.M_sampling_mode} ---")
-        if self.M_sampling_mode == 'range':
-            print(f"--- Training will use random M from range [{self.M_range[0]}, {self.M_range[1]}] ---")
-        else:
-            print(f"--- Training will use discrete M values from list {self.M_range} ---")
-
-        if self.val_logic == "koyamas":
-            print("--- Using KOYAMA et al. validation logic with fixed M=5 and predetermined mic positions. ---")
-        elif self.val_logic == "old_random_unfixed":
-            print("--- Using OLD random unfixed validation logic with random mic positions each time. ---")
-
-        # Load predetermined microphone positions for validation
-        # Assumes the file is in the same directory as the script
-        try:
-            idx_mes_pos_path = "idx_mes_pos_s1024_m1331.npy"
-            self.idx_mes_pos_mat = np.load(idx_mes_pos_path)
-            print(f"--- Loaded predetermined microphone positions from {idx_mes_pos_path} ---")
-        except FileNotFoundError:
-            print(f"ERRORRR")
 
         # A learnable embedding for the unconditional (null) case
         # d_model = set_encoder.d_model
 
-    def make_observation_set(self, z_full, src_xyz, mode='train'):
+    def make_observation_set(self, z_full, src_xyz):
         B, C, D, H, W = z_full.shape
         dev = z_full.device
 
@@ -1752,49 +1745,24 @@ class ATF3DTrainer(Trainer):
 
         N = self.grid_xyz.shape[0]  # Total number of mics (1331)
 
-        # Choose M_max based on sampling mode and train/validation mode
-        if self.M_sampling_mode == 'range':
-            # LEGACY: Use range-based sampling (original behavior)
-            M_max = self.M_range[1]
-        else:
-            # DISCRETE: Use discrete sampling from specific values
-            if mode == 'train':
-                M_max = max(self.M_range)  # For discrete mode, still use M_range[1] as max for padding
-            else:
-                # For validation, we use fixed M=5
-                M_max = 5
+        # DISCRETE older version
+        M_max = self.M_range[1]
+
+        # --- NEW: Get M_max from the list of choices ---
+        # M_max = max(self.M_range)
 
         obs_coords_rel_list, obs_values_list, obs_mask_list = [], [], []
 
         # Loop over each sample in the batch to handle variable M
         for i in range(B):
-            if mode == 'train':
-                if self.M_sampling_mode == 'range':
-                    # LEGACY: Range-based sampling (original behavior)
-                    M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
-                else:
-                    # DISCRETE: Sample from specific M values (uncommented version)
-                    # Instead of sampling from a range, choose a value from the provided list
-                    M = random.choice(self.M_range)
+            # Instead of sampling from a range, choose a value from the provided list
+            # M = random.choice(self.M_range)
 
-                # 2. Randomly choose M mic indices
-                obs_indices = torch.randperm(N, device=dev)[:M]
-            else:
-                # Validation: use fixed M=5 and predetermined positions
-                M = 5
-                if self.val_logic == "koyamas" and self.idx_mes_pos_mat is not None:
-                    # Use predetermined positions from the loaded file
-                    # idx_mes_pos_mat shape: [1024, 1331] - 1024 permutations of mic indices
-                    # Use the first 5 indices from the first permutation
-                    fixed_indices_for_M = self.idx_mes_pos_mat[:M, 0]
-                    obs_indices = torch.tensor(fixed_indices_for_M, device=dev, dtype=torch.long)
-                    # if i == 0:  # Print only for first sample to avoid spam
-                        # print(f"--- Validation: Using predetermined positions {self.idx_mes_pos_mat[0, :M]} with M=5 ---")
-                elif self.val_logic == "old_random_unfixed":
-                    # Fallback to random if file not loaded
-                    obs_indices = torch.randperm(N, device=dev)[:M]
-                    # if i == 0:  # Print only for first sample to avoid spam
-                        # print(f"--- Validation: Using random positions (fallback) with M=5 ---")
+            # OLD VERSION:  1. Randomly pick M for this sample
+            M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
+
+            # 2. Randomly choose M mic indices
+            obs_indices = torch.randperm(N, device=dev)[:M]
 
             # 3. Gather coordinates and values
             obs_xyz = self.grid_xyz[obs_indices]  # [M, 3]
@@ -1845,7 +1813,7 @@ class ATF3DTrainer(Trainer):
         x1 = z_full
 
         # 2. Create the sparse observation set on the fly
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, mode='train')
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
 
         # 3. Encode the observations into conditioning tokens
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
@@ -1916,7 +1884,7 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full  # Clean data
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, mode='train')
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         # 1. Sample discrete timesteps for DDPM
@@ -1925,7 +1893,7 @@ class ATF3DTrainer(Trainer):
         # 2. Create the noise (our target) and the noised sample `xt`
         noise_target = torch.randn_like(x1)
         xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
-        xt = xt.float() # ensure float32
+        xt = xt.float()  # ensure float32
 
         # 3. Apply Classifier-Free Guidance during training
         is_conditional_mask = (torch.rand(batch_size, device=dev) > self.eta)
@@ -1956,38 +1924,37 @@ class ATF3DTrainer(Trainer):
         elif self.FM_vs_Diff == "flow_matching":  # Default to flow matching
             return self.get_train_loss_flow_matching(**kwargs)
 
+    @torch.no_grad()
+    @torch.no_grad()
+    def get_val_loss_ddpm(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
+        batch_size = kwargs.get('batch_size')
+        z_full, src_xyz, _ = valid_sampler.sample(batch_size)
 
-    @torch.no_grad()
-    @torch.no_grad()
-    # def get_val_loss_ddpm(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
-    #     batch_size = kwargs.get('batch_size')
-    #     z_full, src_xyz, _ = valid_sampler.sample(batch_size)
-    #
-    #     dev = next(self.model.parameters()).device
-    #     z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
-    #
-    #     x1 = z_full
-    #
-    #     obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, mode='val')
-    #     y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
-    #
-    #     timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
-    #     noise_target = torch.randn_like(x1)
-    #     xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
-    #     xt = xt.float()
-    #
-    #     model_kwargs = {'context': y_tokens, 'context_mask': obs_mask}
-    #     if self.version in ["v2_residual_context", "v3_attention", "v4_DiT"]:
-    #         model_kwargs['pooled_context'] = pooled_context
-    #
-    #     continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
-    #     continuous_time = continuous_time.view(-1, 1, 1, 1, 1)
-    #
-    #     predicted_noise = self.model(xt, continuous_time, **model_kwargs)
-    #
-    #     loss = torch.mean(torch.square(predicted_noise - noise_target))
-    #
-    #     return loss
+        dev = next(self.model.parameters()).device
+        z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
+
+        x1 = z_full
+
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+
+        timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
+        noise_target = torch.randn_like(x1)
+        xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
+        xt = xt.float()
+
+        model_kwargs = {'context': y_tokens, 'context_mask': obs_mask}
+        if self.version in ["v2_residual_context", "v3_attention", "v4_DiT"]:
+            model_kwargs['pooled_context'] = pooled_context
+
+        continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
+        continuous_time = continuous_time.view(-1, 1, 1, 1, 1)
+
+        predicted_noise = self.model(xt, continuous_time, **model_kwargs)
+
+        loss = torch.mean(torch.square(predicted_noise - noise_target))
+
+        return loss
 
     @torch.no_grad()
     def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
@@ -2000,7 +1967,7 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, mode='val')
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
@@ -2019,10 +1986,11 @@ class ATF3DTrainer(Trainer):
 
         # For validation, we are always conditional
         ut_theta = self.model(xt, t, **model_kwargs)
-        
+        # 7. Compute the loss based on the selected typeclass
+
         # --- Standard Loss ---
         loss = torch.mean(torch.square(ut_theta - ut_ref))
-        
+
         return loss
 
     def get_valid_loss(self, **kwargs):
@@ -2030,6 +1998,7 @@ class ATF3DTrainer(Trainer):
             return self.get_val_loss_ddpm(**kwargs)
         elif self.FM_vs_Diff == "flow_matching":  # Default to flow matching
             return self.get_val_loss_flow_matching(**kwargs)
+
 
 # """ Part 3: An Architecture for Spectrograms: Building a U-Net """
 
@@ -2056,6 +2025,7 @@ class FourierEncoder(nn.Module):
         sin_embed = torch.sin(freqs)  # (bs, half_dim)
         cos_embed = torch.cos(freqs)  # (bs, half_dim)
         return torch.cat([sin_embed, cos_embed], dim=-1) * math.sqrt(2)  # (bs, dim)
+
 
 class ResidualLayer(nn.Module):
     def __init__(self, channels: int, time_embed_dim: int, y_embed_dim: int):
@@ -2111,6 +2081,7 @@ class ResidualLayer(nn.Module):
 
         return x
 
+
 class ResidualBlock3D(nn.Module):
     def __init__(self, in_channels, out_channels, time_embed_dim, context_embed_dim, groups=8):
         super().__init__()
@@ -2150,6 +2121,7 @@ class ResidualBlock3D(nn.Module):
         h = self.block2(h)
         return h + res
 
+
 class Encoder(nn.Module):
     def __init__(self, channels_in: int, channels_out: int, num_residual_layers: int, t_embed_dim: int,
                  y_embed_dim: int):
@@ -2175,6 +2147,7 @@ class Encoder(nn.Module):
 
         return x
 
+
 class Midcoder(nn.Module):
     def __init__(self, channels: int, num_residual_layers: int, t_embed_dim: int, y_embed_dim: int):
         super().__init__()
@@ -2194,6 +2167,7 @@ class Midcoder(nn.Module):
             x = block(x, t_embed, y_embed)
 
         return x
+
 
 class Decoder(nn.Module):
     def __init__(self, channels_in: int, channels_out: int, num_residual_layers: int, t_embed_dim: int,
@@ -2281,6 +2255,7 @@ class ConvBlock3D(nn.Module):
 
     def forward(self, x):
         return self.block(x)
+
 
 # Second version with dynamic parametric channel unet
 class CrossAttentionUNet3D(nn.Module):
@@ -2376,8 +2351,9 @@ class CrossAttentionUNet3D(nn.Module):
         # print(s, e, out.shape)
         return out[..., s:e, s:e, s:e]  # Crop back to original size
 
+
 class CrossAttentionUNet3D_RED3d(nn.Module):
-    def __init__(self, channels, d_model, nhead, in_channels=20, out_channels=20,  input_size=11):
+    def __init__(self, channels, d_model, nhead, in_channels=20, out_channels=20, input_size=11):
         super().__init__()
 
         self.time_embedder = FourierEncoder(d_model)
@@ -2455,6 +2431,7 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
         out = self.final_conv(d2)
         s, e = self.crop_start, self.crop_end
         return out[..., s:e, s:e, s:e]
+
 
 # V3 SELF ATTENTION UNET
 
@@ -2582,4 +2559,3 @@ class CrossAttentionUNet3D_v3(nn.Module):
         out = self.final_conv(d2)
         s, e = self.crop_start, self.crop_end
         return out[..., s:e, s:e, s:e]
-

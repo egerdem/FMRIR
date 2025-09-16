@@ -112,7 +112,6 @@ python trainer-atf-3d.py \
     --nhead 8 \
     --num_encoder_layers 3 \
     --M_range 5,50 \
-    --M_sampling_mode "range" \
     --eta 0. \
     --sigma 1e-3 \
     --FM_vs_Diff "flow_matching" \
