@@ -1689,11 +1689,12 @@ class ATF3DTrainer(Trainer):
         src_xyz = src_xyz.to(dev)
 
         N = self.grid_xyz.shape[0]  # Total number of mics (1331)
-        #older version
-        # M_max = self.M_range[1]
+
+        # DISCRETE older version
+        M_max = self.M_range[1]
 
         # --- NEW: Get M_max from the list of choices ---
-        M_max = max(self.M_range)
+        # M_max = max(self.M_range)
         obs_coords_rel_list, obs_values_list, obs_mask_list = [], [], []
 
         # Loop over each sample in the batch to handle variable M

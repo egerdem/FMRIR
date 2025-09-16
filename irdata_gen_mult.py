@@ -150,8 +150,6 @@ if __name__ == "__main__":
             np.savez(f"{dir}data_s{i+1:04d}.npz",
                      rir=rir, atf=atf, atf_mag=atf_mag,
                      rir_algn=rir_algn, atf_algn=atf_algn, atf_mag_algn=atf_mag_algn,
-                     # spec=spec_all, f_spec=f_spec, t_spec=t_spec,
-                     # spec_algn=spec_algn_all, f_spec_algn=f_spec_algn, t_spec_algn=t_spec_algn,
                      posSrc=posSrc[i,:], posMic=posMic)
 
         if i % max(1, num_src//100) == 0:

@@ -165,7 +165,7 @@ MODEL_NAMES = [
 
 M_range = None
 # SIGMA_SDE = 0.
-M_range = [5, 20]
+M_range = [5, 7]
 num_examples = 5
 num_timesteps = 10
 guidance_scales = [1]
