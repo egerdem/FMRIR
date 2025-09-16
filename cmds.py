@@ -95,15 +95,15 @@ python trainer-atf-3d.py \
 # FLOW MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "*BIG_8192R4_ICASSP_M5_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay500_unet4v1_setv12_800k" \
+    --model_name "VV_r1_ICASSP_M5_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay300_unet4v1_setv12_500k" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
-    --num_iterations 800000 \
+    --num_iterations 500000 \
     --lr 1e-4 \
     --min_lr 1e-5 \
     --warmup_iterations 5000 \
-    --decay_iterations 500000 \
+    --decay_iterations 300000 \
     --version "v1_legacy" \
     --setencoder_version "v12" \
     --freq_up_to 20 \
@@ -234,7 +234,7 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/pro
 #
 # scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG_8192R4_ICASSP_M5_100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay700_unet4v1_setv12_800k_20250916-205850_iter800000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/VV_BIG_8192R4_ICASSP_M5_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay500_unet4v1_setv12_800k_20250917-002539_iter800000 /Users/ege/Projects/FMRIR/artifacts
 
 #BELLİNİ'den locale
 scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG_8192R4_DDOM_M5to50_freq20_layer3_d512_eta1e1_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k_20250913-184207_iter800000 /Users/ege/Projects/FMRIR/artifacts

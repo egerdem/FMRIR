@@ -62,7 +62,7 @@ def main(args):
     from fm_utils import get_dataset_version_from_model_name, get_src_splits_for_version
     dataset_version = get_dataset_version_from_model_name(args.model_name)
     src_splits_config = get_src_splits_for_version(dataset_version)
-    
+
     config = {
         "data": {"data_dir": args.data_dir,
                  "src_splits": src_splits_config},
@@ -78,6 +78,8 @@ def main(args):
         "experiments_dir": args.experiments_dir
     }
 
+    if dataset_version == "r1":
+        config['data']["data_dir"] = "~/DATA/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
     # --- 2. Handle Resuming ---
     start_iteration = 0
     resume_checkpoint_state = None
