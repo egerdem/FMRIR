@@ -8,11 +8,7 @@ from tqdm import tqdm
 import torch
 import torch.nn as nn
 from torch.func import vmap, jacrev
-from torchvision import datasets, transforms
 import wandb
-# import matplotlib
-# matplotlib.use('Qt5Agg', force=True)   # or 'TkAgg'
-# import matplotlib.pyplot as plt
 import random
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, ConstantLR, _LRScheduler
 
@@ -990,53 +986,53 @@ class Trainer(ABC):
         #     best_iteration = checkpoint.get('best_iteration', best_iteration)
         #     print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss}, best_iteration={best_iteration}")
 
-        if resume_checkpoint_state:
-            print("Resuming from provided in-memory checkpoint state")
-
-            # New, robust way: load multiple model states
-            if 'model_states' in resume_checkpoint_state:
-                for key, state_dict in resume_checkpoint_state['model_states'].items():
-                    if key in self.models:
-                        self.models[key].load_state_dict(state_dict)
-                        print(f"  - Loaded state for model: '{key}'")
-            # Fallback for old, single-model checkpoints
-            elif 'model_state_dict' in resume_checkpoint_state:
-                print("  - Loading state from legacy 'model_state_dict' key.")
-                self.model.load_state_dict(resume_checkpoint_state['model_state_dict'])
-
-            # Restore optimizer and other trainer state
-            if 'optimizer_state_dict' in resume_checkpoint_state:
-                opt.load_state_dict(resume_checkpoint_state['optimizer_state_dict'])
-                print("  - Optimizer state restored.")
-
-            if hasattr(self, 'y_null_token') and 'y_null_token' in resume_checkpoint_state:
-                self.set_encoder.y_null_token.data = resume_checkpoint_state['y_null_token'].to(device)
-                print("  - y_null_token restored.")
-
-                # --- Robust y_null Loading ---
-                # Try to load the new, unified key first
-                if 'y_null_token' in resume_checkpoint_state and resume_checkpoint_state['y_null_token'] is not None:
-                    y_null_val = resume_checkpoint_state['y_null_token'].to(device)
-                    # Check if the current trainer is a 3D one
-                    if hasattr(self, 'set_encoder') and hasattr(self.set_encoder, 'y_null_token'):
-                        self.set_encoder.y_null_token.data = y_null_val
-                        print("  - y_null_token restored.")
-                    # Check if the current trainer is a 2D one
-                    elif hasattr(self, 'y_null'):
-                        self.y_null.data = y_null_val
-                        print("  - y_null restored (from 'y_null_token' key).")
-
-                # Fallback for old checkpoints with the legacy 'y_null' key
-                elif 'y_null' in resume_checkpoint_state and resume_checkpoint_state['y_null'] is not None:
-                    if hasattr(self, 'y_null'):
-                        self.y_null.data = resume_checkpoint_state['y_null'].to(device)
-                        print("  - y_null restored from legacy 'y_null' key.")
-
-            start_iteration = resume_checkpoint_state.get('iteration', start_iteration)
-            best_val_loss = resume_checkpoint_state.get('best_val_loss', best_val_loss)
-            best_iteration = resume_checkpoint_state.get('best_iteration', best_iteration)
-            print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss:.5f} at iteration {best_iteration}")
-            scheduler.last_epoch = start_iteration - 1
+        # if resume_checkpoint_state:
+        #     print("Resuming from provided in-memory checkpoint state")
+        #
+        #     # New, robust way: load multiple model states
+        #     if 'model_states' in resume_checkpoint_state:
+        #         for key, state_dict in resume_checkpoint_state['model_states'].items():
+        #             if key in self.models:
+        #                 self.models[key].load_state_dict(state_dict)
+        #                 print(f"  - Loaded state for model: '{key}'")
+        #     # Fallback for old, single-model checkpoints
+        #     elif 'model_state_dict' in resume_checkpoint_state:
+        #         print("  - Loading state from legacy 'model_state_dict' key.")
+        #         self.model.load_state_dict(resume_checkpoint_state['model_state_dict'])
+        #
+        #     # Restore optimizer and other trainer state
+        #     if 'optimizer_state_dict' in resume_checkpoint_state:
+        #         opt.load_state_dict(resume_checkpoint_state['optimizer_state_dict'])
+        #         print("  - Optimizer state restored.")
+        #
+        #     if hasattr(self, 'y_null_token') and 'y_null_token' in resume_checkpoint_state:
+        #         self.set_encoder.y_null_token.data = resume_checkpoint_state['y_null_token'].to(device)
+        #         print("  - y_null_token restored.")
+        #
+        #         # --- Robust y_null Loading ---
+        #         # Try to load the new, unified key first
+        #         if 'y_null_token' in resume_checkpoint_state and resume_checkpoint_state['y_null_token'] is not None:
+        #             y_null_val = resume_checkpoint_state['y_null_token'].to(device)
+        #             # Check if the current trainer is a 3D one
+        #             if hasattr(self, 'set_encoder') and hasattr(self.set_encoder, 'y_null_token'):
+        #                 self.set_encoder.y_null_token.data = y_null_val
+        #                 print("  - y_null_token restored.")
+        #             # Check if the current trainer is a 2D one
+        #             elif hasattr(self, 'y_null'):
+        #                 self.y_null.data = y_null_val
+        #                 print("  - y_null restored (from 'y_null_token' key).")
+        #
+        #         # Fallback for old checkpoints with the legacy 'y_null' key
+        #         elif 'y_null' in resume_checkpoint_state and resume_checkpoint_state['y_null'] is not None:
+        #             if hasattr(self, 'y_null'):
+        #                 self.y_null.data = resume_checkpoint_state['y_null'].to(device)
+        #                 print("  - y_null restored from legacy 'y_null' key.")
+        #
+        #     start_iteration = resume_checkpoint_state.get('iteration', start_iteration)
+        #     best_val_loss = resume_checkpoint_state.get('best_val_loss', best_val_loss)
+        #     best_iteration = resume_checkpoint_state.get('best_iteration', best_iteration)
+        #     print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss:.5f} at iteration {best_iteration}")
+        #     scheduler.last_epoch = start_iteration - 1
 
         # --- TRAINING LOOP ---
         batch_size = kwargs.get('batch_size')
@@ -1489,180 +1485,7 @@ class DDPM_ODE_Sampler(ODE):
 
         return drift
 
-class DDPM_ODE_Sampler_old(ODE):
-    """
-    Implements the deterministic Probability Flow ODE sampler for a DDPM.
-    This is equivalent to DDIM sampling with eta=0.
-    """
-    def __init__(self, noise_predictor_network, set_encoder, scheduler, config, guidance_scale=1.0):
-        super().__init__()
-        self.epsilon_theta = noise_predictor_network
-        self.set_encoder = set_encoder
-        self.scheduler = scheduler
-        self.guidance_scale = guidance_scale
-        self.architecture = config['model'].get('architecture_version', 'v1_legacy')
 
-        # Pre-calculate scheduler values and move them to the correct device
-        self.betas = self.scheduler.betas.to(next(self.epsilon_theta.parameters()).device)
-        self.alphas = self.scheduler.alphas.to(next(self.epsilon_theta.parameters()).device)
-        self.alphas_cumprod = self.scheduler.alphas_cumprod.to(next(self.epsilon_theta.parameters()).device)
-
-
-    def get_predicted_noise(self, xt: torch.Tensor, t_continuous: torch.Tensor, **kwargs):
-        """Helper function to get the CFG-combined noise prediction."""
-        obs_coords_rel, obs_values, obs_mask = kwargs['obs_coords_rel'], kwargs['obs_values'], kwargs['obs_mask']
-        guided_y_tokens, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
-
-        unguided_y_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], guided_y_tokens.shape[1], -1)
-        unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
-
-        model_kwargs_guided = {'context': guided_y_tokens, 'context_mask': obs_mask}
-        model_kwargs_unguided = {'context': unguided_y_tokens, 'context_mask': obs_mask}
-
-        if self.architecture in ["v2_residual_context", "v3_attention", "v4_DiT"]:
-            model_kwargs_guided['pooled_context'] = guided_pooled_context
-            model_kwargs_unguided['pooled_context'] = unguided_pooled_context
-
-        # Model expects continuous time in [0, 1]
-        epsilon_theta_guided = self.epsilon_theta(xt, t_continuous, **model_kwargs_guided)
-        epsilon_theta_unguided = self.epsilon_theta(xt, t_continuous, **model_kwargs_unguided)
-
-        return (1 - self.guidance_scale) * epsilon_theta_unguided + self.guidance_scale * epsilon_theta_guided
-
-    def drift_coefficient(self, xt: torch.Tensor, t_continuous: torch.Tensor, **kwargs) -> torch.Tensor:
-        """
-        Calculates the drift for the Probability Flow ODE.
-        Note: The time `t` here is the continuous time in [0, 1]. We need to map it back to
-        discrete timesteps for the scheduler.
-        """
-        # Map continuous time [0, 1] to discrete timesteps [0, T-1]
-        timesteps = (t_continuous.squeeze() * (self.scheduler.num_timesteps - 1)).round().long()
-
-        # Get scheduler values for the current timesteps
-        alpha_bar_t = self.alphas_cumprod[timesteps].view(-1, 1, 1, 1, 1)
-        beta_t = self.betas[timesteps].view(-1, 1, 1, 1, 1)
-        sqrt_one_minus_alpha_bar_t = torch.sqrt(1. - alpha_bar_t)
-
-        # 1. Predict the noise `epsilon` using the network
-        predicted_noise = self.get_predicted_noise(xt, t_continuous, **kwargs)
-
-        # 2. Calculate the drift of the Probability Flow ODE (reverse SDE without the stochastic term)
-        # This is the drift of the forward process `f(x,t)` minus `0.5 * g(t)^2 * score`.
-        # For the VP SDE used in DDPMs, this simplifies to a very stable form.
-        drift = ( ( -0.5 * beta_t / sqrt_one_minus_alpha_bar_t ) * predicted_noise )
-
-        return drift
-
-class DDPMScheduler:
-    """
-    A scheduler for Denoising Diffusion Probabilistic Models (DDPMs)
-    using the cosine schedule, as described in 'Improved Denoising
-    Diffusion Probabilistic Models' by Nichol and Dhariwal (2021).
-    """
-
-    def __init__(self, num_timesteps=1000, beta_start=0.0001, beta_end=0.02):
-        self.num_timesteps = num_timesteps
-        self.betas = self._cosine_schedule(num_timesteps)
-
-        self.alphas = 1.0 - self.betas
-        self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
-
-        # Pre-calculate values needed for the forward process (noising)
-        self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
-        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - self.alphas_cumprod)
-
-    def _cosine_schedule(self, timesteps, s=0.008):
-        """ Creates a cosine beta schedule. """
-        steps = timesteps + 1
-        x = torch.linspace(0, timesteps, steps, dtype=torch.float32)
-        alphas_cumprod = torch.cos(((x / timesteps) + s) / (1 + s) * torch.pi * 0.5) ** 2
-        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
-        betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
-        return torch.clip(betas, 0, 0.999)
-
-    def add_noise(self, original_samples: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor):
-        """
-        Adds noise to the original samples according to the schedule for the given timesteps.
-        """
-        # Get the sqrt_alpha_cumprod and sqrt_one_minus_alpha_cumprod for the specific timesteps
-        sqrt_alpha_t = self.sqrt_alphas_cumprod.to(original_samples.device)[timesteps].view(-1, 1, 1, 1, 1)
-        sqrt_one_minus_alpha_t = self.sqrt_one_minus_alphas_cumprod.to(original_samples.device)[timesteps].view(-1, 1,
-                                                                                                                1, 1, 1)
-
-        # The noising formula: x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * epsilon
-        noisy_samples = sqrt_alpha_t * original_samples + sqrt_one_minus_alpha_t * noise
-        return noisy_samples
-
-class GenerativeSDE(SDE):
-    """
-    Implements the generative SDE for a DDPM trained with a Gaussian probability path.
-    This version uses a numerically stable formulation for the drift calculation.
-    """
-
-    def __init__(self, noise_predictor_network, set_encoder, config, sigma_sde, guidance_scale=1.0):
-        super().__init__()
-        self.epsilon_theta = noise_predictor_network
-        self.set_encoder = set_encoder
-        self.guidance_scale = guidance_scale
-        self.sigma_sde = sigma_sde
-        self.architecture = config['model'].get('architecture_version', 'v1_legacy')
-
-    def get_predicted_noise(self, xt: torch.Tensor, t: torch.Tensor, **kwargs):
-        """Helper function to get the CFG-combined noise prediction."""
-        obs_coords_rel, obs_values, obs_mask = kwargs['obs_coords_rel'], kwargs['obs_values'], kwargs['obs_mask']
-        guided_y_tokens, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
-
-        unguided_y_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], guided_y_tokens.shape[1], -1)
-        unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
-
-        model_kwargs_guided = {'context': guided_y_tokens, 'context_mask': obs_mask}
-        model_kwargs_unguided = {'context': unguided_y_tokens, 'context_mask': obs_mask}
-
-        if self.architecture == "v2_residual_context":
-            model_kwargs_guided['pooled_context'] = guided_pooled_context
-            model_kwargs_unguided['pooled_context'] = unguided_pooled_context
-
-        epsilon_theta_guided = self.epsilon_theta(xt, t.squeeze(), **model_kwargs_guided)
-        epsilon_theta_unguided = self.epsilon_theta(xt, t.squeeze(), **model_kwargs_unguided)
-
-        return (1 - self.guidance_scale) * epsilon_theta_unguided + self.guidance_scale * epsilon_theta_guided
-
-    def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
-        """Calculates the full SDE drift using the stable formulation."""
-        alpha_t = t
-        beta_t = 1 - t
-
-        # 1. Get the final noise prediction from the network
-        predicted_noise = self.get_predicted_noise(xt, t, **kwargs)
-
-        # 2. Estimate the clean data `z` (often called `x_0_pred` in papers)
-        # Based on rearranging x_t = alpha_t * z + beta_t * epsilon
-        z_pred = (xt - beta_t * predicted_noise) / (alpha_t + 1e-8)
-
-        # 3. The flow field `u_theta` is an estimate of `z - epsilon`
-        u_theta = z_pred - predicted_noise
-
-        # 4. Convert noise prediction to score prediction for the SDE term
-        s_theta = -predicted_noise / (beta_t + 1e-8)
-
-        # 5. Calculate the final drift for the generative SDE
-        drift = u_theta + (self.sigma_sde ** 2 / 2) * s_theta
-
-        return drift
-
-    def diffusion_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
-        return torch.tensor(self.sigma_sde, device=xt.device)
-
-    def ode_drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
-        """Calculates the deterministic drift for the Probability Flow ODE."""
-        alpha_t = t
-        beta_t = 1 - t
-
-        predicted_noise = self.get_predicted_noise(xt, t, **kwargs)
-        z_pred = (xt - beta_t * predicted_noise) / (alpha_t + 1e-8)
-        u_theta = z_pred - predicted_noise
-
-        return u_theta
 
 class CFGVectorFieldODE_3D(ODE):
     """
@@ -1861,13 +1684,20 @@ class ATF3DTrainer(Trainer):
         src_xyz = src_xyz.to(dev)
 
         N = self.grid_xyz.shape[0]  # Total number of mics (1331)
-        M_max = self.M_range[1]
+        #older version
+        # M_max = self.M_range[1]
+
+        # --- NEW: Get M_max from the list of choices ---
+        M_max = max(self.M_range)
         obs_coords_rel_list, obs_values_list, obs_mask_list = [], [], []
 
         # Loop over each sample in the batch to handle variable M
         for i in range(B):
-            # 1. Randomly pick M for this sample
-            M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
+            # Instead of sampling from a range, choose a value from the provided list
+            M = random.choice(self.M_range)
+
+            # OLD VERSION:  1. Randomly pick M for this sample
+            # M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
 
             # 2. Randomly choose M mic indices
             obs_indices = torch.randperm(N, device=dev)[:M]
@@ -2299,157 +2129,6 @@ class Decoder(nn.Module):
         return x
 
 
-#
-# class SpecUNet(ConditionalVectorField):
-#     def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int):
-#         super().__init__()
-#         # Initial convolution: (bs, 1, freq, time) -> (bs, c_0, freq, time)
-#         self.init_conv = nn.Sequential(nn.Conv2d(1, channels[0], kernel_size=3, padding=1), nn.BatchNorm2d(channels[0]),
-#                                        nn.SiLU())
-#
-#         # Initialize time embedder
-#         self.time_embedder = FourierEncoder(t_embed_dim)
-#
-#         # **MODIFICATION: Replace nn.Embedding with an MLP for positional encoding**
-#         # This MLP will take the coordinate vector 'y' and project it to the embedding dimension.
-#         self.y_embedder = nn.Sequential(
-#             nn.Linear(y_dim, y_embed_dim),
-#             nn.SiLU(),
-#             nn.Linear(y_embed_dim, y_embed_dim)
-#         )
-#
-#         # Encoders, Midcoders, and Decoders
-#         encoders = []
-#         decoders = []
-#         for (curr_c, next_c) in zip(channels[:-1], channels[1:]):
-#             encoders.append(Encoder(curr_c, next_c, num_residual_layers, t_embed_dim, y_embed_dim))
-#             decoders.append(Decoder(next_c, curr_c, num_residual_layers, t_embed_dim, y_embed_dim))
-#         self.encoders = nn.ModuleList(encoders)
-#         self.decoders = nn.ModuleList(reversed(decoders))
-#
-#         self.midcoder = Midcoder(channels[-1], num_residual_layers, t_embed_dim, y_embed_dim)
-#
-#         # Final convolution
-#         self.final_conv = nn.Conv2d(channels[0], 1, kernel_size=3, padding=1)
-#
-#     def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
-#         """
-#         Args:
-#         - x: (bs, 1, freq_bins, time_bins)
-#         - t: (bs, 1, 1, 1)
-#         - y: (bs, 6) <- Now a tensor of 6D coordinates , was y: (bs,)
-#         Returns:
-#         - u_t^theta(x|y): (bs, 1, freq_bins, time_bins)
-#         """
-#         # Embed t and y
-#         t_embed = self.time_embedder(t)
-#
-#         # **MODIFICATION: The y_embedder is now an MLP**
-#         y_embed = self.y_embedder(y)
-#
-#         # Initial convolution
-#         x = self.init_conv(x)  # (bs, c_0, freq_bins, time_bins)
-#
-#         residuals = []
-#
-#         # Encoders
-#         for encoder in self.encoders:
-#             x = encoder(x, t_embed, y_embed)
-#             residuals.append(x.clone())
-#
-#         # Midcoder
-#         x = self.midcoder(x, t_embed, y_embed)
-#
-#         # Decoders
-#         for decoder in self.decoders:
-#             res = residuals.pop()
-#             x = x + res
-#             x = decoder(x, t_embed, y_embed)
-#
-#         # Final convolution
-#         x = self.final_conv(x)  # (bs, 1, freq_bins, time_bins)
-#
-#         return x
-
-# class ATFUNet(ConditionalVectorField):
-#     def __init__(self, channels: List[int], num_residual_layers: int, t_embed_dim: int, y_dim: int, y_embed_dim: int,
-#                  input_channels: int, output_channels: int):
-#         super().__init__()
-#
-#         # --- MODIFICATION 1: Change input channels ---
-#         # The U-Net accepts an image with [freq_channels + 1] channels (freq bins + mask)
-#         self.init_conv = nn.Sequential(
-#             nn.Conv2d(input_channels, channels[0], kernel_size=3, padding=1),
-#             nn.BatchNorm2d(channels[0]),
-#             nn.SiLU()
-#         )
-#
-#         # Initialize time embedder
-#         self.time_embedder = FourierEncoder(t_embed_dim)
-#
-#         # --- MODIFICATION 2: Adjust y_embedder for 4D conditioning ---
-#         # The MLP now takes the 4D coordinate vector [xs, ys, zs, zm] as input.
-#         self.y_embedder = nn.Sequential(
-#             nn.Linear(y_dim, y_embed_dim),
-#             nn.SiLU(),
-#             nn.Linear(y_embed_dim, y_embed_dim)
-#         )
-#
-#         # Encoders, Midcoders, and Decoders
-#         encoders = []
-#         decoders = []
-#         for (curr_c, next_c) in zip(channels[:-1], channels[1:]):
-#             encoders.append(Encoder(curr_c, next_c, num_residual_layers, t_embed_dim, y_embed_dim))
-#             decoders.append(Decoder(next_c, curr_c, num_residual_layers, t_embed_dim, y_embed_dim))
-#         self.encoders = nn.ModuleList(encoders)
-#         self.decoders = nn.ModuleList(reversed(decoders))
-#
-#         self.midcoder = Midcoder(channels[-1], num_residual_layers, t_embed_dim, y_embed_dim)
-#
-#         # --- MODIFICATION 3: Change output channels ---
-#         # The final layer outputs [freq_channels + 1] channels (freq bins + optional mask channel)
-#         self.final_conv = nn.Conv2d(channels[0], output_channels, kernel_size=3, padding=1)
-#
-#     def forward(self, x: torch.Tensor, t: torch.Tensor, y: torch.Tensor):
-#         """
-#         Args:
-#         - x: (bs, C_in, H, W) where C_in = freq_channels + 1 (freq bins + mask)
-#         - t: (bs, 1, 1, 1) # same
-#         - y: (bs, 4) <- New conditioning shape, was (bs, 6), and BEFORE was y: (bs,) for mnist
-#         Returns:
-#         - u_t^theta(x|y): (bs, C_out, H, W) where C_out = freq_channels + 1
-#         """
-#         # Embed t and y
-#         t_embed = self.time_embedder(t)
-#
-#         # **MODIFICATION: The y_embedder is now an MLP**
-#         y_embed = self.y_embedder(y)
-#
-#         # Initial convolution
-#         x = self.init_conv(x)
-#
-#         residuals = []
-#
-#         # Encoders
-#         for encoder in self.encoders:
-#             x = encoder(x, t_embed, y_embed)
-#             residuals.append(x.clone())
-#
-#         # Midcoder
-#         x = self.midcoder(x, t_embed, y_embed)
-#
-#         # Decoders
-#         for decoder in self.decoders:
-#             res = residuals.pop()
-#             x = x + res
-#             x = decoder(x, t_embed, y_embed)
-#
-#         # Final convolution
-#         x = self.final_conv(x)
-#
-#         return x
-
-
 class CrossAttentionBlock3D(nn.Module):
     def __init__(self, in_channels, d_model, nhead=4):
         super().__init__()
@@ -2811,36 +2490,3 @@ class CrossAttentionUNet3D_v3(nn.Module):
         s, e = self.crop_start, self.crop_end
         return out[..., s:e, s:e, s:e]
 
-#EVAL
-
-# class LSD(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#     def forward(self, data, target, dim=2, data_type='atf_mag', mean=True):
-#         '''
-#         :param data:   (B,2,L,S) complex (or float) tensor or 1D array
-#         :param target: (B,2,L,S) complex (or float) tensor or 1D array
-#         :return: a scalar or (B,2,S) tensor
-#         '''
-#         #print(data.shape, target.shape)
-#         # Convert to numpy arrays if they're tensors
-#         # if hasattr(data, 'cpu'):
-#         #     data = data.cpu().numpy()
-#         # if hasattr(target, 'cpu'):
-#         #     target = target.cpu().numpy()
-#
-#         # Handle dimension bounds checking
-#         data_arr = np.asarray(data)
-#         target_arr = np.asarray(target)
-#
-#         # If dim is out of bounds, use the last available dimension
-#         if dim >= data_arr.ndim:
-#             # print(f"dim is out of bounds: {dim}, data_arr.ndim: {data_arr.ndim}")
-#             dim = data_arr.ndim - 1 if data_arr.ndim > 0 else 0
-#             # print("Using dim:", dim)
-#
-#         # LSD = torch.sqrt(mean((data - target).pow(2), dim=dim))
-#         LSD = np.sqrt(np.mean((data - target)**2, axis=dim))
-#         if mean:
-#             LSD = np.mean(LSD)
-#         return LSD

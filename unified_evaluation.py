@@ -152,6 +152,11 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                     z_true_denorm = z_true * spec_std + train_sampler.mean.item() 
                     mse = torch.mean((z_est_denorm - z_true_denorm) ** 2).item()
                     
+                    # Calculate NMSE (Normalized MSE) in dB
+                    z_true_var = torch.var(z_true_denorm).item()
+                    nmse_linear = mse / z_true_var if z_true_var > 0 else float('inf')
+                    nmse = 10 * np.log10(nmse_linear) if nmse_linear > 0 and nmse_linear != float('inf') else float('inf')
+                    
                     # OLD (INCORRECT): LSD on normalized data then * spec_std
                     # lsd_normalized = calculate_lsd_unified(z_est.squeeze(0), z_true.squeeze(0), freq_dim=0)
                     # lsd_db = lsd_normalized.item() * spec_std
@@ -188,7 +193,7 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                     
                     # Store per-source errors
                     source_errors = {
-                        'lsd': lsd_db, 'mse': mse,
+                        'lsd': lsd_db, 'mse': mse, 'nmse': nmse,
                         'lsd_m_fund': lsd_m_fund_db, 'mse_m_fund': mse_m_fund
                     }
                     lsd_scores.append(source_errors)
@@ -198,9 +203,10 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                         results[M][w]['per_source_errors'] = {}
                     results[M][w]['per_source_errors'][i] = source_errors
         
-            # Extract LSD and MSE values for this guidance scale
+            # Extract LSD, MSE, and NMSE values for this guidance scale
             lsd_values = [score['lsd'] for score in lsd_scores]
             mse_values = [score['mse'] for score in lsd_scores]
+            nmse_values = [score['nmse'] for score in lsd_scores]
             lsd_m_fund_values = [score['lsd_m_fund'] for score in lsd_scores]
             mse_m_fund_values = [score['mse_m_fund'] for score in lsd_scores]
             
@@ -209,6 +215,8 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                 'lsd_std': np.std(lsd_values), 
                 'mse_mean': np.mean(mse_values),
                 'mse_std': np.std(mse_values),
+                'nmse_mean': np.mean(nmse_values),
+                'nmse_std': np.std(nmse_values),
                 'lsd_mean_m_fund': np.mean(lsd_m_fund_values),
                 'lsd_std_m_fund': np.std(lsd_m_fund_values),
                 'mse_mean_m_fund': np.mean(mse_m_fund_values),
@@ -245,6 +253,8 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
     lsd_per_sample_matched = []
     mse_per_sample_full = []
     mse_per_sample_matched = []
+    nmse_per_sample_full = []
+    nmse_per_sample_matched = []
     # Add M_fundamental evaluation (5 specific positions)
     lsd_per_sample_m_fund = []
     mse_per_sample_m_fund = []
@@ -267,6 +277,12 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         # MSE for full frequency range (now possible since reference predicts all 1331 positions!)
         mse_val_full = torch.mean((atf_mag_est[:, :, src_idx] - atf_mag_gt[:, :, src_idx]) ** 2).item()
         mse_per_sample_full.append(mse_val_full)
+        
+        # NMSE for full frequency range (in dB)
+        gt_var_full = torch.var(atf_mag_gt[:, :, src_idx]).item()
+        nmse_linear_full = mse_val_full / gt_var_full if gt_var_full > 0 else float('inf')
+        nmse_val_full = 10 * np.log10(nmse_linear_full) if nmse_linear_full > 0 and nmse_linear_full != float('inf') else float('inf')
+        nmse_per_sample_full.append(nmse_val_full)
         
         # M_fundamental evaluation (5 specific positions) - USE MATCHED FREQUENCY RANGE
         if freq_up_to is not None:
@@ -293,6 +309,7 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         per_source_errors[src_idx] = {
             'lsd_full': lsd_val_full.item(),
             'mse_full': mse_val_full,
+            'nmse_full': nmse_val_full,
             'lsd_m_fund': lsd_val_m_fund.item(),
             'mse_m_fund': mse_val_m_fund
         }
@@ -310,10 +327,17 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
             mse_val_matched = torch.mean((atf_mag_est[:, :freq_up_to, src_idx] - atf_mag_gt[:, :freq_up_to, src_idx]) ** 2).item()
             mse_per_sample_matched.append(mse_val_matched)
             
+            # NMSE for matched frequency range (in dB)
+            gt_var_matched = torch.var(atf_mag_gt[:, :freq_up_to, src_idx]).item()
+            nmse_linear_matched = mse_val_matched / gt_var_matched if gt_var_matched > 0 else float('inf')
+            nmse_val_matched = 10 * np.log10(nmse_linear_matched) if nmse_linear_matched > 0 and nmse_linear_matched != float('inf') else float('inf')
+            nmse_per_sample_matched.append(nmse_val_matched)
+            
             # Add matched frequency metrics to per-source errors
             per_source_errors[src_idx].update({
                 'lsd_matched': lsd_val_matched.item(),
-                'mse_matched': mse_val_matched
+                'mse_matched': mse_val_matched,
+                'nmse_matched': nmse_val_matched
             })
     
     result = {
@@ -321,6 +345,8 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         'lsd_std': np.std(lsd_per_sample_full),
         'mse_mean': np.mean(mse_per_sample_full),
         'mse_std': np.std(mse_per_sample_full),
+        'nmse_mean': np.mean(nmse_per_sample_full),
+        'nmse_std': np.std(nmse_per_sample_full),
         'lsd_mean_m_fund': np.mean(lsd_per_sample_m_fund),
         'lsd_std_m_fund': np.std(lsd_per_sample_m_fund),
         'mse_mean_m_fund': np.mean(mse_per_sample_m_fund),
@@ -340,12 +366,16 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         result['lsd_std_matched_freq'] = np.std(lsd_per_sample_matched)
         result['mse_mean_matched_freq'] = np.mean(mse_per_sample_matched)
         result['mse_std_matched_freq'] = np.std(mse_per_sample_matched)
+        result['nmse_mean_matched_freq'] = np.mean(nmse_per_sample_matched)
+        result['nmse_std_matched_freq'] = np.std(nmse_per_sample_matched)
         result['mean_matched_freq'] = np.mean(lsd_per_sample_matched)  # For backward compatibility
         
         print(f"Reference LSD (full 64 bins): {result['lsd_mean']:.4f} ± {result['lsd_std']:.4f} dB")
         print(f"Reference MSE (full 64 bins): {result['mse_mean']:.4f} ± {result['mse_std']:.4f}")
+        print(f"Reference NMSE (full 64 bins): {result['nmse_mean']:.4f} ± {result['nmse_std']:.4f} dB")
         print(f"Reference LSD (first {freq_up_to} bins): {result['lsd_mean_matched_freq']:.4f} ± {result['lsd_std_matched_freq']:.4f} dB")
         print(f"Reference MSE (first {freq_up_to} bins): {result['mse_mean_matched_freq']:.4f} ± {result['mse_std_matched_freq']:.4f}")
+        print(f"Reference NMSE (first {freq_up_to} bins): {result['nmse_mean_matched_freq']:.4f} ± {result['nmse_std_matched_freq']:.4f} dB")
         print(f"Reference LSD M_fund (first {freq_up_to} bins): {result['lsd_mean_m_fund']:.4f} ± {result['lsd_std_m_fund']:.4f} dB")
         print(f"Reference MSE M_fund (first {freq_up_to} bins): {result['mse_mean_m_fund']:.4f} ± {result['mse_std_m_fund']:.4f}")
         print(f"✅ FIXED: All reference metrics now use SAME {freq_up_to} frequency bins as your model!")
@@ -707,9 +737,9 @@ print()
 print("M_fundamental = 5 specific evaluation positions [0, 272, 665, 937, 1330] for PDFs")
 print("Full cube = All 1331 spatial positions")
 print(f"FAIR COMPARISON: Both models evaluated on same {freq_up_to} frequency bins (0-{freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
-print("-"*160)
-print(f"{'Method':<35} | {'w':<4} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'Freq Range':<15}")
-print("-"*160)
+print("-"*180)
+print(f"{'Method':<35} | {'w':<4} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'NMSE Full (dB)':<14} | {'Freq Range':<15}")
+print("-"*180)
 
 # Reference model - USE MATCHED FREQUENCY RANGE for fair comparison
 ref_lsd_m_fund = ref_results['lsd_mean_m_fund']  # Now uses matched freq range
@@ -717,8 +747,9 @@ ref_mse_m_fund = ref_results['mse_mean_m_fund']  # Now uses matched freq range
 # Use matched frequency range (first 20 bins) for fair comparison
 ref_lsd_full_fair = ref_results.get('lsd_mean_matched_freq', ref_results['lsd_mean'])
 ref_mse_full_fair = ref_results.get('mse_mean_matched_freq', ref_results['mse_mean'])
+ref_nmse_full_fair = ref_results.get('nmse_mean_matched_freq', ref_results['nmse_mean'])
 
-print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<35} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {f'First {freq_up_to} bins':<15}")
+print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<35} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {freq_up_to} bins':<15}")
 
 # All your models
 for model_name, model_results in all_your_results.items():
@@ -741,9 +772,10 @@ for model_name, model_results in all_your_results.items():
             your_mse_m_fund = model_results[M][w]['mse_mean_m_fund']
             your_lsd_full = model_results[M][w]['lsd_mean']
             your_mse_full = model_results[M][w]['mse_mean']
+            your_nmse_full = model_results[M][w]['nmse_mean']
 
-            print(f"{display_name + f' (M={M})':<35} | {w:<4.1f} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {f'First {freq_up_to} bins':<15}")
-            print("-"*160)
+            print(f"{display_name + f' (M={M})':<35} | {w:<4.1f} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {your_nmse_full:.4f}       | {f'First {freq_up_to} bins':<15}")
+            print("-"*180)
 
 # Find best model and guidance scale combination
 best_model = None

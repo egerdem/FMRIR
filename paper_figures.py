@@ -204,11 +204,10 @@ def generate_paper_figures(model_path, freq_idx_to_plot=[5, 10, 15, 20],
         ax_scatter.set_xticks([])
         ax_scatter.set_yticks([])
         
-        # Add colorbar for Z-height with consistent dimensions
+        # Store scatter plot for colorbar (will be added after all plots are created)
         if col_idx == num_cols - 1:  # Only on the last column
-            cbar_z = fig.colorbar(sc, ax=ax_scatter, fraction=0.015, pad=0.01, shrink=0.6)
-            cbar_z.set_label('Z-height (m)', size=8)
-            cbar_z.ax.tick_params(labelsize=6)
+            last_scatter_plot = sc
+            last_scatter_ax = ax_scatter
         
         # Row 1: True field
         z_true_denorm = (z_true * std + mean)
@@ -292,6 +291,12 @@ def generate_paper_figures(model_path, freq_idx_to_plot=[5, 10, 15, 20],
         
         print(f"  Metrics - MSE: {slice_metrics['mse']:.4f}, LSD: {slice_metrics['lsd']:.4f} dB")
     
+    # Add Z-height colorbar for input microphones (attach to all scatter plots for consistent sizing)
+    scatter_axes = [axes[0, col_idx] for col_idx in range(num_cols)]
+    cbar_z = fig.colorbar(last_scatter_plot, ax=scatter_axes, fraction=0.015, pad=0.1, shrink=0.6)
+    cbar_z.set_label('Z-height (m)', size=8)
+    cbar_z.ax.tick_params(labelsize=6)
+    
     # Add shared colorbar for true/generated fields with same dimensions as Z-height colorbar
     true_gen_axes = []
     for col_idx in range(num_cols):
@@ -308,7 +313,7 @@ def generate_paper_figures(model_path, freq_idx_to_plot=[5, 10, 15, 20],
         cmap='viridis'
     )
     # Use same dimensions as Z-height colorbar to maintain alignment
-    cbar_mag = fig.colorbar(mappable, ax=true_gen_axes, fraction=0.015, pad=0.01, shrink=0.6)
+    cbar_mag = fig.colorbar(mappable, ax=true_gen_axes, fraction=0.015, pad=0.1, shrink=0.6)
     cbar_mag.set_label('Magnitude (dB)', size=8)
     cbar_mag.ax.tick_params(labelsize=6)
     
@@ -317,9 +322,9 @@ def generate_paper_figures(model_path, freq_idx_to_plot=[5, 10, 15, 20],
     for row_idx, label in enumerate(row_labels):
         axes[row_idx, 0].set_ylabel(label, rotation=90, va='center', fontsize=12, fontweight='bold')
     
-    # Adjust layout
+    # Adjust layout to provide space for colorbars on the right
     plt.tight_layout()
-    plt.subplots_adjust(top=0.80, left=0.08, hspace=0.3, wspace=0.2)
+    plt.subplots_adjust(top=0.80, left=0.08, right=0.85, hspace=0.3, wspace=0.2)
     
     # Generate descriptive filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
