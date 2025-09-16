@@ -20,14 +20,14 @@ if __name__ == "__main__":
     np.random.seed(seed)
 
     parser = argparse.ArgumentParser(description='Generate impulse responses by image source method')
-    parser.add_argument('--num_src', '-s', type=int, default=8192, help='Number of sources')
+    parser.add_argument('--num_src', '-s', type=int, default=1024, help='Number of sources')
     parser.add_argument('--rt60', '-r', type=int, default=200, help='Target RT60 (ms)')
     parser.add_argument('--int_mic', '-i', type=float, default=0.1, help='Microphone interval (m)')
 
     args = parser.parse_args()
 
     # Parameters
-    fs = 2000#8000#16000  # Sampling frequency
+    fs = 2000 #2000 8000#16000  # Sampling frequency
     c = 343.0 # Speed of sound
     rt60_tgt = args.rt60/1000  # Target RT60 (s) (default=200)
     num_src = args.num_src # Number of sources (default=1)

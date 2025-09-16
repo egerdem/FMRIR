@@ -8,7 +8,7 @@ import random
 from tqdm import tqdm
 
 from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, EulerMaruyamaSimulator,
-                      CFGVectorFieldODE_3D_V2, DDPMScheduler, SetEncoder,
+                      CFGVectorFieldODE_3D_V2, SetEncoder, # DDPMScheduler
                       SetEncoder_v12, CrossAttentionUNet3D, CrossAttentionUNet3D_RED3d,
                       CrossAttentionUNet3D_v3, DDPM_ODE_Sampler,
                       get_model_info, print_model_info)
@@ -166,9 +166,9 @@ MODEL_NAMES = [
 M_range = None
 # SIGMA_SDE = 0.
 M_range = [5, 20]
-num_examples = 1
-num_timesteps = 300
-guidance_scales = [0, 1.0, 5]
+num_examples = 5
+num_timesteps = 10
+guidance_scales = [1]
 freq_idx_to_plot = 10  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
 

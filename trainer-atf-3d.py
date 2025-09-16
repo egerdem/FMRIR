@@ -295,7 +295,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
-    parser.add_argument('--model_name', default="BIG_8192R4_ZZZATF-3D-CrossAttn-UNet", type=str)
+    parser.add_argument('--model_name', default="r1_ZZZATF-3D-CrossAttn-UNet", type=str)
     parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128])
     parser.add_argument('--d_model', type=int, default=512, help='Dimension for tokens and context.')
     parser.add_argument('--nhead', type=int, default=8, help='Number of attention heads.')

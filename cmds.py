@@ -96,7 +96,7 @@ python trainer-atf-3d.py \
 
 python trainer-atf-3d.py \
     --model_name "r1_ICASSP_M5_10_20_50_100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_500k" \
-    --data_dir ~/DATA \
+    --data_dir ~/DATA/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200 \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
     --num_iterations 500000 \
@@ -216,10 +216,10 @@ scp -r k24037994@hpc.create.kcl.ac.uk:~/FMRIR_experiments/ATF3D-CrossAttn-v1_202
 
 
 #LOCALDEN ROSSINIYE
-scp -r /Users/ege/Projects/FMRIR/artifacts/ATFUNet_M5_holeloss_20250814-175237_iter100000-best-model eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200 eerdem@rossini1.ap.nii.ac.jp:~/DATA
 
-scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_valid_freqs20_r3.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
-scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train_freqs20_r3.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_valid_freqs20_r1.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train_freqs20_r1.pt eerdem@rossini1.ap.nii.ac.jp:~/DATA
 
 #LOCALDEN BELLINI
 scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train_freqs20_r4.pt eerdem@bellini1.ap.nii.ac.jp:~/DATA
@@ -233,7 +233,7 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/pro
 #
 # scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe6_unet3_20250905-193258_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
-scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG_8192R4_save_paper_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k_20250915-211859_iter800000 /Users/ege/Projects/FMRIR/artifacts
+scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/r1_ICASSP_M5_10_20_50_100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_500k_20250916-160051_iter500000 /Users/ege/Projects/FMRIR/artifacts
 
 #BELLİNİ'den locale
 scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/BIG_8192R4_DDOM_M5to50_freq20_layer3_d512_eta1e1_head8_sigma0_lrWARM5k_2PHASEe4_toe5at500k_unet4v1_setv12_800k_20250913-184207_iter800000 /Users/ege/Projects/FMRIR/artifacts
