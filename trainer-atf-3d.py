@@ -79,7 +79,7 @@ def main(args):
     }
 
     if dataset_version == "r1":
-        config['data']["data_dir"] = "~/DATA/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
+        config['data']["data_dir"] = "/home/eerdem/DATA/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
     # --- 2. Handle Resuming ---
     start_iteration = 0
     resume_checkpoint_state = None
