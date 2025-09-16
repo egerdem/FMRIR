@@ -95,28 +95,28 @@ python trainer-atf-3d.py \
 # FLOW MATCHING
 
 python trainer-atf-3d.py \
-    --model_name "BIG_8192R4_save_paper_M5to50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_700k" \
+    --model_name "r1_ICASSP_M5_10_20_50_100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_unet4v1_setv12_500k" \
     --data_dir ~/DATA \
     --experiments_dir ~/FMRIR_experiments \
     --batch_size 4 \
-    --num_iterations 800000 \
+    --num_iterations 500000 \
     --lr 1e-4 \
     --min_lr 1e-5 \
     --warmup_iterations 5000 \
-    --decay_iterations 700000 \
+    --decay_iterations 500000 \
     --version "v1_legacy" \
     --setencoder_version "v12" \
     --freq_up_to 20 \
     --channels 32,64,128,256 \
     --d_model 512 \
-    --nhead 4 \
+    --nhead 8 \
     --num_encoder_layers 3 \
-    --M_range 5,50 \
+    --M_range 5,10,20,50,100 \
     --eta 0. \
     --sigma 0 \
     --FM_vs_Diff "flow_matching" \
     --validation_interval 100 \
-    --checkpoint_interval 300000
+    --checkpoint_interval 200000
 
 #SCORE DDPM
 

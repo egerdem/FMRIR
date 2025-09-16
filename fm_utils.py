@@ -1183,7 +1183,11 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
 
         # Use a distinct cache file to avoid clobbering 2D slice caches
         # Include dataset version in filename
-        processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}_{self.dataset_version}.pt')
+        if self.dataset_version == "r1":
+            processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}.pt')
+
+        else:
+            processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}_{self.dataset_version}.pt')
 
         # Check if preprocessed file exists and matches config
         recreate_file = False
