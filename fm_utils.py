@@ -1733,17 +1733,19 @@ class ATF3DTrainer(Trainer):
         # DISCRETE older version
         M_max = self.M_range[1]
 
+
         # --- NEW: Get M_max from the list of choices ---
         # M_max = max(self.M_range)
+
         obs_coords_rel_list, obs_values_list, obs_mask_list = [], [], []
 
         # Loop over each sample in the batch to handle variable M
         for i in range(B):
             # Instead of sampling from a range, choose a value from the provided list
-            M = random.choice(self.M_range)
+            # M = random.choice(self.M_range)
 
             # OLD VERSION:  1. Randomly pick M for this sample
-            # M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
+            M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
 
             # 2. Randomly choose M mic indices
             obs_indices = torch.randperm(N, device=dev)[:M]

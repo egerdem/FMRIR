@@ -17,76 +17,76 @@ from model_paths import MULTI_MODEL_PATHS, MODEL_LOAD_PATH
 
 
 
-class DDIMSampler:
-    """
-    A deterministic sampler for a trained DDPM using the DDIM update rule.
-    """
-
-    def __init__(self, model, set_encoder, scheduler):
-        self.model = model
-        self.set_encoder = set_encoder
-        self.scheduler = scheduler
-        self.num_timesteps = scheduler.num_timesteps
-
-    @torch.no_grad()
-    def _get_predicted_original_sample(self, noisy_sample, t, predicted_noise):
-        """ Calculates the predicted clean sample (x0) from the predicted noise. """
-        sqrt_alpha_t = self.scheduler.sqrt_alphas_cumprod.to(noisy_sample.device)[t].view(-1, 1, 1, 1, 1)
-        sqrt_one_minus_alpha_t = self.scheduler.sqrt_one_minus_alphas_cumprod.to(noisy_sample.device)[t].view(-1, 1, 1,
-                                                                                                              1, 1)
-
-        # Formula: x_0 = (x_t - sqrt(1 - alpha_bar_t) * epsilon) / sqrt(alpha_bar_t)
-        pred_original_sample = (noisy_sample - sqrt_one_minus_alpha_t * predicted_noise) / sqrt_alpha_t
-        return pred_original_sample
-
-    @torch.no_grad()
-    def step(self, xt, t, guidance_scale=1.0, **kwargs):
-        """
-        Performs a single DDIM denoising step from t to t-1.
-        """
-        device = xt.device
-
-        # Prepare discrete and continuous time tensors
-        t_discrete = torch.full((xt.shape[0],), t, dtype=torch.long, device=device)
-        t_continuous = (t_discrete.float() / self.num_timesteps).view(-1, 1, 1, 1, 1)
-
-        # --- Classifier-Free Guidance ---
-        # Get guided prediction
-        guided_predicted_noise = self.model(xt, t_continuous, **kwargs)
-
-        # Get unguided prediction
-        null_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
-        kwargs_unguided = kwargs.copy()
-        if "pooled_context" in kwargs_unguided:
-            kwargs_unguided["pooled_context"] = null_context
-
-        if "context" in kwargs_unguided:
-            y_tokens = kwargs_unguided["context"]
-            null_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], y_tokens.shape[1], -1)
-            kwargs_unguided["context"] = null_tokens
-
-
-        unguided_predicted_noise = self.model(xt, t_continuous, **kwargs_unguided)
-
-        # Combine predictions
-        predicted_noise = (1 - guidance_scale) * unguided_predicted_noise + guidance_scale * guided_predicted_noise
-
-        # --- DDIM Update Rule ---
-        # 1. Get alphas for current and previous timesteps
-        alpha_bar_t = self.scheduler.alphas_cumprod[t].to(device)
-        alpha_bar_t_prev = self.scheduler.alphas_cumprod[t - 1] if t > 0 else torch.tensor(1.0, device=device)
-
-        # 2. Predict the original sample (x0) using the final predicted noise
-        pred_x0 = self._get_predicted_original_sample(xt, t_discrete, predicted_noise)
-
-        # 3. Calculate the direction pointing to x0
-        # This term uses sqrt(1 - alpha_bar_{t-1})
-        pred_dir_xt = torch.sqrt(1. - alpha_bar_t_prev) * predicted_noise
-
-        # 4. Calculate the final sample x_{t-1}
-        xt_prev = torch.sqrt(alpha_bar_t_prev) * pred_x0 + pred_dir_xt
-
-        return xt_prev
+# class DDIMSampler:
+#     """
+#     A deterministic sampler for a trained DDPM using the DDIM update rule.
+#     """
+#
+#     def __init__(self, model, set_encoder, scheduler):
+#         self.model = model
+#         self.set_encoder = set_encoder
+#         self.scheduler = scheduler
+#         self.num_timesteps = scheduler.num_timesteps
+#
+#     @torch.no_grad()
+#     def _get_predicted_original_sample(self, noisy_sample, t, predicted_noise):
+#         """ Calculates the predicted clean sample (x0) from the predicted noise. """
+#         sqrt_alpha_t = self.scheduler.sqrt_alphas_cumprod.to(noisy_sample.device)[t].view(-1, 1, 1, 1, 1)
+#         sqrt_one_minus_alpha_t = self.scheduler.sqrt_one_minus_alphas_cumprod.to(noisy_sample.device)[t].view(-1, 1, 1,
+#                                                                                                               1, 1)
+#
+#         # Formula: x_0 = (x_t - sqrt(1 - alpha_bar_t) * epsilon) / sqrt(alpha_bar_t)
+#         pred_original_sample = (noisy_sample - sqrt_one_minus_alpha_t * predicted_noise) / sqrt_alpha_t
+#         return pred_original_sample
+#
+#     @torch.no_grad()
+#     def step(self, xt, t, guidance_scale=1.0, **kwargs):
+#         """
+#         Performs a single DDIM denoising step from t to t-1.
+#         """
+#         device = xt.device
+#
+#         # Prepare discrete and continuous time tensors
+#         t_discrete = torch.full((xt.shape[0],), t, dtype=torch.long, device=device)
+#         t_continuous = (t_discrete.float() / self.num_timesteps).view(-1, 1, 1, 1, 1)
+#
+#         # --- Classifier-Free Guidance ---
+#         # Get guided prediction
+#         guided_predicted_noise = self.model(xt, t_continuous, **kwargs)
+#
+#         # Get unguided prediction
+#         null_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
+#         kwargs_unguided = kwargs.copy()
+#         if "pooled_context" in kwargs_unguided:
+#             kwargs_unguided["pooled_context"] = null_context
+#
+#         if "context" in kwargs_unguided:
+#             y_tokens = kwargs_unguided["context"]
+#             null_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], y_tokens.shape[1], -1)
+#             kwargs_unguided["context"] = null_tokens
+#
+#
+#         unguided_predicted_noise = self.model(xt, t_continuous, **kwargs_unguided)
+#
+#         # Combine predictions
+#         predicted_noise = (1 - guidance_scale) * unguided_predicted_noise + guidance_scale * guided_predicted_noise
+#
+#         # --- DDIM Update Rule ---
+#         # 1. Get alphas for current and previous timesteps
+#         alpha_bar_t = self.scheduler.alphas_cumprod[t].to(device)
+#         alpha_bar_t_prev = self.scheduler.alphas_cumprod[t - 1] if t > 0 else torch.tensor(1.0, device=device)
+#
+#         # 2. Predict the original sample (x0) using the final predicted noise
+#         pred_x0 = self._get_predicted_original_sample(xt, t_discrete, predicted_noise)
+#
+#         # 3. Calculate the direction pointing to x0
+#         # This term uses sqrt(1 - alpha_bar_{t-1})
+#         pred_dir_xt = torch.sqrt(1. - alpha_bar_t_prev) * predicted_noise
+#
+#         # 4. Calculate the final sample x_{t-1}
+#         xt_prev = torch.sqrt(alpha_bar_t_prev) * pred_x0 + pred_dir_xt
+#
+#         return xt_prev
 
 # Import unified LSD function for consistency with unified_evaluation.py
 def calculate_lsd_unified(estimation, ground_truth, freq_dim=1):
@@ -165,7 +165,7 @@ MODEL_NAMES = [
 
 M_range = None
 # SIGMA_SDE = 0.
-M_range = [5, 7]
+M_range = [5, 101]
 num_examples = 5
 num_timesteps = 10
 guidance_scales = [1]
