@@ -1686,13 +1686,14 @@ class CFGTrainer(Trainer):
         return loss_per_sample.mean()
 
 class ATF3DTrainer(Trainer):
-    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str, version: bool, setencoderversion: str,
+    def __init__(self, path, model, set_encoder, eta, M_range, M_sampling_mode, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str, version: bool, setencoderversion: str,
                  coord_mean: torch.Tensor, coord_std: torch.Tensor, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
         self.path = path
         self.set_encoder = set_encoder
         self.eta = eta
         self.M_range = (int(M_range[0]), int(M_range[1]))
+        self.M_sampling_mode = M_sampling_mode
         self.sigma = sigma
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
 
@@ -1717,11 +1718,26 @@ class ATF3DTrainer(Trainer):
             print("--- Using PERCEPTUALLY WEIGHTED training loss. ---")
         else:
             print("--- Using STANDARD training loss. ---")
+        
+        print(f"--- Using M sampling mode: {self.M_sampling_mode} ---")
+        if self.M_sampling_mode == 'range':
+            print(f"--- Training will use random M from range [{self.M_range[0]}, {self.M_range[1]}] ---")
+        else:
+            print(f"--- Training will use discrete M values from list {self.M_range} ---")
+
+        # Load predetermined microphone positions for validation
+        # Assumes the file is in the same directory as the script
+        try:
+            idx_mes_pos_path = "idx_mes_pos_s1024_m1331.npy"
+            self.idx_mes_pos_mat = np.load(idx_mes_pos_path)
+            print(f"--- Loaded predetermined microphone positions from {idx_mes_pos_path} ---")
+        except FileNotFoundError:
+            print(f"ERRORRR")
 
         # A learnable embedding for the unconditional (null) case
         # d_model = set_encoder.d_model
 
-    def make_observation_set(self, z_full, src_xyz):
+    def make_observation_set(self, z_full, src_xyz, mode='train'):
         B, C, D, H, W = z_full.shape
         dev = z_full.device
 
@@ -1730,25 +1746,49 @@ class ATF3DTrainer(Trainer):
 
         N = self.grid_xyz.shape[0]  # Total number of mics (1331)
 
-        # DISCRETE older version
-        M_max = self.M_range[1]
-
-
-        # --- NEW: Get M_max from the list of choices ---
-        # M_max = max(self.M_range)
+        # Choose M_max based on sampling mode and train/validation mode
+        if self.M_sampling_mode == 'range':
+            # LEGACY: Use range-based sampling (original behavior)
+            M_max = self.M_range[1]
+        else:
+            # DISCRETE: Use discrete sampling from specific values
+            if mode == 'train':
+                M_max = max(self.M_range)  # For discrete mode, still use M_range[1] as max for padding
+            else:
+                # For validation, we use fixed M=5
+                M_max = 5
 
         obs_coords_rel_list, obs_values_list, obs_mask_list = [], [], []
 
         # Loop over each sample in the batch to handle variable M
         for i in range(B):
-            # Instead of sampling from a range, choose a value from the provided list
-            # M = random.choice(self.M_range)
+            if mode == 'train':
+                if self.M_sampling_mode == 'range':
+                    # LEGACY: Range-based sampling (original behavior)
+                    M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
+                else:
+                    # DISCRETE: Sample from specific M values (uncommented version)
+                    # Instead of sampling from a range, choose a value from the provided list
+                    M = random.choice(self.M_range)
 
-            # OLD VERSION:  1. Randomly pick M for this sample
-            M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
-
-            # 2. Randomly choose M mic indices
-            obs_indices = torch.randperm(N, device=dev)[:M]
+                # 2. Randomly choose M mic indices
+                obs_indices = torch.randperm(N, device=dev)[:M]
+            else:
+                # Validation: use fixed M=5 and predetermined positions
+                M = 5
+                if self.idx_mes_pos_mat is not None:
+                    # Use predetermined positions from the loaded file
+                    # idx_mes_pos_mat shape: [1024, 1331] - 1024 permutations of mic indices
+                    # Use the first 5 indices from the first permutation
+                    obs_indices = torch.tensor(self.idx_mes_pos_mat[0, :M], device=dev, dtype=torch.long)
+                    if i == 0:  # Print only for first sample to avoid spam
+                        print(f"--- Validation: Using predetermined positions {self.idx_mes_pos_mat[0, :M]} with M=5 ---")
+                else:
+                    assert False, "idx_mes_pos_mat not loaded"
+                    # Fallback to random if file not loaded
+                    # obs_indices = torch.randperm(N, device=dev)[:M]
+                    # if i == 0:  # Print only for first sample to avoid spam
+                        # print(f"--- Validation: Using random positions (fallback) with M=5 ---")
 
             # 3. Gather coordinates and values
             obs_xyz = self.grid_xyz[obs_indices]  # [M, 3]
@@ -1799,7 +1839,7 @@ class ATF3DTrainer(Trainer):
         x1 = z_full
 
         # 2. Create the sparse observation set on the fly
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, mode='train')
 
         # 3. Encode the observations into conditioning tokens
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
@@ -1870,7 +1910,7 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full  # Clean data
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, mode='train')
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         # 1. Sample discrete timesteps for DDPM
@@ -1922,7 +1962,7 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, mode='val')
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
@@ -1954,7 +1994,7 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, mode='val')
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
@@ -1973,11 +2013,29 @@ class ATF3DTrainer(Trainer):
 
         # For validation, we are always conditional
         ut_theta = self.model(xt, t, **model_kwargs)
-        # 7. Compute the loss based on the selected typeclass
-
+        
         # --- Standard Loss ---
         loss = torch.mean(torch.square(ut_theta - ut_ref))
-
+        
+        # --- Monitor LSD Error (for understanding, not optimization) ---
+        try:
+            from inference import calculate_lsd_unified
+            # De-normalize to dB domain for LSD calculation
+            z_pred_denorm = xt * self.path.p_data.std + self.path.p_data.mean.item()
+            z_true_denorm = z_full * self.path.p_data.std + self.path.p_data.mean.item()
+            
+            # Calculate LSD for batch and average
+            lsd_batch = [calculate_lsd_unified(z_pred_denorm[i], z_true_denorm[i], freq_dim=0).item() 
+                        for i in range(batch_size)]
+            lsd_error = np.mean(lsd_batch)
+            print(f"\n--- LSD Error: {lsd_error} ---")
+            
+            # Log to wandb alongside validation loss
+            wandb.log({"val_lsd_error": lsd_error})
+            
+        except:
+            pass  # Skip if LSD calculation fails
+        
         return loss
 
     def get_valid_loss(self, **kwargs):
