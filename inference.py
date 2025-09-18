@@ -89,7 +89,7 @@ from model_paths import MULTI_MODEL_PATHS, MODEL_LOAD_PATH
 #         return xt_prev
 
 # Import unified LSD function for consistency with unified_evaluation.py
-def calculate_lsd_unified(estimation, ground_truth, freq_dim=1):
+def calculate_lsd_unified(estimation, ground_truth, freq_dim=1, return_mean_only=True):
     """
     Unified LSD calculation that works for both 3D spatial and microphone-based data.
     Same as unified_evaluation.py for consistency.
@@ -98,17 +98,22 @@ def calculate_lsd_unified(estimation, ground_truth, freq_dim=1):
         estimation: Model prediction (should be in dB domain)
         ground_truth: Ground truth (should be in dB domain)
         freq_dim: Dimension along which frequency is stored (1 for [B,F,Z,Y,X], 0 for [F,Z,Y,X])
+        return_mean_only: If True, returns only the mean LSD. If False, returns (mean, per_position_lsd) tuple
+                         where per_position_lsd contains LSD values for each position.
 
     Returns:
-        LSD value in dB
+        If return_mean_only=True: Mean LSD value in dB
+        If return_mean_only=False: Tuple of (mean LSD, per-position LSD values)
     """
     squared_error = (estimation - ground_truth) ** 2
-    # print("shape of squared error: ", squared_error.shape)
-    lsd_per_position = torch.sqrt(torch.mean(squared_error, dim=freq_dim))
-    # print(torch.mean(squared_error, dim=freq_dim))
-    # print("shape of mean", torch.mean(squared_error, dim=freq_dim).shape)
-    # print("lsd shape ", lsd_per_position.shape, lsd_per_position)
-    return torch.mean(lsd_per_position)
+    lsd_per_position = torch.sqrt(torch.mean(squared_error, dim=freq_dim))  # [positions]
+    mean_lsd = torch.mean(lsd_per_position)
+    
+    if return_mean_only:
+        return mean_lsd
+    else:
+        # Return both mean and per-position values
+        return mean_lsd, lsd_per_position.flatten()  # Ensure 1D tensor for concatenation
 
 def calculate_slice_metrics(pred_cube, gt_cube, freq_idx, z_slice_idx):
     """
@@ -168,9 +173,11 @@ M_range = None
 M_range = [5, 20]
 num_examples = 5
 num_timesteps = 10
-guidance_scales = [1,2,3,5]
+guidance_scales = [1]
 freq_idx_to_plot = 10  # Pick a frequency channel to visualize
 z_slice_idx_to_plot = 5
+# SRC_IND = [0]
+SRC_IND = None
 
 # Option to exclude outermost boundary positions from MSE/LSD calculation
 EXCLUDE_BOUNDARY = False  # Set to True to exclude outermost positions
@@ -639,11 +646,13 @@ if __name__ == '__main__':
         for row in range(num_examples):
         # Get a random ground truth sample
 
-            z_true, src_xyz, srcind = test_sampler.sample(1)
-            z_true, src_xyz = z_true.to(device), src_xyz.to(device)
-            # srcind = 0,9,94
-            # srcind = [97]
-            # z_true, src_xyz = test_sampler.cubes[srcind[0]].unsqueeze(0).to(device), test_sampler.source_coords[srcind[0]].unsqueeze(0).to(device)
+            if SRC_IND is not None:
+             srcind = SRC_IND
+             z_true, src_xyz = test_sampler.cubes[srcind[0]].unsqueeze(0).to(device), test_sampler.source_coords[
+                 srcind[0]].unsqueeze(0).to(device)
+            else:
+                z_true, src_xyz, srcind = test_sampler.sample(1)
+                z_true, src_xyz = z_true.to(device), src_xyz.to(device)
 
             # --- Create a sparse observation set on the fly ---
             M = torch.randint(M_range[0], M_range[1] + 1, (1,)).item()
@@ -942,6 +951,7 @@ if __name__ == '__main__':
                 # Get a random ground truth sample (using same seed for consistency)
                 torch.manual_seed(SEED + example_idx)  # Consistent samples across models
                 z_true, src_xyz = test_sampler.sample(1)
+
                 z_true, src_xyz = z_true.to(device), src_xyz.to(device)
 
                 # Run inference for this example

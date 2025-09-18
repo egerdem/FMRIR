@@ -2559,3 +2559,35 @@ class CrossAttentionUNet3D_v3(nn.Module):
         out = self.final_conv(d2)
         s, e = self.crop_start, self.crop_end
         return out[..., s:e, s:e, s:e]
+
+class LSD(nn.Module):
+    def __init__(self):
+        super().__init__()
+    def forward(self, data, target, freq_dim=1, data_type='atf_mag', mean=True):
+        '''
+        :param data:   (B,2,L,S) complex (or float) tensor or 1D array
+        :param target: (B,2,L,S) complex (or float) tensor or 1D array
+        :return: a scalar or (B,2,S) tensor
+        '''
+        #print(data.shape, target.shape)
+        # Convert to numpy arrays if they're tensors
+        # if hasattr(data, 'cpu'):
+        #     data = data.cpu().numpy()
+        # if hasattr(target, 'cpu'):
+        #     target = target.cpu().numpy()
+
+        # Handle dimension bounds checking
+        data_arr = np.asarray(data)
+        target_arr = np.asarray(target)
+        dim = freq_dim
+        # If dim is out of bounds, use the last available dimension
+        if dim >= data_arr.ndim:
+            # print(f"dim is out of bounds: {dim}, data_arr.ndim: {data_arr.ndim}")
+            dim = data_arr.ndim - 1 if data_arr.ndim > 0 else 0
+            # print("Using dim:", dim)
+
+        # LSD = torch.sqrt(mean((data - target).pow(2), dim=dim))
+        LSD = np.sqrt(np.mean((data - target)**2, axis=dim))
+        if mean:
+            LSD = np.mean(LSD)
+        return LSD

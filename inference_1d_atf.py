@@ -7,12 +7,13 @@ import os
 import json
 import random
 
-from model_paths import MODEL_LOAD_PATH
+from model_paths import MODEL_LOAD_PATH, MULTI_MODEL_PATHS
 # Import your necessary classes
-from fm_utils import (
-    ATF3DSampler, LSD, EulerSimulator
+from fm_utils import (LSD,
+    ATF3DSampler, EulerSimulator
 )
 
+# from inference import calculate_lsd_unified as lsd
 from inference import model_factory
 
 # Set seed for reproducible results
@@ -73,7 +74,7 @@ def get_model_name(model_path):
     return model_path.split("artifacts/")[1].split("/")[0]
 
 
-def main():
+def main(MODEL_LOAD_PATH):
     # --- Configuration ---
     
 
@@ -91,7 +92,7 @@ def main():
         print(f"  Model {i+1}: {name}")
     print()
 
-    data_path = "ir_fs2000_s4096_m1331_room4.0x6.0x3.0_rt200/"
+    data_path = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -99,18 +100,18 @@ def main():
     checkpoint = torch.load(MODEL_LOAD_PATHS[0], map_location=device)
     config = checkpoint.get('config', {})  # Use .get for safety
     freq_up_to = config['model'].get('freq_up_to')
-
+    lsd = LSD()
     # --- Evaluation Configuration ---
     # 10 different sources from 922 to 1024 (indices 0 to 102 in test set)
-    source_indices = [0, 11, 22, 33, 44, 55, 66, 77, 88, 99]  # 10 sources
-    # source_indices = [0, 11, 22]  # 10 sources
+    # source_indices = [0, 11, 22, 33, 44, 55, 66, 77, 88, 99]  # 10 sources
+    source_indices = [0, 11, 22]  # 10 sources
     # 5 different random microphone positions from 0 to 1330
-    mic_indices = [156, 423, 789, 1045, 1287, 665]  # 5 microphones
-    
+    # mic_indices = [156, 423, 789, 1045, 1287, 665]  # 5 microphones
+    mic_indices = [665]  # 5 microphones
+
     M = 5  # Number of conditioning mics
-    guidance = [0, 1.0, 1.5]
+    guidance = [1]
     num_timesteps = 10
-    lsd = LSD()
 
     # Create output directory
     output_dir = "artifacts/eval"
@@ -275,7 +276,7 @@ def main():
                         model_results_dict[model_name] = gen_atf_1d
                         
                         # Calculate and print LSD for this model
-                        lsd_val = lsd(gt_atf_1d, gen_atf_1d, dim=1, mean=False)
+                        lsd_val = lsd(gt_atf_1d, gen_atf_1d, freq_dim=1, mean=False)
                         lsd_mean = lsd_val.mean()
                         lsd_std = lsd_val.std()
                         print(f'{model_name} (w={guid}): LSD = {lsd_mean:.4f} +- {lsd_std:.4f} dB')
@@ -307,7 +308,7 @@ def main():
                     gen_atf_1d = model_results[guid][0, :, iz, iy, ix].cpu().numpy()
                     
                     # Calculate and print LSD
-                    lsd_val = lsd(gt_atf_1d, gen_atf_1d, dim=1, mean=False)
+                    lsd_val = lsd(gt_atf_1d, gen_atf_1d, freq_dim=1)
                     lsd_mean = lsd_val.mean()
                     lsd_std = lsd_val.std()
                     print(f'LSD (w={guid}): {lsd_mean:.4f} +- {lsd_std:.4f} dB')
@@ -339,4 +340,6 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+
+    main(MODEL_LOAD_PATH)
+    # main(MULTI_MODEL_PATHS)
