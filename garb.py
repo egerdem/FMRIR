@@ -10,10 +10,10 @@ from fm_utils import ATF3DSampler
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 #
-checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
-config = checkpoint.get('config', {})
-data_dir = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"  # Override with local
-src_split = config['data']['src_splits']
+# checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+# config = checkpoint.get('config', {})
+# data_dir = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"  # Override with local
+# src_split = config['data']['src_splits']
 # src_split = {"train": [[0, 820], [1324, 8192]], "valid": [[820, 922], [1024, 1324]],
 #                                 "test": [922, 1024]}
 # src_split = {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]}
@@ -21,12 +21,12 @@ src_split = config['data']['src_splits']
 
 
 # Load data
-test = ATF3DSampler(
-    data_path=data_dir, mode='test', src_splits=src_split,
-    normalize=True, freq_up_to=20
-)
+# test = ATF3DSampler(
+#     data_path=data_dir, mode='test', src_splits=src_split,
+#     normalize=True, freq_up_to=20
+# )
 
-z = test.cubes()
+# z = test.cubes()
 
 import os
 import numpy as np
@@ -40,9 +40,9 @@ import numpy as np
 #         np_of_mics, np_of_freqs = atf_mag_algn.shape
 #         source_pos = data_single['posSrc']  # (3,)
 #
-# idx_mes_pos_mat = np.load("idx_mes_pos_s1024_m1331.npy")
+idx_mes_pos_mat = np.load("idx_mes_pos_s1024_m1331.npy")
 #
-# z = idx_mes_pos_mat[:5, 0]
+z = idx_mes_pos_mat[:5, 0]
 #
 # import torch
 # data = torch.load('RESULTS/out_20250324_KRR_10004/atf_mag/atf_mag_test_ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200.pt',weights_only=False)
