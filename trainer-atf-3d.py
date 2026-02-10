@@ -78,8 +78,9 @@ def main(args):
         "experiments_dir": args.experiments_dir
     }
 
-    if dataset_version == "r1":
-        config['data']["data_dir"] = "/home/eerdem/DATA/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
+    # if dataset_version == "r1":
+    #     print("\n--- Loading R1 Dataset ---")
+    #     config['data']["data_dir"] = "/home/eerdem/DATA/ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
 
     # --- 2. Handle Resuming ---
     start_iteration = 0

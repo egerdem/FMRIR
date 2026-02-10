@@ -477,10 +477,10 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
                 # Plot all three methods with correct frequency axes
                 # All models plot the same frequency range for comparison (0-312 Hz)
                 ax.plot(freq_axis, atf_mag_gt[mic_idx, :freq_up_to, src_idx], 'k--', label="True", linewidth=2)
-                ax.plot(freq_axis, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="Reference", linewidth=1.5)
+                ax.plot(freq_axis, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="Reference: AE", linewidth=1.5)
                 print(f"Plotting Source {src_idx+922}, Mic {mic_idx} (index {i+1}/5)")
                 ax.plot(freq_axis, atf_mag_est_yours_best[mic_idx, :, src_idx], 'b-',
-                       label=f"Your Model (w={best_guidance})", linewidth=1.5)
+                       label=f"SF-Flow", linewidth=1.5) #(w={best_guidance})
                 
                 ax.set_xscale('log')
                 ax.grid(True)
@@ -636,7 +636,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 guidance_scales = [1.0]
 M_values = [5]
-num_sources_eval = None  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
+num_sources_eval = 4  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
 random_M_sampling = False
 
@@ -682,7 +682,6 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
 
     if freq_up_to is None:
         freq_up_to = config['model'].get('freq_up_to')
-        # freq_up_to = your_config['model']['freq_up_to']
         print(f"Model frequency range: {freq_up_to}")
     
     # Get model information
@@ -905,7 +904,7 @@ plt.grid(True, alpha=0.3)
 # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(parent_dir, 'combined_lsd_distribution.pdf'), dpi=300, bbox_inches='tight')
+plt.savefig(os.path.join(parent_dir, 'Zcombined_lsd_distribution.pdf'), dpi=300, bbox_inches='tight')
 plt.show()
 
 # Combined MSE plot
@@ -925,7 +924,7 @@ plt.grid(True, alpha=0.3)
 # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 plt.legend()
 plt.tight_layout()
-plt.savefig(os.path.join(parent_dir, 'combined_mse_distribution.pdf'), dpi=300, bbox_inches='tight')
+plt.savefig(os.path.join(parent_dir, 'Zcombined_mse_distribution.pdf'), dpi=300, bbox_inches='tight')
 plt.show()
 
 print(f"\nCombined distribution plots saved to {parent_dir}/")

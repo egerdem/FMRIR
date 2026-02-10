@@ -3,7 +3,10 @@ import torch
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-results_dir = "/Users/ege/Projects/FMRIR/artifacts"
+results_dir = "/artifacts"
+
+# PREVIOUS NAME "results.py"
+# print the best val losses of all models in the results_dir
 
 # Navigate in the directories under results_dir and load all file names starting with "model", don't traverse the nested folders, only do first level
 def find_model_files(results_dir):

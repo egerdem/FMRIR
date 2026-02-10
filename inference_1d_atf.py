@@ -116,7 +116,7 @@ def main(MODEL_LOAD_PATH):
     # Create output directory
     output_dir = "artifacts/eval"
     if MULTI_MODEL_MODE:
-        output_dir = os.path.join(output_dir, f"multi_model_comparison_{len(MODEL_LOAD_PATHS)}models")
+        output_dir = os.path.join(output_dir, f"Zmulti_model_comparison_{len(MODEL_LOAD_PATHS)}models")
     else:
         output_dir = os.path.join(output_dir, MODEL_NAMES[0])
     os.makedirs(output_dir, exist_ok=True)

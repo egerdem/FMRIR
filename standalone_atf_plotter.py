@@ -1,4 +1,6 @@
-#!/usr/bin/env python3
+
+# 5 örnek noktada true-AE-sfflow ATF basma
+
 """
 Standalone ATF Comparison Plotter
 

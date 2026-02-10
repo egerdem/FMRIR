@@ -1,6 +1,7 @@
 import matplotlib
 matplotlib.use('Qt5Agg', force=True)  # or 'TkAgg'
 from matplotlib import pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import torch
 import os
 import numpy as np
@@ -379,10 +380,10 @@ def generate_SFfigures_FM(model_path, freq_idx_to_plot,
     z_true_denorm = (z_true * std + mean)
     gt_cube_sample = z_true_denorm[0, freq_idx_to_plot[0]].cpu().numpy()
     gt_slice_sample = gt_cube_sample[z_slice_idx, :, :]
-    
+
     mappable = matplotlib.cm.ScalarMappable(
-        norm=matplotlib.colors.Normalize(vmin=gt_slice_sample.min(), 
-                                       vmax=gt_slice_sample.max()), 
+        norm=matplotlib.colors.Normalize(vmin=gt_slice_sample.min(),
+                                       vmax=gt_slice_sample.max()),
         cmap='viridis'
     )
     # Make SF colorbar span across all 3 rows
@@ -390,7 +391,7 @@ def generate_SFfigures_FM(model_path, freq_idx_to_plot,
     for row_idx in range(num_rows):
         for col_idx in range(len(freq_idx_to_plot)):
             all_axes.append(axes[row_idx, col_idx])
-    
+
     cbar_mag = fig.colorbar(mappable, ax=all_axes, fraction=0.046, pad=0.04, shrink=1.0)
     cbar_mag.set_label('Magnitude (dB)', size=8)
     cbar_mag.ax.tick_params(labelsize=6)
@@ -576,6 +577,7 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
     num_methods = 5  # Input Mics, True Field, SF-Flow, AE Field, KRR Field
     
     fig, axes = plt.subplots(num_frequencies, num_methods, figsize=(4.5 * num_methods, 4.5 * num_frequencies))
+    plt.subplots_adjust(right=0.84)  # leave more room for colorbars
     
     if num_frequencies == 1:
         axes = axes.reshape(1, -1)
@@ -670,7 +672,7 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
 
         axes[freq_row_idx, 1].imshow(gt_slice, origin='lower', cmap='viridis',
                                      vmin=gt_slice.min(), vmax=gt_slice.max())
-        axes[freq_row_idx, 1].set_title(f"{freq_hz:.1f} Hz", fontsize=12, fontweight='bold', pad=10)
+        axes[freq_row_idx, 1].set_title(f"True: {freq_hz:.1f} Hz", fontsize=12, fontweight='bold', pad=10)
         
         # Add axis labels and ticks for True Field
         axes[freq_row_idx, 1].set_xlabel('x (m)', fontsize=10)
@@ -807,27 +809,42 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
     cbar_z.set_label('Z-height (m)', size=8)
     cbar_z.ax.tick_params(labelsize=6)
 
-    # Add individual colorbars for each row using same scale from true field
-    # Use the range from the first frequency for consistent scaling across all rows
-    z_true_denorm = (z_true * std + mean)
-    gt_cube_sample = z_true_denorm[0, freq_idx_to_plot[0]].cpu().numpy()
-    gt_slice_sample = gt_cube_sample[z_slice_idx, :, :]
+    # ---- PER-ROW NORMALIZE (own scale per frequency row) ----
+    for row, freq_idx in enumerate(freq_idx_to_plot):
+        # Build a Normalize from the row's ground-truth slice
+        z_true_denorm_row = (z_trues[row] * std + mean)
+        gt_slice_row = z_true_denorm_row[0, freq_idx].cpu().numpy()[z_slice_idx, :, :]
 
-    mappable = matplotlib.cm.ScalarMappable(
-        norm=matplotlib.colors.Normalize(vmin=gt_slice_sample.min(),
-                                         vmax=gt_slice_sample.max()),
-        cmap='viridis'
-    )
-    
-    # Create individual colorbar for each row at the end
-    for freq_row_idx in range(len(freq_idx_to_plot)):
-        # Get all sound field plots in this row (skip Input Mics column)
-        row_axes = [axes[freq_row_idx, method_idx] for method_idx in range(1, num_methods)]
-        
-        # Add colorbar at the end of each row
-        cbar_mag = fig.colorbar(mappable, ax=row_axes, fraction=0.046, pad=0.04, shrink=1.0)
-        cbar_mag.set_label('Magnitude (dB)', size=8)
-        cbar_mag.ax.tick_params(labelsize=6)
+        row_norm = matplotlib.colors.Normalize(vmin=gt_slice_row.min(),
+                                               vmax=gt_slice_row.max())
+        row_mappable = matplotlib.cm.ScalarMappable(norm=row_norm, cmap='viridis')
+        row_mappable.set_array([])  # This is crucial for PDF rendering
+        row_mappable._A = []  # Additional fix for some matplotlib versions
+
+        # last_ax = axes[row, -1]
+        # cax = inset_axes(last_ax,
+        #                  width="3%",
+        #                  height="100%",
+        #                  loc='lower left',
+        #                  bbox_to_anchor=(1.02, 0., 1, 1),
+        #                  bbox_transform=last_ax.transAxes,
+        #                  borderpad=0)
+        # cb = fig.colorbar(row_mappable, cax=cax)
+
+
+        last_ax = axes[row, -1]
+        cax = inset_axes(last_ax,
+                         width="3%",
+                         height="100%",
+                         loc='lower left',
+                         bbox_to_anchor=(1.4, 0., 1, 1),
+                         bbox_transform=last_ax.transAxes,
+                         borderpad=0)
+        im_handle = axes[row, 2].images[0]  # or axes[row, 1].images[0] if you want GT scaling
+        cb = fig.colorbar(im_handle, cax=cax)
+
+        cb.set_label('Magnitude (dB)', size=8)
+        cb.ax.tick_params(labelsize=6)
 
     # Column labels for methods (skip True Field since it shows frequency titles)
     method_labels = ["Input Mics", "", "SF-Flow", "AE", "KRR"]
@@ -839,7 +856,7 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
 
     # Adjust layout to provide space for colorbars on the right and prevent overflow
     plt.tight_layout()
-    plt.subplots_adjust(top=0.80, left=0.12, right=0.82, hspace=0.3, wspace=0.4)
+    plt.subplots_adjust(top=0.80, left=0.12, right=0.84, hspace=0.3, wspace=0.4)
 
     # Generate descriptive filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -852,9 +869,22 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
     # Create save directory if it doesn't exist
     os.makedirs(save_dir, exist_ok=True)
 
-    # Save figure
-    fig.savefig(save_path, dpi=300, bbox_inches='tight')
+    # Save figure with improved PDF compatibility
+
+    save_path = os.path.join(save_dir, filename)
+    os.makedirs(save_dir, exist_ok=True)
+
+    from matplotlib.backends.backend_pdf import PdfPages
+
+    # ... after layout adjustments
+    with PdfPages(save_path) as pdf:
+        pdf.savefig(fig, dpi=300, bbox_inches='tight')
+    # plt.close(fig)
     print(f"\nFigure saved to: {save_path}")
+
+    # fig.savefig(save_path, dpi=300, bbox_inches='tight', format='pdf')
+    
+    # print(f"\nFigure saved to: {save_path}")
 
     plt.show()
 
@@ -1104,10 +1134,10 @@ if __name__ == '__main__':
     if GENERATE_SF_PLOTS_V2:
         # SF FOR ALL METHODS
         SPARSE_M = 5
-        srcind = [0]
+        srcind = [0] # 88, 66, 0, 12,
         guidance_scale = 1  # Guidance scale
-        freq_idx_to_plot = [5,10, 15]  # Frequency bin indices
-        z_slice_idx = 5
+        freq_idx_to_plot = [19]  # 4, 15
+        z_slice_idx = 10
         num_timesteps = 10
 
         MIC_SELECTION_PATH = "./idx_mes_pos_s1024_m1331.npy"
