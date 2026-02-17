@@ -1801,6 +1801,36 @@ class ATF3DTrainer(Trainer):
 
         return torch.stack(obs_coords_rel_list), torch.stack(obs_values_list), torch.stack(obs_mask_list)
 
+    def make_observation_set_fast(self, z_full, src_xyz):
+        """Fast GPU-native version of make_observation_set that avoids CPU synchronization."""
+        B, C, D, H, W = z_full.shape
+        dev = z_full.device
+        N = self.grid_xyz.shape[0]
+        M_max = self.M_range[1]
+
+        # 1) Sample M for whole batch ON GPU (no .item())
+        M = torch.randint(self.M_range[0], self.M_range[1] + 1, (B,), device=dev)
+
+        # 2) Sample indices without replacement (uniform) via topk of random scores
+        scores = torch.rand(B, N, device=dev)
+        obs_idx = torch.topk(scores, k=M_max, dim=1).indices            # [B, M_max]
+
+        # 3) Mask for variable M
+        ar = torch.arange(M_max, device=dev).unsqueeze(0)               # [1, M_max]
+        mask = ar < M.unsqueeze(1)                                      # [B, M_max] bool
+
+        # 4) Coordinates (relative + normalize)
+        obs_xyz = self.grid_xyz[obs_idx]                                # [B, M_max, 3]
+        rel = obs_xyz - src_xyz.unsqueeze(1)                            # [B, M_max, 3]
+        rel = (rel - self.coord_mean) / (self.coord_std + 1e-8)
+
+        # 5) Values gather
+        z_flat = z_full.view(B, C, -1)                                  # [B, C, N]
+        idx = obs_idx.unsqueeze(1).expand(-1, C, -1)                    # [B, C, M_max]
+        vals = torch.gather(z_flat, 2, idx).transpose(1, 2)             # [B, M_max, C]
+
+        return rel, vals, mask
+
     def get_train_loss_flow_matching(self, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
         # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
@@ -1813,7 +1843,7 @@ class ATF3DTrainer(Trainer):
         x1 = z_full
 
         # 2. Create the sparse observation set on the fly
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(z_full, src_xyz)
 
         # 3. Encode the observations into conditioning tokens
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
@@ -1967,7 +1997,7 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(z_full, src_xyz)
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
