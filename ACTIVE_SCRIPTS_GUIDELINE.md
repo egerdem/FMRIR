@@ -3,37 +3,25 @@
 **Generated:** February 9, 2026  
 **Based on:** Recent 50 commits analysis
 
----
-
-## Introduction
-
-This document provides a comprehensive overview of the active scripts in the FMRIR (Flow Matching for Room Impulse Response) project. These scripts implement a 3D diffusion/flow-matching model for acoustic transfer function (ATF) prediction and room impulse response generation.
-
----
-
 ## Training Scripts
 
 ### `trainer-atf-3d.py`
 - Main training script for the 3D flow-matching ATF prediction model.
 - Handles model training, validation, checkpointing, and WandB logging with configurable hyperparameters.
 
----
-
 ## Inference Scripts
 
 ### `inference.py`
-- Primary inference script for generating 3D ATF predictions from trained models.
+- Primary inference script for generating 3D ATF predictions from trained SFlow models.
 - Supports multiple guidance scales, metric calculation (MSE, LSD), and visualization of spatial sound fields.
 
 ### `inference_1d_atf.py`
-- 1D ATF inference script for microphone-specific transfer function prediction.
+- 1D ATF inference script for microphone-specific ATF prediction.
 - Generates and compares ATF predictions at specific microphone positions across multiple guidance scales.
 
 ### `inference-unet-ATF.py`
 - Legacy inference script for UNet-based ATF models (pre-flow-matching).
 - Maintained for backward compatibility and comparison with earlier model architectures.
-
----
 
 ## Evaluation Scripts
 
