@@ -1265,6 +1265,10 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
                     self.cubes = data['cubes']
                     self.source_coords = data['source_coords']
                     self.grid_xyz = data['grid_xyz']
+
+                    # FIX: Assign the tensor to self so valid_sampler.sample_info exists
+                    self.sample_info = data['sample_info']
+                    
                     if self.normalize:
                         self.mean = data.get('mean')
                         self.std = data.get('std')
