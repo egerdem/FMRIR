@@ -1059,7 +1059,7 @@ class Trainer(ABC):
                 model.train()
             # self.model.train()
             opt.zero_grad()
-            loss = self.get_train_loss(**kwargs)
+            loss = self.get_train_loss(iteration=iteration, **kwargs)
             loss.backward()
             opt.step()
             scheduler.step()
@@ -1268,7 +1268,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
 
                     # FIX: Assign the tensor to self so valid_sampler.sample_info exists
                     self.sample_info = data['sample_info']
-                    
+
                     if self.normalize:
                         self.mean = data.get('mean')
                         self.std = data.get('std')
@@ -1788,12 +1788,21 @@ class ATF3DTrainer(Trainer):
                 abs_src_idx = sample_indices[i] 
                 # perm_matrix is [1331, 1024] -> col is source
                 obs_indices = self.perm_matrix[:M, abs_src_idx].to(dev)
+                if i == 0:
+                    print(f"DEBUG: Source {abs_src_idx} using mics: {obs_indices.cpu().numpy()}")
             
-            # OLD VERSION:  1. Randomly pick M for this sample
+            # OLD VERSION:  1. Randomly pick M for this sample 
             else:
+                # SFlow ICASSP version compeltely random selection:
                 M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
                 # 2. Randomly choose M mic indices
-                obs_indices = torch.randperm(N, device=dev)[:M]
+                # Because you seeded the iteration, this will pick 
+                # the same "random" mics for Iteration 100 every time you run the script.
+                # obs_indices = torch.randperm(N, device=dev)[:M]
+
+                # or we can precompute this as well
+                abs_src_idx = sample_indices[i] 
+                obs_indices = self.perm_matrix[:M, abs_src_idx].to(dev)
 
             # 3. Gather coordinates and values
             obs_xyz = self.grid_xyz[obs_indices]  # [M, 3]
@@ -1864,8 +1873,17 @@ class ATF3DTrainer(Trainer):
 
     def get_train_loss_flow_matching(self, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
+        iteration = kwargs.get('iteration')
+
+        torch.manual_seed(iteration) # controls which 4 (batch_size) sources are picked and what $M$ is
+
+        # 2. Now everything below is tied to 'iteration'
+        # This picks the SAME 4 sources every time this iteration is run
         # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
-        z_full, src_xyz, _ = self.path.p_data.sample(batch_size)
+        z_full, src_xyz, indices = self.path.p_data.sample(batch_size)
+
+        # Pass abs_src_ids to make mic selection use your perm_matrix even in training
+        abs_src_ids = self.path.p_data.sample_info[indices].flatten()
 
         dev = next(self.model.parameters()).device
         z_full = z_full.to(dev)
@@ -1874,7 +1892,10 @@ class ATF3DTrainer(Trainer):
         x1 = z_full
 
         # 2. Create the sparse observation set on the fly
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(z_full, src_xyz)
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, 
+                                                                        sample_indices=abs_src_ids, 
+                                                                        deterministic=False # Still random M [5, 50], but 'seeded' random
+                                                                        )
 
         # 3. Encode the observations into conditioning tokens
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
@@ -1998,7 +2019,6 @@ class ATF3DTrainer(Trainer):
 
         # Get absolute source IDs for deterministic mic selection
         abs_src_ids = valid_sampler.sample_info[indices].flatten()
-        print("abs_src_ids", abs_src_ids)
 
         obs_coords_rel, obs_values, obs_mask = self.make_observation_set(
             z_full, src_xyz, 
@@ -2047,6 +2067,7 @@ class ATF3DTrainer(Trainer):
         )
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
+        torch.manual_seed(42)  # Ensure t and x0 are also deterministic
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
         x0 = torch.randn_like(x1)
 
