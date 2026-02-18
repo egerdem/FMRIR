@@ -1709,7 +1709,7 @@ class ATF3DTrainer(Trainer):
         if idx_mes_pos_path and os.path.exists(idx_mes_pos_path):
             print(f"Loading mic permutation matrix from {idx_mes_pos_path}")
             # Shape (1331, 1024)
-            self.perm_matrix = torch.from_numpy(np.load(idx_mes_pos_path)).long().to(device)
+            self.perm_matrix = torch.from_numpy(np.load(idx_mes_pos_path)).long()
         else:
             self.perm_matrix = None
 
