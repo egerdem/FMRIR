@@ -74,7 +74,8 @@ def main(args):
                      "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
                      "min_lr": args.min_lr,
                      "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
-                     "validation_interval": args.validation_interval},
+                     "validation_interval": args.validation_interval,
+                     "idx_mes_pos_path": args.idx_mes_pos_path},
         "experiments_dir": args.experiments_dir
     }
 
@@ -258,7 +259,8 @@ def main(args):
         version=model_cfg.get("architecture_version"),
         setencoderversion=model_cfg.get("setencoder_version"),
         coord_mean=coord_mean,  # Pass the mean here
-        coord_std=coord_std  # Pass the std here
+        coord_std=coord_std,  # Pass the std here
+        idx_mes_pos_path= training_cfg.get("idx_mes_pos_path")
     )
 
     training_cfg['warmup_iterations'] = args.warmup_iterations
@@ -321,6 +323,8 @@ if __name__ == '__main__':
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard', choices=['standard', 'weighted'],
                         help='Type of loss function for training: "standard" MSE or "weighted" perceptual MSE.')
+    parser.add_argument('--idx_mes_pos_path', type=str, default="idx_mes_pos_s1024_m1331.npy",
+                        help='Path to the deterministic mic permutation matrix for validation.')
 
     parser.add_argument('--FM_vs_Diff', type=str, default='flow_matching', choices=['flow_matching', 'score_matching'])
     parser.add_argument('--checkpoint_interval', type=int, default=3)

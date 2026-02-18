@@ -1702,8 +1702,17 @@ class CFGTrainer(Trainer):
 class ATF3DTrainer(Trainer):
     def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str,
                  version: bool, setencoderversion: str,
-                 coord_mean: torch.Tensor, coord_std: torch.Tensor, **kwargs):
+                 coord_mean: torch.Tensor, coord_std: torch.Tensor, idx_mes_pos_path=None, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
+
+        # Load deterministic mic permutation matrix for validation
+        if idx_mes_pos_path and os.path.exists(idx_mes_pos_path):
+            print(f"Loading mic permutation matrix from {idx_mes_pos_path}")
+            # Shape (1331, 1024)
+            self.perm_matrix = torch.from_numpy(np.load(idx_mes_pos_path)).long().to(device)
+        else:
+            self.perm_matrix = None
+
         self.path = path
         self.set_encoder = set_encoder
         self.eta = eta
@@ -1736,7 +1745,7 @@ class ATF3DTrainer(Trainer):
         # A learnable embedding for the unconditional (null) case
         # d_model = set_encoder.d_model
 
-    def make_observation_set(self, z_full, src_xyz):
+    def make_observation_set(self, z_full, src_xyz, sample_indices=None, deterministic=False):
         B, C, D, H, W = z_full.shape
         dev = z_full.device
 
@@ -1745,11 +1754,21 @@ class ATF3DTrainer(Trainer):
 
         N = self.grid_xyz.shape[0]  # Total number of mics (1331)
 
-        # DISCRETE older version
-        M_max = self.M_range[1]
+        if deterministic:
+            if self.perm_matrix is None:
+                raise ValueError("Deterministic mode requested but 'idx_mes_pos_path' was not provided/loaded.")
+            if sample_indices is None:
+                raise ValueError("Deterministic mode requires 'sample_indices' (absolute source IDs).")
+            # For validation we use fixed M=5 (as in evaluation)
+            M_fixed = 5
+            M_max = 5
 
-        # --- NEW: Get M_max from the list of choices ---
-        # M_max = max(self.M_range)
+        else:
+            # DISCRETE older version
+            M_max = self.M_range[1]
+
+            # --- NEW: Get M_max from the list of choices ---
+            # M_max = max(self.M_range)
 
         obs_coords_rel_list, obs_values_list, obs_mask_list = [], [], []
 
@@ -1758,11 +1777,19 @@ class ATF3DTrainer(Trainer):
             # Instead of sampling from a range, choose a value from the provided list
             # M = random.choice(self.M_range)
 
+            if deterministic:
+                M = M_fixed
+                # Lookup source-specific fixed mic indices
+                # sample_indices[i] is the ABSOLUTE source ID for this sample
+                abs_src_idx = sample_indices[i] 
+                # perm_matrix is [1331, 1024] -> col is source
+                obs_indices = self.perm_matrix[:M, abs_src_idx].to(dev)
+            
             # OLD VERSION:  1. Randomly pick M for this sample
-            M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
-
-            # 2. Randomly choose M mic indices
-            obs_indices = torch.randperm(N, device=dev)[:M]
+            else:
+                M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
+                # 2. Randomly choose M mic indices
+                obs_indices = torch.randperm(N, device=dev)[:M]
 
             # 3. Gather coordinates and values
             obs_xyz = self.grid_xyz[obs_indices]  # [M, 3]
@@ -1958,14 +1985,22 @@ class ATF3DTrainer(Trainer):
     @torch.no_grad()
     def get_val_loss_ddpm(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
-        z_full, src_xyz, _ = valid_sampler.sample(batch_size)
+        z_full, src_xyz, indices = valid_sampler.sample(batch_size)
 
         dev = next(self.model.parameters()).device
         z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
 
         x1 = z_full
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        # Get absolute source IDs for deterministic mic selection
+        abs_src_ids = valid_sampler.sample_info[indices].flatten()
+        print("abs_src_ids", abs_src_ids)
+
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(
+            z_full, src_xyz, 
+            sample_indices=abs_src_ids, 
+            deterministic = self.perm_matrix is not None
+        )
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
@@ -1989,7 +2024,8 @@ class ATF3DTrainer(Trainer):
     @torch.no_grad()
     def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
-        z_full, src_xyz, _ = valid_sampler.sample(batch_size)
+        # Return indices too
+        z_full, src_xyz, indices = valid_sampler.sample(batch_size)
 
         dev = next(self.model.parameters()).device
         z_full = z_full.to(dev)
@@ -1997,7 +2033,14 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(z_full, src_xyz)
+        # Get absolute source IDs for deterministic mic selection
+        abs_src_ids = valid_sampler.sample_info[indices].flatten()
+
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(
+            z_full, src_xyz, 
+            sample_indices=abs_src_ids, 
+            deterministic = self.perm_matrix is not None
+        )
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
