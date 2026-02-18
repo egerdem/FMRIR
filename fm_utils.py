@@ -1700,7 +1700,7 @@ class CFGTrainer(Trainer):
 
 
 class ATF3DTrainer(Trainer):
-    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str,
+    def __init__(self, path, model, set_encoder, eta, M_range, M_val_fixed, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str,
                  version: bool, setencoderversion: str,
                  coord_mean: torch.Tensor, coord_std: torch.Tensor, idx_mes_pos_path=None, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
@@ -1717,6 +1717,7 @@ class ATF3DTrainer(Trainer):
         self.set_encoder = set_encoder
         self.eta = eta
         self.M_range = (int(M_range[0]), int(M_range[1]))
+        self.M_val_fixed = M_val_fixed
         self.sigma = sigma
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
 
@@ -1759,9 +1760,8 @@ class ATF3DTrainer(Trainer):
                 raise ValueError("Deterministic mode requested but 'idx_mes_pos_path' was not provided/loaded.")
             if sample_indices is None:
                 raise ValueError("Deterministic mode requires 'sample_indices' (absolute source IDs).")
-            # For validation we use fixed M=5 (as in evaluation)
-            M_fixed = 5
-            M_max = 5
+            # For validation we use fixed M (as in evaluation)
+            M_max = self.M_val_fixed
 
         else:
             # DISCRETE older version
@@ -1778,7 +1778,7 @@ class ATF3DTrainer(Trainer):
             # M = random.choice(self.M_range)
 
             if deterministic:
-                M = M_fixed
+                M = self.M_val_fixed
                 # Lookup source-specific fixed mic indices
                 # sample_indices[i] is the ABSOLUTE source ID for this sample
                 abs_src_idx = sample_indices[i] 
