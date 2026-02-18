@@ -19,10 +19,10 @@ FSMPAE_RESULTS_PATH = "RESULTS/out_20250916_EEAE_10001/atf_mag/atf_mag_test_ir_f
 KRR_RESULTS_PATH = "RESULTS/out_20250324_KRR_10004/atf_mag/atf_mag_test_ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200.pt"
 
 # Evaluation parameters
-M_VALUES = [5, 20]  # Number of microphones to evaluate
+M_VALUES = [5]  # Number of microphones to evaluate
 GUIDANCE_SCALE = 1.0  # Guidance scale for your model
 NUM_TIMESTEPS = 10  # Number of timesteps for generation
-NUM_SOURCES = 3  # Number of test sources to evaluate (None for all)
+NUM_SOURCES = 102  # Number of test sources to evaluate (None for all)
 
 # Set random seeds
 torch.manual_seed(SEED)

@@ -1841,34 +1841,52 @@ class ATF3DTrainer(Trainer):
 
         return torch.stack(obs_coords_rel_list), torch.stack(obs_values_list), torch.stack(obs_mask_list)
 
-    def make_observation_set_fast(self, z_full, src_xyz):
-        """Fast GPU-native version of make_observation_set that avoids CPU synchronization."""
+    def make_observation_set_fast(self, z_full, src_xyz, sample_indices=None, deterministic=False):
+        """
+        Vectorized GPU version of make_observation_set.
+        Handles both deterministic (validation) and random (training) mic selection.
+        """
         B, C, D, H, W = z_full.shape
         dev = z_full.device
         N = self.grid_xyz.shape[0]
-        M_max = self.M_range[1]
 
-        # 1) Sample M for whole batch ON GPU (no .item())
-        M = torch.randint(self.M_range[0], self.M_range[1] + 1, (B,), device=dev)
+        if deterministic:
+            if self.perm_matrix is None or sample_indices is None:
+                raise ValueError("Deterministic mode requires perm_matrix and sample_indices.")
 
-        # 2) Sample indices without replacement (uniform) via topk of random scores
-        scores = torch.rand(B, N, device=dev)
-        obs_idx = torch.topk(scores, k=M_max, dim=1).indices            # [B, M_max]
+            M_current = self.M_val_fixed  # Scalar fixed value (e.g., 5)
+            M_max = M_current
+            # Shape: [B, M_max]
+            obs_idx = self.perm_matrix[:M_current, sample_indices].T.to(dev)
+            # For fixed M, the mask is just all True
+            mask = torch.ones(B, M_max, dtype=torch.bool, device=dev)
+        else:
+            M_max = self.M_range[1]
+            # 1) Sample M for the whole batch
+            M = torch.randint(self.M_range[0], M_max + 1, (B,), device=dev)  # [B]
 
-        # 3) Mask for variable M
-        ar = torch.arange(M_max, device=dev).unsqueeze(0)               # [1, M_max]
-        mask = ar < M.unsqueeze(1)                                      # [B, M_max] bool
+            # 2) Tie mic selection to perm_matrix columns for training consistency
+            # Shape: [B, M_max]
+            obs_idx = self.perm_matrix[:M_max, sample_indices].T.to(dev)
+
+            # 3) Mask for variable M
+            ar = torch.arange(M_max, device=dev).unsqueeze(0)  # [1, M_max]
+            mask = ar < M.unsqueeze(1)  # [B, M_max] bool
 
         # 4) Coordinates (relative + normalize)
-        obs_xyz = self.grid_xyz[obs_idx]                                # [B, M_max, 3]
-        rel = obs_xyz - src_xyz.unsqueeze(1)                            # [B, M_max, 3]
-        rel = (rel - self.coord_mean) / (self.coord_std + 1e-8)
+        # self.grid_xyz is [N, 3], obs_idx is [B, M_max] -> result [B, M_max, 3]
+        obs_xyz = self.grid_xyz[obs_idx]
+        rel = obs_xyz - src_xyz.unsqueeze(1)  # [B, M_max, 3]
+        rel = (rel - self.coord_mean) / (self.coord_std + 1e-8)  #
 
         # 5) Values gather
-        z_flat = z_full.view(B, C, -1)                                  # [B, C, N]
-        idx = obs_idx.unsqueeze(1).expand(-1, C, -1)                    # [B, C, M_max]
-        vals = torch.gather(z_flat, 2, idx).transpose(1, 2)             # [B, M_max, C]
+        z_flat = z_full.view(B, C, -1)  # [B, C, N]
+        # Expand indices to match [B, C, M_max] for torch.gather
+        idx_expanded = obs_idx.unsqueeze(1).expand(-1, C, -1)
+        vals = torch.gather(z_flat, 2, idx_expanded).transpose(1, 2)  # [B, M_max, C]
 
+        # Note: If not deterministic, vals and rel contain "junk" data in the padded areas,
+        # but the 'mask' ensures the Transformer ignores them.
         return rel, vals, mask
 
     def get_train_loss_flow_matching(self, **kwargs) -> torch.Tensor:
@@ -1892,7 +1910,7 @@ class ATF3DTrainer(Trainer):
         x1 = z_full
 
         # 2. Create the sparse observation set on the fly
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz, 
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(z_full, src_xyz,
                                                                         sample_indices=abs_src_ids, 
                                                                         deterministic=False # Still random M [5, 50], but 'seeded' random
                                                                         )
@@ -2060,7 +2078,7 @@ class ATF3DTrainer(Trainer):
         # Get absolute source IDs for deterministic mic selection
         abs_src_ids = valid_sampler.sample_info[indices].flatten()
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(
             z_full, src_xyz, 
             sample_indices=abs_src_ids, 
             deterministic = self.perm_matrix is not None
