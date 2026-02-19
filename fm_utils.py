@@ -1747,6 +1747,11 @@ class ATF3DTrainer(Trainer):
         else:
             print("--- Using STANDARD training loss. ---")
 
+        if self.perm_matrix is None:
+            print("--- Mode: Tokyo | train: random mics | val: random mics ---")
+        else:
+            print(f"--- Mode: Training: Tokyo (seeded) | Validation: Fixed (M={self.M_val_fixed}, deterministic) ---")
+
         # A learnable embedding for the unconditional (null) case
         # d_model = set_encoder.d_model
 
@@ -1898,10 +1903,7 @@ class ATF3DTrainer(Trainer):
         # 2. Now everything below is tied to 'iteration'
         # This picks the SAME 4 sources every time this iteration is run
         # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
-        z_full, src_xyz, indices = self.path.p_data.sample(batch_size)
-
-        # Pass abs_src_ids to make mic selection use your perm_matrix even in training
-        abs_src_ids = self.path.p_data.sample_info[indices].flatten()
+        z_full, src_xyz, _ = self.path.p_data.sample(batch_size)
 
         dev = next(self.model.parameters()).device
         z_full = z_full.to(dev)
@@ -1910,10 +1912,9 @@ class ATF3DTrainer(Trainer):
         x1 = z_full
 
         # 2. Create the sparse observation set on the fly
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(z_full, src_xyz,
-                                                                        sample_indices=abs_src_ids, 
-                                                                        deterministic=False # Still random M [5, 50], but 'seeded' random
-                                                                        )
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz,
+        deterministic=False) # Still random M [5, 50], but 'seeded' random
+                                                                        
 
         # 3. Encode the observations into conditioning tokens
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
