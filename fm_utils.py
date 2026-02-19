@@ -2079,7 +2079,7 @@ class ATF3DTrainer(Trainer):
         # Get absolute source IDs for deterministic mic selection
         abs_src_ids = valid_sampler.sample_info[indices].flatten()
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(
             z_full, src_xyz, 
             sample_indices=abs_src_ids, 
             deterministic = self.perm_matrix is not None
