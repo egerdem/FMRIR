@@ -82,6 +82,7 @@ MULTI_MODEL_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/KCL_r1_M5_50_M_val_fixed5_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_300k_20260218-152300_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/KCL_r1_M5_50_M_val_fixed5_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_300k_20260218-152300_iter300000/model_194199_0.14274.pt",
       "/Users/ege/Projects/FMRIR/artifacts/KCL_r1_M5_50_Mvalfixed5_determinist_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_300k_20260218-210152_iter300000/model.pt",
+      "/Users/ege/Projects/FMRIR/artifacts/KCL_TokyoReconstruct_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_300k_20260220-211912_iter300000/model_293399_0.11943.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_lossWeighted_20250907-204302_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-231553_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt"
