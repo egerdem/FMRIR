@@ -1803,11 +1803,8 @@ class ATF3DTrainer(Trainer):
                 # 2. Randomly choose M mic indices
                 # Because you seeded the iteration, this will pick 
                 # the same "random" mics for Iteration 100 every time you run the script.
-                # obs_indices = torch.randperm(N, device=dev)[:M]
+                obs_indices = torch.randperm(N, device=dev)[:M]
 
-                # or we can precompute this as well
-                abs_src_idx = sample_indices[i] 
-                obs_indices = self.perm_matrix[:M, abs_src_idx].to(dev)
 
             # 3. Gather coordinates and values
             obs_xyz = self.grid_xyz[obs_indices]  # [M, 3]
