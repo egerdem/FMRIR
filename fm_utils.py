@@ -664,8 +664,9 @@ class Simulator(ABC):
         Returns:
             - x_final: final state at time ts[-1], shape (bs, c, h, w)
         """
+        silent = kwargs.pop('silent', False)
         nts = ts.shape[1]
-        for t_idx in tqdm(range(nts - 1)):
+        for t_idx in tqdm(range(nts - 1), disable=silent):
             t = ts[:, t_idx]
             h = ts[:, t_idx + 1] - ts[:, t_idx]
             x = self.step(x, t, h, **kwargs)
@@ -947,10 +948,11 @@ class Trainer(ABC):
             print("Using LR schedule: Cosine Annealing without warm-up.")
             scheduler = CosineAnnealingLR(opt, T_max=num_iterations, eta_min=min_lr)
 
-        # NEW: Initialize the EarlyStopping monitor
+        # NEW: Initialize the EarlyStopping monitor (tracks LSD — the real metric)
         early_stopper = EarlyStopping(patience=early_stopping_patience)
         # --- State Tracking ---
-        best_val_loss = float("inf")
+        best_val_loss = float("inf")  # FM-MSE (reference only)
+        best_val_lsd  = float("inf")  # LSD in dB (primary save criterion)
         best_iteration = start_iteration
 
         # --- Timing Tracking ---
@@ -1076,19 +1078,23 @@ class Trainer(ABC):
                 for model in self.models.values():
                     model.eval()
                 val_loss, val_lsd = self.get_valid_loss(valid_sampler=valid_sampler, **kwargs)
-                # **NEW: Log validation loss to wandb**
-                wandb.log({"val_loss": val_loss.item(), "val_lsd": val_lsd.item(), "epoch": current_epoch, "iteration": iteration})
+                wandb.log({"val_loss": val_loss.item(), "val_lsd": val_lsd.item(),
+                           "epoch": current_epoch, "iteration": iteration})
                 pbar.set_description(
-                    f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.5f}, Val Loss: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
+                    f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.5f}, '
+                    f'Val Loss: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
 
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
+                # Always track FM-MSE (reference)
+                best_val_loss = min(best_val_loss, val_loss.item())
+
+                # ── Primary criterion: save on best LSD ─────────────────────
+                if val_lsd < best_val_lsd:
+                    best_val_lsd = val_lsd
                     best_val_loss_time = time.time()
                     print(
-                        f"** [Iter {iteration}] New best val. loss found for: train loss: {loss.item():.5f} and val loss: {best_val_loss:.5f}. Val LSD: {val_lsd.item():.4f}. Saving model. **")
+                        f"** [Iter {iteration}] New best LSD: {best_val_lsd:.4f} dB while val loss: {val_loss.item():.5f} "
+                        f"(train loss: {loss.item():.5f}). Saving model. **")
 
-                    # Save best model state for inference
-                    # Handle different y_null types
                     y_null_to_save = None
                     if hasattr(self, 'set_encoder') and self.set_encoder is not None:
                         y_null_to_save = self.set_encoder.y_null_token
@@ -1096,35 +1102,36 @@ class Trainer(ABC):
                         y_null_to_save = self.y_null
 
                     best_model_state = {
-                        # 'model_state_dict': self.model.state_dict(),
                         'model_states': {key: model.state_dict() for key, model in self.models.items()},
                         'optimizer_state_dict': opt.state_dict(),
-                        'iteration': iteration + 1,  # Store next iteration for resuming
-                        'best_val_loss': best_val_loss,
+                        'iteration': iteration + 1,
+                        'best_val_loss': best_val_loss,  # FM-MSE for reference
+                        'best_val_lsd':  best_val_lsd,   # LSD — primary metric
                         'best_iteration': iteration,
                         'config': config,
                         'wandb_run_id': config.get('wandb_run_id'),
                         'y_null_token': y_null_to_save,
-                        'is_best': True  # Flag to indicate this is best model
+                        'is_best': True
                     }
-                    # Stable pointer to current best (guard against interruptions)
 
                     torch.save(best_model_state, save_path)
-                    best_iteration = iteration  # Update global tracking
+                    best_iteration = iteration
 
                     if iteration > checkpoint_interval:
-                        print(iteration, checkpoint_interval)
-                        filename_part_formatted = f"model_{iteration}_{best_val_loss:.5f}.pt"
-                        # Get the directory where the main model.pt is saved (same as save_path directory)
+                        filename_part_formatted = f"model_{iteration}_lsd{best_val_lsd:.4f}.pt"
                         experiment_dir = os.path.dirname(save_path)
                         MODEL_SAVE_PATH = os.path.join(experiment_dir, filename_part_formatted)
                         torch.save(best_model_state, MODEL_SAVE_PATH)
 
-                # NEW: Check for early stopping
-                if early_stopper.step(val_loss):
-                    print(f"--- Early stopping triggered at iteration {iteration} with val_loss: {val_loss}---")
+                # Restore train mode after validation
+                for model in self.models.values():
+                    model.train()
+
+                # Early stopping tracks LSD
+                if early_stopper.step(val_lsd):
+                    print(f"--- Early stopping triggered at iteration {iteration} with val LSD: {val_lsd:.4f} dB ---")
                     flag_save = True
-                    break  # Exit the training loop
+                    break
 
             else:
                 pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.5f}')
@@ -1202,15 +1209,15 @@ class Trainer(ABC):
             else:
                 return f"{secs:.1f}s"
 
-        print(f"--- Training finished. Best validation loss was {best_val_loss:.5f} at iteration {best_iteration}. ---")
+        print(f"--- Training finished. Best LSD: {best_val_lsd:.4f} dB | Best FM-MSE: {best_val_loss:.5f} | at iteration {best_iteration}. ---")
         print(f"--- TIMING SUMMARY ---")
         print(f"Total training time: {format_time(total_training_time)}")
-        print(f"Time to reach best validation loss: {format_time(time_to_best_val_loss)}")
+        print(f"Time to reach best LSD: {format_time(time_to_best_val_loss)}")
         print(f"Time per epoch: {format_time(time_per_epoch)}")
         print(f"Total epochs completed: {total_epochs:.2f}")
         print("--- END TIMING SUMMARY ---")
 
-        return best_val_loss
+        return best_val_lsd
 
 
 class ATF3DSampler(torch.nn.Module, Sampleable):
@@ -2071,57 +2078,64 @@ class ATF3DTrainer(Trainer):
         return loss, lsd
 
     @torch.no_grad()
-    def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
+    def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
         batch_size = kwargs.get('batch_size')
-        # Return indices too
         z_full, src_xyz, indices = valid_sampler.sample(batch_size)
 
         dev = next(self.model.parameters()).device
         z_full = z_full.to(dev)
         src_xyz = src_xyz.to(dev)
-
         x1 = z_full
 
-        # Get absolute source IDs for deterministic mic selection
         abs_src_ids = valid_sampler.sample_info[indices].flatten()
-
         obs_coords_rel, obs_values, obs_mask = self.make_observation_set(
-            z_full, src_xyz, 
-            sample_indices=abs_src_ids, 
-            deterministic = self.perm_matrix is not None
+            z_full, src_xyz,
+            sample_indices=abs_src_ids,
+            deterministic=self.perm_matrix is not None
         )
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-        torch.manual_seed(42)  # Ensure t and x0 are also deterministic
-        t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
+        # ── 1. FM MSE  (single forward pass at random t, same as training) ──
+        torch.manual_seed(42)  # deterministic t and x0 so the loss is comparable between checks
+        t  = torch.rand(batch_size, device=dev).view(-1, 1, 1, 1, 1)
         x0 = torch.randn_like(x1)
+        xt     = (1 - (1 - self.sigma) * t) * x0 + t * x1
+        ut_ref =  x1 - (1 - self.sigma) * x0
 
-        xt = (1 - (1 - self.sigma) * t) * x0 + t * x1
-        ut_ref = x1 - (1 - self.sigma) * x0
-
-        model_kwargs = {
-            'context': y_tokens,
-            'context_mask': obs_mask
-        }
-
-        if self.version == "v2_residual_context" or self.version == "v3_attention":
+        model_kwargs = {'context': y_tokens, 'context_mask': obs_mask}
+        if self.version in ("v2_residual_context", "v3_attention"):
             model_kwargs['pooled_context'] = pooled_context
 
-        # For validation, we are always conditional
         ut_theta = self.model(xt, t, **model_kwargs)
-
-        # --- Standard Loss ---
         loss = torch.mean(torch.square(ut_theta - ut_ref))
 
-        # LSD monitor: use the predicted x1 = xt + (1-t)*ut_theta, denormalize, compute LSD
-        # pred_x1 approximation from the velocity: x1_hat = xt + (1-t)*ut_theta
-        mean, std = valid_sampler.mean.to(dev), valid_sampler.std.to(dev)
-        with torch.no_grad():
-            pred_x1 = xt + (1 - t) * ut_theta          # FM straight-line x1 estimate
-            pred_x1_db = pred_x1 * std + mean           # denormalize
-            x1_db    = x1      * std + mean
-        # LSD: sqrt(mean((pred-gt)^2, freq_dim=1)), then mean over batch+space
-        lsd = torch.sqrt(torch.mean((pred_x1_db - x1_db) ** 2, dim=1)).mean()
+        # ── 2. Real ODE reconstruction → LSD ────────────────────────────────
+        # Instantiate the correct ODE wrapper (references shared weights, no copy)
+        uses_pooled = self.version in ("v2_residual_context", "v3_attention")
+        ode = CFGVectorFieldODE_3D_V2(unet=self.model, set_encoder=self.set_encoder) \
+              if uses_pooled else \
+              CFGVectorFieldODE_3D(unet=self.model, set_encoder=self.set_encoder)
+        simulator = EulerSimulator(ode=ode)
+
+        torch.manual_seed(42)  # same seed → same starting noise as FM-MSE for consistency
+        x0_recon = torch.randn_like(x1)
+
+        N_STEPS = 10
+        ts = torch.linspace(0, 1, N_STEPS + 1, device=dev)
+        ts = ts.view(1, -1, 1, 1, 1, 1).expand(batch_size, -1, -1, -1, -1, -1)
+
+        sim_kwargs = dict(y_tokens=y_tokens, obs_mask=obs_mask, silent=True)
+        if uses_pooled:
+            sim_kwargs['pooled_context'] = pooled_context
+
+        x1_hat = simulator.simulate(x0_recon, ts, **sim_kwargs)  # [B, F, D, H, W]
+
+        mean_db = valid_sampler.mean.to(dev)
+        std_db  = valid_sampler.std.to(dev)
+        x1_hat_db = x1_hat * std_db + mean_db
+        x1_db     = x1     * std_db + mean_db
+        # LSD: sqrt(mean_over_freq((pred-gt)^2)), averaged over spatial positions and batch
+        lsd = torch.sqrt(torch.mean((x1_hat_db - x1_db) ** 2, dim=1)).mean()
 
         return loss, lsd
 
