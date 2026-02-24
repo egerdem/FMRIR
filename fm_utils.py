@@ -1075,17 +1075,17 @@ class Trainer(ABC):
                 # self.model.eval()
                 for model in self.models.values():
                     model.eval()
-                val_loss = self.get_valid_loss(valid_sampler=valid_sampler, **kwargs)
+                val_loss, val_lsd = self.get_valid_loss(valid_sampler=valid_sampler, **kwargs)
                 # **NEW: Log validation loss to wandb**
-                wandb.log({"val_loss": val_loss.item(), "epoch": current_epoch, "iteration": iteration})
+                wandb.log({"val_loss": val_loss.item(), "val_lsd": val_lsd.item(), "epoch": current_epoch, "iteration": iteration})
                 pbar.set_description(
-                    f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.5f}, Val Loss: {val_loss.item():.5f}')
+                    f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.5f}, Val Loss: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
                     best_val_loss_time = time.time()
                     print(
-                        f"** [Iter {iteration}] New best val. loss found for: train loss: {loss.item():.5f} and val loss: {best_val_loss:.5f}. Saving model. **")
+                        f"** [Iter {iteration}] New best val. loss found for: train loss: {loss.item():.5f} and val loss: {best_val_loss:.5f}. Val LSD: {val_lsd.item():.4f}. Saving model. **")
 
                     # Save best model state for inference
                     # Handle different y_null types
@@ -1793,8 +1793,8 @@ class ATF3DTrainer(Trainer):
                 abs_src_idx = sample_indices[i] 
                 # perm_matrix is [1331, 1024] -> col is source
                 obs_indices = self.perm_matrix[:M, abs_src_idx].to(dev)
-                if i == 0:
-                    print(f"DEBUG: Source {abs_src_idx} using mics: {obs_indices.cpu().numpy()}")
+                # if i == 0:
+                    # print(f"DEBUG: Source {abs_src_idx} using mics: {obs_indices.cpu().numpy()}")
             
             # OLD VERSION:  1. Randomly pick M for this sample 
             else:
@@ -2059,7 +2059,16 @@ class ATF3DTrainer(Trainer):
 
         loss = torch.mean(torch.square(predicted_noise - noise_target))
 
-        return loss
+        # LSD monitor: denormalize x1 vs a rough x0-prediction, freq_dim=1 ([B,F,D,H,W])
+        mean, std = valid_sampler.mean.to(dev), valid_sampler.std.to(dev)
+        x1_db = x1 * std + mean
+        # Predict x0 from noise prediction at a representative alpha_bar (midpoint t=0.5)
+        alpha_bar = self.ddpm_scheduler.alphas_cumprod[499].to(dev)
+        pred_x0 = (xt - (1 - alpha_bar).sqrt() * predicted_noise) / alpha_bar.sqrt()
+        pred_x0_db = pred_x0 * std + mean
+        lsd = torch.sqrt(torch.mean((pred_x0_db - x1_db) ** 2, dim=1)).mean()
+
+        return loss, lsd
 
     @torch.no_grad()
     def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
@@ -2100,18 +2109,28 @@ class ATF3DTrainer(Trainer):
 
         # For validation, we are always conditional
         ut_theta = self.model(xt, t, **model_kwargs)
-        # 7. Compute the loss based on the selected typeclass
 
         # --- Standard Loss ---
         loss = torch.mean(torch.square(ut_theta - ut_ref))
 
-        return loss
+        # LSD monitor: use the predicted x1 = xt + (1-t)*ut_theta, denormalize, compute LSD
+        # pred_x1 approximation from the velocity: x1_hat = xt + (1-t)*ut_theta
+        mean, std = valid_sampler.mean.to(dev), valid_sampler.std.to(dev)
+        with torch.no_grad():
+            pred_x1 = xt + (1 - t) * ut_theta          # FM straight-line x1 estimate
+            pred_x1_db = pred_x1 * std + mean           # denormalize
+            x1_db    = x1      * std + mean
+        # LSD: sqrt(mean((pred-gt)^2, freq_dim=1)), then mean over batch+space
+        lsd = torch.sqrt(torch.mean((pred_x1_db - x1_db) ** 2, dim=1)).mean()
+
+        return loss, lsd
 
     def get_valid_loss(self, **kwargs):
         if self.FM_vs_Diff == 'score_matching':
             return self.get_val_loss_ddpm(**kwargs)
         elif self.FM_vs_Diff == "flow_matching":  # Default to flow matching
             return self.get_val_loss_flow_matching(**kwargs)
+        # Both branches return (loss, lsd)
 
 
 # """ Part 3: An Architecture for Spectrograms: Building a U-Net """
