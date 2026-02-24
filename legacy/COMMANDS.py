@@ -3,15 +3,15 @@
 # KCL VM
 
 python trainer-atf-3d.py \
-    --model_name "KCL_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_300k" \
+    --model_name "KCL_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_600k" \
     --data_dir /home/ubuntu/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200 \
     --experiments_dir /home/ubuntu/EGE/FMRIR_experiments \
     --batch_size 4 \
-    --num_iterations 300000 \
+    --num_iterations 600000 \
     --lr 1e-4 \
     --min_lr 1e-5 \
     --warmup_iterations 5000 \
-    --decay_iterations 300000 \
+    --decay_iterations 600000 \
     --version "v1_legacy" \
     --setencoder_version "v3" \
     --freq_up_to 20 \
