@@ -1791,11 +1791,8 @@ class ATF3DTrainer(Trainer):
             M_max = self.M_val_fixed
 
         else:
-            # DISCRETE older version
-            M_max = self.M_range[1]
-
-            # --- NEW: Get M_max from the list of choices ---
-            # M_max = max(self.M_range)
+            # M_max for tensor padding: works for both [min,max] and discrete lists
+            M_max = max(self.M_range)
 
         obs_coords_rel_list, obs_values_list, obs_mask_list = [], [], []
 
@@ -1816,11 +1813,12 @@ class ATF3DTrainer(Trainer):
             
             # OLD VERSION:  1. Randomly pick M for this sample 
             else:
-                # SFlow ICASSP version compeltely random selection:
-                M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
-                # 2. Randomly choose M mic indices
-                # Because you seeded the iteration, this will pick 
-                # the same "random" mics for Iteration 100 every time you run the script.
+                # If M_range has >2 values treat as discrete choices (e.g. [5,10,20]);
+                # if exactly 2 values treat as [min, max] uniform range (e.g. [5,50]).
+                if len(self.M_range) > 2:
+                    M = random.choice(self.M_range)
+                else:
+                    M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
                 obs_indices = torch.randperm(N, device=dev)[:M]
 
 
