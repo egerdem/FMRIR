@@ -270,4 +270,6 @@ scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/VV_oldval_r1_ICASSP_M5_5
 scp -r k24037994@hpc.create.kcl.ac.uk:~/FMRIR_experiments/M5to50_SCOREMATCH_freq20_layer3_d512_eta0_head8_sigma2e1_lrWARM20k_e4_toe5_unet4v1_setv3_20250909-061709_iter300000 /Users/ege/Projects/FMRIR/artifacts
 
 
-
+# cloud-iov'dan locale
+scp -r cloud-iov:~/EGE/FMRIR_experiments/KCL_10stepValLSDlossALL102src_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_300k_20260224-195932_iter300000 \
+/Users/ege/Projects/FMRIR/artifacts/
