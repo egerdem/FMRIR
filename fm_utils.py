@@ -1074,10 +1074,20 @@ class Trainer(ABC):
 
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
-                # self.model.eval()
                 for model in self.models.values():
                     model.eval()
+
+                # Save RNG state: validation uses torch.manual_seed() internally;
+                # restoring afterwards ensures training randomness is unaffected.
+                _cpu_rng = torch.get_rng_state()
+                _cuda_rng = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+
                 val_loss, val_lsd = self.get_valid_loss(valid_sampler=valid_sampler, **kwargs)
+
+                # Restore training RNG state
+                torch.set_rng_state(_cpu_rng)
+                if _cuda_rng is not None:
+                    torch.cuda.set_rng_state_all(_cuda_rng)
                 wandb.log({"val_loss": val_loss.item(), "val_lsd": val_lsd.item(),
                            "epoch": current_epoch, "iteration": iteration})
                 pbar.set_description(
@@ -1902,7 +1912,7 @@ class ATF3DTrainer(Trainer):
         batch_size = kwargs.get('batch_size')
         iteration = kwargs.get('iteration')
 
-        torch.manual_seed(iteration) # controls which 4 (batch_size) sources are picked and what $M$ is
+        torch.manual_seed(42 + iteration)  # deterministic per-step: batch, mics, t, x0, CFG mask
 
         # 2. Now everything below is tied to 'iteration'
         # This picks the SAME 4 sources every time this iteration is run
