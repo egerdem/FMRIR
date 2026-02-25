@@ -1737,7 +1737,7 @@ class ATF3DTrainer(Trainer):
         self.path = path
         self.set_encoder = set_encoder
         self.eta = eta
-        self.M_range = (int(M_range[0]), int(M_range[1]))
+        self.M_range = [int(x) for x in M_range]  # preserve full list (e.g. [5,10,20,50])
         self.M_val_fixed = M_val_fixed
         self.sigma = sigma
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
@@ -1878,9 +1878,15 @@ class ATF3DTrainer(Trainer):
             # For fixed M, the mask is just all True
             mask = torch.ones(B, M_max, dtype=torch.bool, device=dev)
         else:
-            M_max = self.M_range[1]
+            M_max = max(self.M_range)
             # 1) Sample M for the whole batch
-            M = torch.randint(self.M_range[0], M_max + 1, (B,), device=dev)  # [B]
+            # Discrete list (e.g. [5,10,20,50]): pick one value uniformly from the list
+            # Contiguous range (e.g. [5,50], len==2): sample uniformly in [min, max]
+            if len(self.M_range) > 2:
+                m_val = random.choice(self.M_range)
+                M = torch.full((B,), m_val, dtype=torch.long, device=dev)
+            else:
+                M = torch.randint(self.M_range[0], M_max + 1, (B,), device=dev)  # [B]
 
             # 2) Tie mic selection to perm_matrix columns for training consistency
             # Shape: [B, M_max]
