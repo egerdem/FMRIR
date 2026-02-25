@@ -3,6 +3,8 @@ from torchvision import transforms
 import os
 import json
 import time
+import random
+import numpy as np
 import wandb
 import argparse
 from tqdm import tqdm
@@ -12,6 +14,18 @@ from fm_utils import (model_factory,
                       LinearAlpha, LinearBeta,
                       ATF3DTrainer
                       )
+
+
+def set_all_seeds(seed: int = 42):
+    """Seed all RNGs for reproducible training.
+    NOTE: does NOT set cudnn.deterministic=True (expensive for conv models).
+    cudnn.benchmark=False is enough to prevent non-deterministic algorithm selection.
+    """
+    torch.manual_seed(seed)          # seeds CPU and CUDA RNGs
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.benchmark = False  # disable auto-tuner (cheap, removes one source of non-det.)
 
 
 def calculate_and_cache_coord_stats(train_sampler, dataset_version="r1"):
@@ -54,6 +68,10 @@ def calculate_and_cache_coord_stats(train_sampler, dataset_version="r1"):
 
 
 def main(args):
+    # Seed all RNGs first, before any data loading or model construction.
+    # This makes training batch order, t, x0 draws, and val metrics reproducible.
+    set_all_seeds(seed=42)
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # --- 1. Initial Config from Arguments ---
