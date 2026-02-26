@@ -20,11 +20,9 @@ class SetEncoder(nn.Module):
     using a dedicated positional encoding for the coordinates.
     """
 
-    def __init__(self, num_freqs, d_model, nhead, num_layers):
+    def __init__(self, num_freqs, d_model, nhead, num_layers, coord_dim=3):
         super().__init__()
         self.d_model = d_model
-
-        # ### <<< CHANGE 1: Create two separate MLPs
 
         # An MLP for the "what": the ATF values
         self.value_tokenizer = nn.Sequential(
@@ -33,9 +31,11 @@ class SetEncoder(nn.Module):
             nn.Linear(d_model, d_model)
         )
 
-        # A separate MLP for the "where": the relative coordinates. This is our positional encoding.
+        # A separate MLP for the "where": the coordinate conditioning vector.
+        # coord_dim=3  → only relative mic position  (default, backward compatible)
+        # coord_dim=7  → [rel_pos(3), abs_src(3), d_wall(1)]  (geo_conditioning=True)
         self.positional_encoder = nn.Sequential(
-            nn.Linear(3, d_model),
+            nn.Linear(coord_dim, d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model)
         )
@@ -163,12 +163,13 @@ def model_factory(config, device):
     # --- Instantiate models based on version ---
     if setversion == "v3":
         print("--- Creating set encoder v3 ---")
-        # --- Instantiate models based on version ---
+        coord_dim = model_cfg.get('coord_dim', 3)
         set_encoder = SetEncoder(
             num_freqs=model_cfg['freq_up_to'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
-            num_layers=model_cfg['num_encoder_layers']
+            num_layers=model_cfg['num_encoder_layers'],
+            coord_dim=coord_dim
         ).to(device)
 
     elif setversion == "v12" or setversion is None:
@@ -1742,6 +1743,8 @@ class ATF3DTrainer(Trainer):
         self.M_val_fixed = M_val_fixed
         self.sigma = sigma
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
+        self.geo_conditioning = kwargs.get('geo_conditioning', False)
+        self.room_dims = kwargs.get('room_dims', None)  # (Lx, Ly, Lz) in metres
 
         self.version = version
         self.setencoderversion = setencoderversion
@@ -1901,10 +1904,31 @@ class ATF3DTrainer(Trainer):
             ar = torch.arange(M_max, device=dev).unsqueeze(0)  # [1, M_max]
             mask = ar < M.unsqueeze(1)                          # [B, M_max] bool
 
-        # ── 4. Coordinates (relative + normalised) ───────────────────────────
+        # ── 4. Coordinates (relative + normalised, optionally geo-augmented) ──
         obs_xyz = self.grid_xyz[obs_idx]                          # [B, M_max, 3]
         rel = obs_xyz - src_xyz.unsqueeze(1)                      # [B, M_max, 3]
         rel = (rel - self.coord_mean) / (self.coord_std + 1e-8)
+
+        if self.geo_conditioning and self.room_dims is not None:
+            # Absolute source position normalised to [0, 1] by room extent
+            Lx, Ly, Lz = self.room_dims
+            room_t = torch.tensor([Lx, Ly, Lz], dtype=src_xyz.dtype, device=dev)
+            abs_src_norm = src_xyz / room_t               # [B, 3]
+            abs_src_exp  = abs_src_norm.unsqueeze(1).expand(-1, M_max, -1)  # [B, M_max, 3]
+
+            # Distance-to-nearest-wall, normalised by half the smallest room dim
+            half = room_t / 2.0
+            d_wall = torch.min(                           # [B]
+                torch.stack([
+                    src_xyz[:, 0],       Lx - src_xyz[:, 0],
+                    src_xyz[:, 1],       Ly - src_xyz[:, 1],
+                    src_xyz[:, 2],       Lz - src_xyz[:, 2],
+                ], dim=1),
+                dim=1
+            ).values / half.min()
+            d_wall_exp = d_wall.view(B, 1, 1).expand(-1, M_max, 1)  # [B, M_max, 1]
+
+            rel = torch.cat([rel, abs_src_exp, d_wall_exp], dim=-1)  # [B, M_max, 7]
 
         # ── 5. Gather ATF values ─────────────────────────────────────────────
         z_flat = z_full.view(B, C, -1)                            # [B, C, N]
