@@ -1861,55 +1861,56 @@ class ATF3DTrainer(Trainer):
     def make_observation_set_fast(self, z_full, src_xyz, sample_indices=None, deterministic=False):
         """
         Vectorized GPU version of make_observation_set.
-        Handles both deterministic (validation) and random (training) mic selection.
+        Deterministic mode (validation): fixed M mics from perm_matrix per source.
+        Random mode (training): independently random M and random mics per sample,
+          mathematically equivalent to the loop-based make_observation_set.
         """
         B, C, D, H, W = z_full.shape
         dev = z_full.device
-        N = self.grid_xyz.shape[0]
+        N = self.grid_xyz.shape[0]  # total mic count (e.g. 1331)
 
         if deterministic:
             if self.perm_matrix is None or sample_indices is None:
                 raise ValueError("Deterministic mode requires perm_matrix and sample_indices.")
-
-            M_current = self.M_val_fixed  # Scalar fixed value (e.g., 5)
-            M_max = M_current
-            # Shape: [B, M_max]
-            obs_idx = self.perm_matrix[:M_current, sample_indices].T.to(dev)
-            # For fixed M, the mask is just all True
+            M_max = self.M_val_fixed
+            obs_idx = self.perm_matrix[:M_max, sample_indices].T.to(dev)  # [B, M_max]
             mask = torch.ones(B, M_max, dtype=torch.bool, device=dev)
+
         else:
             M_max = max(self.M_range)
-            # 1) Sample M for the whole batch
-            # Discrete list (e.g. [5,10,20,50]): pick one value uniformly from the list
-            # Contiguous range (e.g. [5,50], len==2): sample uniformly in [min, max]
+
+            # ── 1. Sample M independently per sample ────────────────────────
+            # Discrete list (e.g. [5,10,20,50]): draw one value per sample
+            # Contiguous range (e.g. [5,50]):     uniform integer per sample
             if len(self.M_range) > 2:
-                m_val = random.choice(self.M_range)
-                M = torch.full((B,), m_val, dtype=torch.long, device=dev)
+                M = torch.tensor(
+                    [random.choice(self.M_range) for _ in range(B)],
+                    dtype=torch.long, device=dev
+                )  # [B]
             else:
                 M = torch.randint(self.M_range[0], M_max + 1, (B,), device=dev)  # [B]
 
-            # 2) Tie mic selection to perm_matrix columns for training consistency
-            # Shape: [B, M_max]
-            obs_idx = self.perm_matrix[:M_max, sample_indices].T.to(dev)
+            # ── 2. Random mic indices per sample (vectorised randperm) ──────
+            # torch.rand(B, N).argsort(dim=1) gives B independent random
+            # permutations of [0..N-1], equivalent to calling randperm(N) B times.
+            rand_perms = torch.rand(B, N, device=dev).argsort(dim=1)  # [B, N]
+            obs_idx = rand_perms[:, :M_max]                            # [B, M_max]
 
-            # 3) Mask for variable M
+            # ── 3. Mask: True for the first M[i] positions ──────────────────
             ar = torch.arange(M_max, device=dev).unsqueeze(0)  # [1, M_max]
-            mask = ar < M.unsqueeze(1)  # [B, M_max] bool
+            mask = ar < M.unsqueeze(1)                          # [B, M_max] bool
 
-        # 4) Coordinates (relative + normalize)
-        # self.grid_xyz is [N, 3], obs_idx is [B, M_max] -> result [B, M_max, 3]
-        obs_xyz = self.grid_xyz[obs_idx]
-        rel = obs_xyz - src_xyz.unsqueeze(1)  # [B, M_max, 3]
-        rel = (rel - self.coord_mean) / (self.coord_std + 1e-8)  #
+        # ── 4. Coordinates (relative + normalised) ───────────────────────────
+        obs_xyz = self.grid_xyz[obs_idx]                          # [B, M_max, 3]
+        rel = obs_xyz - src_xyz.unsqueeze(1)                      # [B, M_max, 3]
+        rel = (rel - self.coord_mean) / (self.coord_std + 1e-8)
 
-        # 5) Values gather
-        z_flat = z_full.view(B, C, -1)  # [B, C, N]
-        # Expand indices to match [B, C, M_max] for torch.gather
-        idx_expanded = obs_idx.unsqueeze(1).expand(-1, C, -1)
+        # ── 5. Gather ATF values ─────────────────────────────────────────────
+        z_flat = z_full.view(B, C, -1)                            # [B, C, N]
+        idx_expanded = obs_idx.unsqueeze(1).expand(-1, C, -1)     # [B, C, M_max]
         vals = torch.gather(z_flat, 2, idx_expanded).transpose(1, 2)  # [B, M_max, C]
 
-        # Note: If not deterministic, vals and rel contain "junk" data in the padded areas,
-        # but the 'mask' ensures the Transformer ignores them.
+        # Padded positions hold junk values but mask ensures transformer ignores them.
         return rel, vals, mask
 
     def get_train_loss_flow_matching(self, **kwargs) -> torch.Tensor:
@@ -1929,10 +1930,10 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full
 
-        # 2. Create the sparse observation set on the fly
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz,
-        deterministic=False) # Still random M [5, 50], but 'seeded' random
-                                                                        
+        # 2. Create the sparse observation set (fast vectorised path)
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(
+            z_full, src_xyz, deterministic=False
+        )
 
         # 3. Encode the observations into conditioning tokens
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
