@@ -87,13 +87,15 @@ def main(args):
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
-                  "FM_vs_Diff": args.FM_vs_Diff},
+                  "FM_vs_Diff": args.FM_vs_Diff,
+                  "coord_dim": 7 if args.geo_conditioning else 3},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
                      "min_lr": args.min_lr,
                      "M_range": args.M_range, "M_val_fixed": args.M_val_fixed, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
                      "validation_interval": args.validation_interval,
-                     "idx_mes_pos_path": args.idx_mes_pos_path},
+                     "idx_mes_pos_path": args.idx_mes_pos_path,
+                     "geo_conditioning": args.geo_conditioning},
         "experiments_dir": args.experiments_dir
     }
 
@@ -264,6 +266,17 @@ def main(args):
     # model_cfg
     set_encoder, unet_3d = model_factory(config, device)
 
+    # Parse room dimensions from data_dir path (e.g. "...room4.0x6.0x3.0_rt200")
+    import re as _re
+    _m = _re.search(r'room(\d+\.?\d*)x(\d+\.?\d*)x(\d+\.?\d*)', args.data_dir)
+    room_dims = (float(_m.group(1)), float(_m.group(2)), float(_m.group(3))) if _m else None
+    if args.geo_conditioning:
+        if room_dims is None:
+            raise ValueError("--geo_conditioning requires room dims in data_dir path (e.g. room4.0x6.0x3.0)")
+        print(f"--- Geo conditioning ON: room_dims={room_dims}, coord_dim=7 ---")
+    else:
+        print("--- Geo conditioning OFF: coord_dim=3 (relative only) ---")
+
     trainer = ATF3DTrainer(
         path=path,
         model=unet_3d,
@@ -277,9 +290,11 @@ def main(args):
         grid_xyz=atf_train_sampler.grid_xyz,
         version=model_cfg.get("architecture_version"),
         setencoderversion=model_cfg.get("setencoder_version"),
-        coord_mean=coord_mean,  # Pass the mean here
-        coord_std=coord_std,  # Pass the std here
-        idx_mes_pos_path= training_cfg.get("idx_mes_pos_path")
+        coord_mean=coord_mean,
+        coord_std=coord_std,
+        idx_mes_pos_path=training_cfg.get("idx_mes_pos_path"),
+        geo_conditioning=args.geo_conditioning,
+        room_dims=room_dims,
     )
 
     training_cfg['warmup_iterations'] = args.warmup_iterations
@@ -348,6 +363,10 @@ if __name__ == '__main__':
 
     parser.add_argument('--FM_vs_Diff', type=str, default='flow_matching', choices=['flow_matching', 'score_matching'])
     parser.add_argument('--checkpoint_interval', type=int, default=3)
+    parser.add_argument('--geo_conditioning', action='store_true', default=False,
+                        help='If set, augment the set encoder coordinate input from 3D (relative only) '
+                             'to 7D: [rel_pos(3), abs_src_pos(3), d_to_nearest_wall(1)]. '
+                             'Requires room dims to be encoded in --data_dir path.')
     parser.add_argument('--validation_interval', type=int, default=20)
     parser.add_argument('--version', type=str, default="v3_attention",
                         help='Model architecture version, e.g. v1, v2, etc.')
