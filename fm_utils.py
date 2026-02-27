@@ -2158,7 +2158,7 @@ class ATF3DTrainer(Trainer):
             x1 = z_full
 
             # ── Conditioning ────────────────────────────────────────────────
-            obs_coords_rel, obs_values, obs_mask = self.make_observation_set(
+            obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(
                 z_full, src_xyz,
                 sample_indices=abs_src_ids,
                 deterministic=self.perm_matrix is not None
