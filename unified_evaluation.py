@@ -647,7 +647,11 @@ random_M_sampling = False
 
 # Set to True to generate distribution and ATF comparison PDFs after the summary table.
 # Printing the table is always executed regardless of this flag.
-GENERATE_PLOTS = False
+GENERATE_PLOTS = True
+
+# Set to True  → coord normalisation applied (correct, matches training pipeline for new runs).
+# Set to False → no coord normalisation (legacy behaviour; needed to reproduce old Tokyo best 2.86 dB).
+NORMALIZE_COORDS = True
 
 
 def get_dataset_version_from_data_dir(data_dir: str) -> str:
@@ -764,9 +768,9 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
         num_sources_eval, guidance_scales,
         random_M_sampling=random_M_sampling,
         model_name=model_name,
-        normalize_coords=True,
-        coord_mean=_coord_mean,
-        coord_std=_coord_std,
+        normalize_coords=NORMALIZE_COORDS,
+        coord_mean=_coord_mean if NORMALIZE_COORDS else None,
+        coord_std=_coord_std if NORMALIZE_COORDS else None,
     )
     all_your_results[model_name] = model_results
     
