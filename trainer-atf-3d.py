@@ -88,7 +88,7 @@ def main(args):
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
                   "FM_vs_Diff": args.FM_vs_Diff,
-                  "coord_dim": 7 if args.geo_conditioning else 3},
+                  "coord_dim": 9 if args.geo_conditioning else 3},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
                      "min_lr": args.min_lr,
@@ -273,7 +273,7 @@ def main(args):
     if args.geo_conditioning:
         if room_dims is None:
             raise ValueError("--geo_conditioning requires room dims in data_dir path (e.g. room4.0x6.0x3.0)")
-        print(f"--- Geo conditioning ON: room_dims={room_dims}, coord_dim=7 ---")
+        print(f"--- Geo conditioning ON: room_dims={room_dims}, coord_dim=9 (rel[3]+d_walls[6]) ---")
     else:
         print("--- Geo conditioning OFF: coord_dim=3 (relative only) ---")
 
