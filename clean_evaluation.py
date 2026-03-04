@@ -184,6 +184,20 @@ def evaluate_your_model(set_encoder, ode_3d, config, device, model_name, coord_m
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
     num_sources = NUM_SOURCES
+
+    # Detect geo_conditioning from checkpoint config and parse room dims
+    _geo = config.get('training', {}).get('geo_conditioning', False)
+    _room_dims = None
+    if _geo:
+        import re as _re_g
+        _cfg_dir = config.get('data', {}).get('data_dir', DATA_DIR)
+        _rm = _re_g.search(r'room(\d+\.?\d*)x(\d+\.?\d*)x(\d+\.?\d*)', _cfg_dir)
+        if _rm:
+            _room_dims = (float(_rm.group(1)), float(_rm.group(2)), float(_rm.group(3)))
+            print(f"  Geo-conditioning active: room_dims={_room_dims}, coord_dim=9")
+        else:
+            print("  WARNING: geo_conditioning=True but room dims not found. Using rel-only coords.")
+            _geo = False
     # Load data
     train_sampler = ATF3DSampler(
         data_path=DATA_DIR, mode='train', src_splits=src_split, 
@@ -230,6 +244,20 @@ def evaluate_your_model(set_encoder, ode_3d, config, device, model_name, coord_m
                     _cs = coord_std.to(device)
                     obs_coords_rel = (obs_coords_rel - _cm) / (_cs + 1e-8)
                 obs_coords_rel = obs_coords_rel.unsqueeze(0)  # [1, M, 3]
+
+                # Geo conditioning: append 6 wall distances if model was trained with --geo_conditioning
+                if _geo and _room_dims is not None:
+                    _Lx, _Ly, _Lz = _room_dims
+                    _half_min = min(_Lx, _Ly, _Lz) / 2.0
+                    _d_walls = torch.stack([
+                        src_xyz[:, 0],      _Lx - src_xyz[:, 0],
+                        src_xyz[:, 1],      _Ly - src_xyz[:, 1],
+                        src_xyz[:, 2],      _Lz - src_xyz[:, 2],
+                    ], dim=1) / _half_min  # [1, 6]
+                    obs_coords_rel = torch.cat([
+                        obs_coords_rel,
+                        _d_walls.unsqueeze(1).expand(-1, M, -1)  # [1, M, 6]
+                    ], dim=-1)  # [1, M, 9]
                 
                 z_flat = z_true.view(z_true.shape[1], -1)
                 obs_values = z_flat[:, obs_indices].transpose(0, 1).unsqueeze(0)

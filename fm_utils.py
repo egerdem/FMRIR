@@ -1910,25 +1910,20 @@ class ATF3DTrainer(Trainer):
         rel = (rel - self.coord_mean) / (self.coord_std + 1e-8)
 
         if self.geo_conditioning and self.room_dims is not None:
-            # Absolute source position normalised to [0, 1] by room extent
+            # 6 perpendicular wall distances in metres, normalised by half the minimum
+            # room dimension (half_min = 1.5 m for a 4×6×3 room) so values ∈ [0, ~4].
+            # Dividing by a fixed constant preserves absolute physical scale:
+            # the model learns e.g. "d≈0.13 → very close to wall → strong early reflection".
+            # This replaces the old abs_src_norm(3)+d_nearest(1) which was partially redundant.
             Lx, Ly, Lz = self.room_dims
-            room_t = torch.tensor([Lx, Ly, Lz], dtype=src_xyz.dtype, device=dev)
-            abs_src_norm = src_xyz / room_t               # [B, 3]
-            abs_src_exp  = abs_src_norm.unsqueeze(1).expand(-1, M_max, -1)  # [B, M_max, 3]
-
-            # Distance-to-nearest-wall, normalised by half the smallest room dim
-            half = room_t / 2.0
-            d_wall = torch.min(                           # [B]
-                torch.stack([
-                    src_xyz[:, 0],       Lx - src_xyz[:, 0],
-                    src_xyz[:, 1],       Ly - src_xyz[:, 1],
-                    src_xyz[:, 2],       Lz - src_xyz[:, 2],
-                ], dim=1),
-                dim=1
-            ).values / half.min()
-            d_wall_exp = d_wall.view(B, 1, 1).expand(-1, M_max, 1)  # [B, M_max, 1]
-
-            rel = torch.cat([rel, abs_src_exp, d_wall_exp], dim=-1)  # [B, M_max, 7]
+            half_min = min(Lx, Ly, Lz) / 2.0
+            d_walls = torch.stack([
+                src_xyz[:, 0],      Lx - src_xyz[:, 0],   # ←x, x→  wall distances
+                src_xyz[:, 1],      Ly - src_xyz[:, 1],   # ←y, y→
+                src_xyz[:, 2],      Lz - src_xyz[:, 2],   # ←z, z→
+            ], dim=1) / half_min                          # [B, 6]
+            d_walls_exp = d_walls.unsqueeze(1).expand(-1, M_max, -1)  # [B, M_max, 6]
+            rel = torch.cat([rel, d_walls_exp], dim=-1)  # [B, M_max, 9]
 
         # ── 5. Gather ATF values ─────────────────────────────────────────────
         z_flat = z_full.view(B, C, -1)                            # [B, C, N]

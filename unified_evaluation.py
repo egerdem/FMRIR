@@ -73,6 +73,20 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
     data_dir = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
+
+    # Detect geo_conditioning from checkpoint config and parse room dims
+    _geo = config.get('training', {}).get('geo_conditioning', False)
+    _room_dims = None
+    if _geo:
+        import re as _re_g
+        _cfg_dir = config.get('data', {}).get('data_dir', data_dir)
+        _rm = _re_g.search(r'room(\d+\.?\d*)x(\d+\.?\d*)x(\d+\.?\d*)', _cfg_dir)
+        if _rm:
+            _room_dims = (float(_rm.group(1)), float(_rm.group(2)), float(_rm.group(3)))
+            print(f"  Geo-conditioning active: room_dims={_room_dims}, coord_dim=9")
+        else:
+            print("  WARNING: geo_conditioning=True but room dims not found in data_dir. Using rel-only coords.")
+            _geo = False
     
     # Load data
     train_sampler = ATF3DSampler(
@@ -134,6 +148,20 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                         _cs = coord_std.to(device)
                         obs_coords_rel = (obs_coords_rel - _cm) / (_cs + 1e-8)
                     obs_coords_rel = obs_coords_rel.unsqueeze(0)  # [1, M, 3]
+
+                    # Geo conditioning: append 6 wall distances if model was trained with --geo_conditioning
+                    if _geo and _room_dims is not None:
+                        _Lx, _Ly, _Lz = _room_dims
+                        _half_min = min(_Lx, _Ly, _Lz) / 2.0
+                        _d_walls = torch.stack([
+                            src_xyz[:, 0],      _Lx - src_xyz[:, 0],
+                            src_xyz[:, 1],      _Ly - src_xyz[:, 1],
+                            src_xyz[:, 2],      _Lz - src_xyz[:, 2],
+                        ], dim=1) / _half_min  # [1, 6]
+                        obs_coords_rel = torch.cat([
+                            obs_coords_rel,
+                            _d_walls.unsqueeze(1).expand(-1, M, -1)  # [1, M, 6]
+                        ], dim=-1)  # [1, M, 9]
 
                     z_flat = z_true.view(z_true.shape[1], -1)
                     obs_values = z_flat[:, obs_indices].transpose(0, 1).unsqueeze(0)
@@ -529,6 +557,18 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
     if single_guidance is not None:
         guidance_scales = [single_guidance]
     print("Generating ATF predictions from your 3D model...")
+
+    # Detect geo_conditioning from checkpoint config
+    _geo_atf = config.get('training', {}).get('geo_conditioning', False)
+    _room_dims_atf = None
+    if _geo_atf:
+        import re as _re_atf
+        _cfg_dir_atf = config.get('data', {}).get('data_dir', data_path)
+        _rm_atf = _re_atf.search(r'room(\d+\.?\d*)x(\d+\.?\d*)x(\d+\.?\d*)', _cfg_dir_atf)
+        if _rm_atf:
+            _room_dims_atf = (float(_rm_atf.group(1)), float(_rm_atf.group(2)), float(_rm_atf.group(3)))
+        else:
+            _geo_atf = False
     
     # Load your data (same as in inference_1d_atf.py)
     data_path = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
@@ -588,7 +628,21 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
                 print("odtü", obs_indices)
             
             obs_xyz_abs = grid_xyz[obs_indices]
-            obs_coords_rel = (obs_xyz_abs - src_xyz).unsqueeze(0)
+            obs_coords_rel = (obs_xyz_abs - src_xyz).unsqueeze(0)  # [1, M, 3]
+
+            # Geo conditioning
+            if _geo_atf and _room_dims_atf is not None:
+                _Lx, _Ly, _Lz = _room_dims_atf
+                _half_min = min(_Lx, _Ly, _Lz) / 2.0
+                _d_walls = torch.stack([
+                    src_xyz[:, 0],      _Lx - src_xyz[:, 0],
+                    src_xyz[:, 1],      _Ly - src_xyz[:, 1],
+                    src_xyz[:, 2],      _Lz - src_xyz[:, 2],
+                ], dim=1) / _half_min  # [1, 6]
+                obs_coords_rel = torch.cat([
+                    obs_coords_rel,
+                    _d_walls.unsqueeze(1).expand(-1, M, -1)
+                ], dim=-1)  # [1, M, 9]
             
             z_flat = z_true.view(z_true.shape[1], -1)
             obs_values = z_flat[:, obs_indices].transpose(0, 1).unsqueeze(0)
@@ -639,7 +693,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-guidance_scales = [1.0]
+guidance_scales = [1.0, 2.0]
 M_values = [5]
 num_sources_eval = 102  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
@@ -647,7 +701,7 @@ random_M_sampling = False
 
 # Set to True to generate distribution and ATF comparison PDFs after the summary table.
 # Printing the table is always executed regardless of this flag.
-GENERATE_PLOTS = False
+GENERATE_PLOTS = True
 
 # Set to True  → coord normalisation applied (correct, matches training pipeline for new runs).
 # Set to False → no coord normalisation (legacy behaviour; needed to reproduce old Tokyo best 2.86 dB).
