@@ -105,7 +105,8 @@ MULTI_MODEL_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/KCL_RNG_Val102src10step_Mval5_r1_M5_10_20_50_100_200_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet4v1_setv3_300k_20260227-015304_iter300000/model_206899_lsd2.6973.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/KCL_RNG_Val102src10step_Mval5_r1_M5_10_20_50_100_200_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet4v1_setv3_300k_20260227-015304_iter300000/model_288299_lsd2.6896.pt",
 
-    "/Users/ege/Projects/FMRIR/artifacts/KCL_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_600k_20260224-134534_iter600000/model_293399_0.13596.pt"
+    # "/Users/ege/Projects/FMRIR/artifacts/KCL_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_600k_20260224-134534_iter600000/model_293399_0.13596.pt",
+    "/Users/ege/Projects/FMRIR/artifacts/KCL_RNG_Val102src10step_Mval5_r1_M5_10_20_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3v1_setv3_400k_20260302-215410_iter400000/model.pt"
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer4_d512_head8_sigma1e4_lrWARM5k_e4_toe6_ETA1e2_unet5_20250907-231553_iter300000/model.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma1e3_lrWARM5k_e4_toe5_unet4_setv3_20250908-151143_iter300000/model.pt"
     # "/Users/ege/Projects/FMRIR/artifacts/M5to50_freq20_layer3_d512_head8_sigma0_lrWARM5k_e4_toe7_unet3_setv3_20250908-152454_iter300000/model.pt"
