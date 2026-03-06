@@ -19,14 +19,36 @@ FSMPAE_RESULTS_PATH = "RESULTS/out_20250916_EEAE_10001/atf_mag/atf_mag_test_ir_f
 KRR_RESULTS_PATH = "RESULTS/out_20250324_KRR_10004/atf_mag/atf_mag_test_ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200.pt"
 
 # Evaluation parameters
-M_VALUES = [5, 20]  # Number of microphones to evaluate
+M_VALUES = [5]  # Number of microphones to evaluate
 GUIDANCE_SCALE = 1.0  # Guidance scale for your model
 NUM_TIMESTEPS = 10  # Number of timesteps for generation
-NUM_SOURCES = 3  # Number of test sources to evaluate (None for all)
+NUM_SOURCES = 102  # Number of test sources to evaluate (None for all)
+
+# Set to True  → coord normalisation applied (correct, matches training pipeline for new runs).
+# Set to False → no coord normalisation (legacy behaviour).
+NORMALIZE_COORDS = True
 
 # Set random seeds
 torch.manual_seed(SEED)
 np.random.seed(SEED)
+
+
+def load_coord_stats(data_dir: str):
+    """Load cached coord normalisation statistics (written by trainer-atf-3d.py).
+    Infers dataset version from data_dir path (e.g. s1024 -> r1, s8192 -> r4).
+    """
+    import re
+    m = re.search(r's(\d+)', data_dir)
+    version_map = {1024: 'r1', 2048: 'r2', 4096: 'r3', 8192: 'r4'}
+    dataset_version = version_map.get(int(m.group(1)), 'r1') if m else 'r1'
+    cache_path = f"coord_stats_{dataset_version}.pt"
+    if not os.path.exists(cache_path):
+        raise FileNotFoundError(
+            f"Coord stats cache not found: {cache_path}. "
+            "Run trainer-atf-3d.py once to generate it."
+        )
+    stats = torch.load(cache_path)
+    return stats['mean'], stats['std']  # both [3] tensors
 
 def load_reference_results():
     """Load pre-computed reference results."""
@@ -155,13 +177,27 @@ def evaluate_reference_method(atf_mag_est, atf_mag_gt, method_name, freq_up_to):
     
     return results
 
-def evaluate_your_model(set_encoder, ode_3d, config, device, model_name):
+def evaluate_your_model(set_encoder, ode_3d, config, device, model_name, coord_mean=None, coord_std=None):
     """Evaluate your 3D model."""
     print(f"Evaluating {model_name}...")
     
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
     num_sources = NUM_SOURCES
+
+    # Detect geo_conditioning from checkpoint config and parse room dims
+    _geo = config.get('training', {}).get('geo_conditioning', False)
+    _room_dims = None
+    if _geo:
+        import re as _re_g
+        _cfg_dir = config.get('data', {}).get('data_dir', DATA_DIR)
+        _rm = _re_g.search(r'room(\d+\.?\d*)x(\d+\.?\d*)x(\d+\.?\d*)', _cfg_dir)
+        if _rm:
+            _room_dims = (float(_rm.group(1)), float(_rm.group(2)), float(_rm.group(3)))
+            print(f"  Geo-conditioning active: room_dims={_room_dims}, coord_dim=9")
+        else:
+            print("  WARNING: geo_conditioning=True but room dims not found. Using rel-only coords.")
+            _geo = False
     # Load data
     train_sampler = ATF3DSampler(
         data_path=DATA_DIR, mode='train', src_splits=src_split, 
@@ -202,7 +238,26 @@ def evaluate_your_model(set_encoder, ode_3d, config, device, model_name):
                 obs_indices = torch.tensor(source_specific_indices, dtype=torch.long, device=device)
                 
                 obs_xyz_abs = grid_xyz[obs_indices]
-                obs_coords_rel = (obs_xyz_abs - src_xyz).unsqueeze(0)
+                obs_coords_rel = (obs_xyz_abs - src_xyz)  # [M, 3]
+                if NORMALIZE_COORDS and coord_mean is not None and coord_std is not None:
+                    _cm = coord_mean.to(device)
+                    _cs = coord_std.to(device)
+                    obs_coords_rel = (obs_coords_rel - _cm) / (_cs + 1e-8)
+                obs_coords_rel = obs_coords_rel.unsqueeze(0)  # [1, M, 3]
+
+                # Geo conditioning: append 6 wall distances if model was trained with --geo_conditioning
+                if _geo and _room_dims is not None:
+                    _Lx, _Ly, _Lz = _room_dims
+                    _half_min = min(_Lx, _Ly, _Lz) / 2.0
+                    _d_walls = torch.stack([
+                        src_xyz[:, 0],      _Lx - src_xyz[:, 0],
+                        src_xyz[:, 1],      _Ly - src_xyz[:, 1],
+                        src_xyz[:, 2],      _Lz - src_xyz[:, 2],
+                    ], dim=1) / _half_min  # [1, 6]
+                    obs_coords_rel = torch.cat([
+                        obs_coords_rel,
+                        _d_walls.unsqueeze(1).expand(-1, M, -1)  # [1, M, 6]
+                    ], dim=-1)  # [1, M, 9]
                 
                 z_flat = z_true.view(z_true.shape[1], -1)
                 obs_values = z_flat[:, obs_indices].transpose(0, 1).unsqueeze(0)
@@ -329,7 +384,20 @@ def main():
         checkpoint, config, model_states_cfg = load_model_and_config(model_path, device)
         set_encoder, unet_3d, ode_3d, is_new_model = model_factory(config, model_states_cfg, device)
 
-        model_results = evaluate_your_model(set_encoder, ode_3d, config, device, model_name)
+        # Load coord normalisation stats
+        _data_dir = config.get('data', {}).get('data_dir', DATA_DIR)
+        try:
+            _coord_mean, _coord_std = load_coord_stats(_data_dir)
+            print(f"  Coord stats loaded for '{_data_dir}': mean={_coord_mean}, std={_coord_std}")
+        except FileNotFoundError as e:
+            print(f"  WARNING: {e}. Running without coord normalisation.")
+            _coord_mean, _coord_std = None, None
+
+        model_results = evaluate_your_model(
+            set_encoder, ode_3d, config, device, model_name,
+            coord_mean=_coord_mean if NORMALIZE_COORDS else None,
+            coord_std=_coord_std if NORMALIZE_COORDS else None,
+        )
         all_results[model_name] = model_results
     
     # Print results table

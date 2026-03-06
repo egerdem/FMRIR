@@ -1,7 +1,34 @@
 
 
+# KCL VM
 
-python trainer-unet-ATF-CMD.py --resume_from_checkpoint /home/eerdem/DATA/artifacts/ATFUNet_20250806-185407_iter20000-best-model:v0/model.pt --resume_from_iteration 20000
+python trainer-atf-3d.py \
+    --model_name "KCL_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_600k" \
+    --data_dir /home/ubuntu/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200 \
+    --experiments_dir /home/ubuntu/EGE/FMRIR_experiments \
+    --batch_size 4 \
+    --num_iterations 600000 \
+    --lr 1e-4 \
+    --min_lr 1e-5 \
+    --warmup_iterations 5000 \
+    --decay_iterations 600000 \
+    --version "v1_legacy" \
+    --setencoder_version "v3" \
+    --freq_up_to 20 \
+    --channels 32,64,128,256 \
+    --d_model 512 \
+    --nhead 8 \
+    --num_encoder_layers 3 \
+    --M_range 5,50 \
+    --eta 0. \
+    --sigma 0. \
+    --FM_vs_Diff "flow_matching" \
+    --validation_interval 100 \
+    --checkpoint_interval 100000 \
+    --idx_mes_pos_path "idx_mes_pos_s1024_m1331.npy" \
+    --M_val_fixed 5
+ \
+    python trainer-unet-ATF-CMD.py --resume_from_checkpoint /home/eerdem/DATA/artifacts/ATFUNet_20250806-185407_iter20000-best-model:v0/model.pt --resume_from_iteration 20000
 --resume_run_id j30tdj4w  --sigma 0.0 --batch_size 250 --M 50 --validation_interval 20 --eta 0.1 --lr 1e-4 --num_iterations 40000 --checkpoint_interval 1000 --data_dir /home/eerdem/DATA
 
 

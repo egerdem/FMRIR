@@ -25,7 +25,7 @@ src_split = {
 # MODEL_LOAD_PATH = "experiments/SpecUNet_20250730-112150/model.pt"
 MODEL_LOAD_PATH = "experiments/SpecUNet_20250730-065144_5kv1/model.pt"
 
-data_dir = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
+data_dir = "../ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
 temp_sampler = SpectrogramSampler(data_path=data_dir, mode="test", src_splits=src_split)
 
 spec_mean = temp_sampler.spectrograms.mean()

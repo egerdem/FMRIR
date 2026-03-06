@@ -20,11 +20,9 @@ class SetEncoder(nn.Module):
     using a dedicated positional encoding for the coordinates.
     """
 
-    def __init__(self, num_freqs, d_model, nhead, num_layers):
+    def __init__(self, num_freqs, d_model, nhead, num_layers, coord_dim=3):
         super().__init__()
         self.d_model = d_model
-
-        # ### <<< CHANGE 1: Create two separate MLPs
 
         # An MLP for the "what": the ATF values
         self.value_tokenizer = nn.Sequential(
@@ -33,9 +31,11 @@ class SetEncoder(nn.Module):
             nn.Linear(d_model, d_model)
         )
 
-        # A separate MLP for the "where": the relative coordinates. This is our positional encoding.
+        # A separate MLP for the "where": the coordinate conditioning vector.
+        # coord_dim=3  → only relative mic position  (default, backward compatible)
+        # coord_dim=7  → [rel_pos(3), abs_src(3), d_wall(1)]  (geo_conditioning=True)
         self.positional_encoder = nn.Sequential(
-            nn.Linear(3, d_model),
+            nn.Linear(coord_dim, d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model)
         )
@@ -163,12 +163,13 @@ def model_factory(config, device):
     # --- Instantiate models based on version ---
     if setversion == "v3":
         print("--- Creating set encoder v3 ---")
-        # --- Instantiate models based on version ---
+        coord_dim = model_cfg.get('coord_dim', 3)
         set_encoder = SetEncoder(
             num_freqs=model_cfg['freq_up_to'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
-            num_layers=model_cfg['num_encoder_layers']
+            num_layers=model_cfg['num_encoder_layers'],
+            coord_dim=coord_dim
         ).to(device)
 
     elif setversion == "v12" or setversion is None:
@@ -664,8 +665,9 @@ class Simulator(ABC):
         Returns:
             - x_final: final state at time ts[-1], shape (bs, c, h, w)
         """
+        silent = kwargs.pop('silent', False)
         nts = ts.shape[1]
-        for t_idx in tqdm(range(nts - 1)):
+        for t_idx in tqdm(range(nts - 1), disable=silent):
             t = ts[:, t_idx]
             h = ts[:, t_idx + 1] - ts[:, t_idx]
             x = self.step(x, t, h, **kwargs)
@@ -947,10 +949,11 @@ class Trainer(ABC):
             print("Using LR schedule: Cosine Annealing without warm-up.")
             scheduler = CosineAnnealingLR(opt, T_max=num_iterations, eta_min=min_lr)
 
-        # NEW: Initialize the EarlyStopping monitor
+        # NEW: Initialize the EarlyStopping monitor (tracks LSD — the real metric)
         early_stopper = EarlyStopping(patience=early_stopping_patience)
         # --- State Tracking ---
-        best_val_loss = float("inf")
+        best_val_loss = float("inf")  # FM-MSE (kept for reference)
+        best_val_lsd  = float("inf")  # LSD in dB (primary save criterion)
         best_iteration = start_iteration
 
         # --- Timing Tracking ---
@@ -1059,7 +1062,7 @@ class Trainer(ABC):
                 model.train()
             # self.model.train()
             opt.zero_grad()
-            loss = self.get_train_loss(**kwargs)
+            loss = self.get_train_loss(iteration=iteration, **kwargs)
             loss.backward()
             opt.step()
             scheduler.step()
@@ -1072,23 +1075,37 @@ class Trainer(ABC):
 
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
-                # self.model.eval()
                 for model in self.models.values():
                     model.eval()
-                val_loss = self.get_valid_loss(valid_sampler=valid_sampler, **kwargs)
-                # **NEW: Log validation loss to wandb**
-                wandb.log({"val_loss": val_loss.item(), "epoch": current_epoch, "iteration": iteration})
-                pbar.set_description(
-                    f'Epoch: {current_epoch:.4f}, Iter: {iteration}, Loss: {loss.item():.5f}, Val Loss: {val_loss.item():.5f}')
 
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
+                # Save RNG state: validation uses torch.manual_seed() internally;
+                # restoring afterwards ensures training randomness is unaffected.
+                _cpu_rng = torch.get_rng_state()
+                _cuda_rng = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+
+                val_loss, val_lsd = self.get_valid_loss(valid_sampler=valid_sampler, **kwargs)
+
+                # Restore training RNG state
+                torch.set_rng_state(_cpu_rng)
+                if _cuda_rng is not None:
+                    torch.cuda.set_rng_state_all(_cuda_rng)
+                wandb.log({"val_loss": val_loss.item(), "val_lsd": val_lsd.item(),
+                           "epoch": current_epoch, "iteration": iteration})
+                pbar.set_description(
+                    f'Epoch: {current_epoch:.4f}, Iter: {iteration}, '
+                    f'Loss: {loss.item():.5f}, Val MSE: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
+
+                # Always update FM-MSE tracker (reference only)
+                best_val_loss = min(best_val_loss, val_loss.item())
+
+                # ── Primary criterion: save on best LSD ─────────────────────
+                if val_lsd < best_val_lsd:
+                    best_val_lsd = val_lsd
                     best_val_loss_time = time.time()
                     print(
-                        f"** [Iter {iteration}] New best val. loss found for: train loss: {loss.item():.5f} and val loss: {best_val_loss:.5f}. Saving model. **")
+                        f"** [Iter {iteration}] New best LSD: {best_val_lsd:.4f} dB "
+                        f"(FM-MSE: {val_loss.item():.5f}, train loss: {loss.item():.5f}). Saving model. **")
 
-                    # Save best model state for inference
-                    # Handle different y_null types
                     y_null_to_save = None
                     if hasattr(self, 'set_encoder') and self.set_encoder is not None:
                         y_null_to_save = self.set_encoder.y_null_token
@@ -1096,35 +1113,36 @@ class Trainer(ABC):
                         y_null_to_save = self.y_null
 
                     best_model_state = {
-                        # 'model_state_dict': self.model.state_dict(),
                         'model_states': {key: model.state_dict() for key, model in self.models.items()},
                         'optimizer_state_dict': opt.state_dict(),
-                        'iteration': iteration + 1,  # Store next iteration for resuming
-                        'best_val_loss': best_val_loss,
+                        'iteration': iteration + 1,
+                        'best_val_loss': best_val_loss,   # FM-MSE for reference
+                        'best_val_lsd':  best_val_lsd,    # LSD — primary metric
                         'best_iteration': iteration,
                         'config': config,
                         'wandb_run_id': config.get('wandb_run_id'),
                         'y_null_token': y_null_to_save,
-                        'is_best': True  # Flag to indicate this is best model
+                        'is_best': True
                     }
-                    # Stable pointer to current best (guard against interruptions)
 
                     torch.save(best_model_state, save_path)
-                    best_iteration = iteration  # Update global tracking
+                    best_iteration = iteration
 
                     if iteration > checkpoint_interval:
-                        print(iteration, checkpoint_interval)
-                        filename_part_formatted = f"model_{iteration}_{best_val_loss:.5f}.pt"
-                        # Get the directory where the main model.pt is saved (same as save_path directory)
+                        filename_part_formatted = f"model_{iteration}_lsd{best_val_lsd:.4f}.pt"
                         experiment_dir = os.path.dirname(save_path)
                         MODEL_SAVE_PATH = os.path.join(experiment_dir, filename_part_formatted)
                         torch.save(best_model_state, MODEL_SAVE_PATH)
 
-                # NEW: Check for early stopping
-                if early_stopper.step(val_loss):
-                    print(f"--- Early stopping triggered at iteration {iteration} with val_loss: {val_loss}---")
+                # Re-enable training mode after validation
+                for model in self.models.values():
+                    model.train()
+
+                # Early stopping tracks LSD
+                if early_stopper.step(val_lsd):
+                    print(f"--- Early stopping triggered at iteration {iteration} with val LSD: {val_lsd:.4f} dB ---")
                     flag_save = True
-                    break  # Exit the training loop
+                    break
 
             else:
                 pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.5f}')
@@ -1164,6 +1182,7 @@ class Trainer(ABC):
                 # 'model_state_dict': self.model.state_dict(),
                 'optimizer_state_dict': opt.state_dict(),
                 'best_val_loss': best_val_loss,
+                'best_val_lsd':  best_val_lsd,
                 'best_iteration': best_iteration,
                 'config': config,
                 'wandb_run_id': config.get('wandb_run_id'),
@@ -1202,15 +1221,15 @@ class Trainer(ABC):
             else:
                 return f"{secs:.1f}s"
 
-        print(f"--- Training finished. Best validation loss was {best_val_loss:.5f} at iteration {best_iteration}. ---")
+        print(f"--- Training finished. Best LSD: {best_val_lsd:.4f} dB | Best FM-MSE: {best_val_loss:.5f} | at iteration {best_iteration}. ---")
         print(f"--- TIMING SUMMARY ---")
         print(f"Total training time: {format_time(total_training_time)}")
-        print(f"Time to reach best validation loss: {format_time(time_to_best_val_loss)}")
+        print(f"Time to reach best LSD: {format_time(time_to_best_val_loss)}")
         print(f"Time per epoch: {format_time(time_per_epoch)}")
         print(f"Total epochs completed: {total_epochs:.2f}")
         print("--- END TIMING SUMMARY ---")
 
-        return best_val_loss
+        return best_val_lsd
 
 
 class ATF3DSampler(torch.nn.Module, Sampleable):
@@ -1265,6 +1284,10 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
                     self.cubes = data['cubes']
                     self.source_coords = data['source_coords']
                     self.grid_xyz = data['grid_xyz']
+
+                    # FIX: Assign the tensor to self so valid_sampler.sample_info exists
+                    self.sample_info = data['sample_info']
+
                     if self.normalize:
                         self.mean = data.get('mean')
                         self.std = data.get('std')
@@ -1700,16 +1723,28 @@ class CFGTrainer(Trainer):
 
 
 class ATF3DTrainer(Trainer):
-    def __init__(self, path, model, set_encoder, eta, M_range, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str,
+    def __init__(self, path, model, set_encoder, eta, M_range, M_val_fixed, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str,
                  version: bool, setencoderversion: str,
-                 coord_mean: torch.Tensor, coord_std: torch.Tensor, **kwargs):
+                 coord_mean: torch.Tensor, coord_std: torch.Tensor, idx_mes_pos_path=None, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
+
+        # Load deterministic mic permutation matrix for validation
+        if idx_mes_pos_path and os.path.exists(idx_mes_pos_path):
+            print(f"Loading mic permutation matrix from {idx_mes_pos_path}")
+            # Shape (1331, 1024)
+            self.perm_matrix = torch.from_numpy(np.load(idx_mes_pos_path)).long()
+        else:
+            self.perm_matrix = None
+
         self.path = path
         self.set_encoder = set_encoder
         self.eta = eta
-        self.M_range = (int(M_range[0]), int(M_range[1]))
+        self.M_range = [int(x) for x in M_range]  # preserve full list (e.g. [5,10,20,50])
+        self.M_val_fixed = M_val_fixed
         self.sigma = sigma
         self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
+        self.geo_conditioning = kwargs.get('geo_conditioning', False)
+        self.room_dims = kwargs.get('room_dims', None)  # (Lx, Ly, Lz) in metres
 
         self.version = version
         self.setencoderversion = setencoderversion
@@ -1733,10 +1768,15 @@ class ATF3DTrainer(Trainer):
         else:
             print("--- Using STANDARD training loss. ---")
 
+        if self.perm_matrix is None:
+            print("--- Mode: Tokyo | train: random mics | val: random mics ---")
+        else:
+            print(f"--- Mode: Training: Tokyo (seeded) | Validation: Fixed (M={self.M_val_fixed}, deterministic) ---")
+
         # A learnable embedding for the unconditional (null) case
         # d_model = set_encoder.d_model
 
-    def make_observation_set(self, z_full, src_xyz):
+    def make_observation_set(self, z_full, src_xyz, sample_indices=None, deterministic=False):
         B, C, D, H, W = z_full.shape
         dev = z_full.device
 
@@ -1745,11 +1785,17 @@ class ATF3DTrainer(Trainer):
 
         N = self.grid_xyz.shape[0]  # Total number of mics (1331)
 
-        # DISCRETE older version
-        M_max = self.M_range[1]
+        if deterministic:
+            if self.perm_matrix is None:
+                raise ValueError("Deterministic mode requested but 'idx_mes_pos_path' was not provided/loaded.")
+            if sample_indices is None:
+                raise ValueError("Deterministic mode requires 'sample_indices' (absolute source IDs).")
+            # For validation we use fixed M (as in evaluation)
+            M_max = self.M_val_fixed
 
-        # --- NEW: Get M_max from the list of choices ---
-        # M_max = max(self.M_range)
+        else:
+            # M_max for tensor padding: works for both [min,max] and discrete lists
+            M_max = max(self.M_range)
 
         obs_coords_rel_list, obs_values_list, obs_mask_list = [], [], []
 
@@ -1758,11 +1804,26 @@ class ATF3DTrainer(Trainer):
             # Instead of sampling from a range, choose a value from the provided list
             # M = random.choice(self.M_range)
 
-            # OLD VERSION:  1. Randomly pick M for this sample
-            M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
+            if deterministic:
+                M = self.M_val_fixed
+                # Lookup source-specific fixed mic indices
+                # sample_indices[i] is the ABSOLUTE source ID for this sample
+                abs_src_idx = sample_indices[i] 
+                # perm_matrix is [1331, 1024] -> col is source
+                obs_indices = self.perm_matrix[:M, abs_src_idx].to(dev)
+                # if i == 0:
+                    # print(f"DEBUG: Source {abs_src_idx} using mics: {obs_indices.cpu().numpy()}")
+            
+            # OLD VERSION:  1. Randomly pick M for this sample 
+            else:
+                # If M_range has >2 values treat as discrete choices (e.g. [5,10,20]);
+                # if exactly 2 values treat as [min, max] uniform range (e.g. [5,50]).
+                if len(self.M_range) > 2:
+                    M = random.choice(self.M_range)
+                else:
+                    M = torch.randint(self.M_range[0], self.M_range[1] + 1, (1,)).item()
+                obs_indices = torch.randperm(N, device=dev)[:M]
 
-            # 2. Randomly choose M mic indices
-            obs_indices = torch.randperm(N, device=dev)[:M]
 
             # 3. Gather coordinates and values
             obs_xyz = self.grid_xyz[obs_indices]  # [M, 3]
@@ -1801,8 +1862,85 @@ class ATF3DTrainer(Trainer):
 
         return torch.stack(obs_coords_rel_list), torch.stack(obs_values_list), torch.stack(obs_mask_list)
 
+    def make_observation_set_fast(self, z_full, src_xyz, sample_indices=None, deterministic=False):
+        """
+        Vectorized GPU version of make_observation_set.
+        Deterministic mode (validation): fixed M mics from perm_matrix per source.
+        Random mode (training): independently random M and random mics per sample,
+          mathematically equivalent to the loop-based make_observation_set.
+        """
+        B, C, D, H, W = z_full.shape
+        dev = z_full.device
+        N = self.grid_xyz.shape[0]  # total mic count (e.g. 1331)
+
+        if deterministic:
+            if self.perm_matrix is None or sample_indices is None:
+                raise ValueError("Deterministic mode requires perm_matrix and sample_indices.")
+            M_max = self.M_val_fixed
+            obs_idx = self.perm_matrix[:M_max, sample_indices].T.to(dev)  # [B, M_max]
+            mask = torch.ones(B, M_max, dtype=torch.bool, device=dev)
+
+        else:
+            M_max = max(self.M_range)
+
+            # ── 1. Sample M independently per sample ────────────────────────
+            # Discrete list (e.g. [5,10,20,50]): draw one value per sample
+            # Contiguous range (e.g. [5,50]):     uniform integer per sample
+            if len(self.M_range) > 2:
+                M = torch.tensor(
+                    [random.choice(self.M_range) for _ in range(B)],
+                    dtype=torch.long, device=dev
+                )  # [B]
+            else:
+                M = torch.randint(self.M_range[0], M_max + 1, (B,), device=dev)  # [B]
+
+            # ── 2. Random mic indices per sample (vectorised randperm) ──────
+            # torch.rand(B, N).argsort(dim=1) gives B independent random
+            # permutations of [0..N-1], equivalent to calling randperm(N) B times.
+            rand_perms = torch.rand(B, N, device=dev).argsort(dim=1)  # [B, N]
+            obs_idx = rand_perms[:, :M_max]                            # [B, M_max]
+
+            # ── 3. Mask: True for the first M[i] positions ──────────────────
+            ar = torch.arange(M_max, device=dev).unsqueeze(0)  # [1, M_max]
+            mask = ar < M.unsqueeze(1)                          # [B, M_max] bool
+
+        # ── 4. Coordinates (relative + normalised, optionally geo-augmented) ──
+        obs_xyz = self.grid_xyz[obs_idx]                          # [B, M_max, 3]
+        rel = obs_xyz - src_xyz.unsqueeze(1)                      # [B, M_max, 3]
+        rel = (rel - self.coord_mean) / (self.coord_std + 1e-8)
+
+        if self.geo_conditioning and self.room_dims is not None:
+            # 6 perpendicular wall distances in metres, normalised by half the minimum
+            # room dimension (half_min = 1.5 m for a 4×6×3 room) so values ∈ [0, ~4].
+            # Dividing by a fixed constant preserves absolute physical scale:
+            # the model learns e.g. "d≈0.13 → very close to wall → strong early reflection".
+            # This replaces the old abs_src_norm(3)+d_nearest(1) which was partially redundant.
+            Lx, Ly, Lz = self.room_dims
+            half_min = min(Lx, Ly, Lz) / 2.0
+            d_walls = torch.stack([
+                src_xyz[:, 0],      Lx - src_xyz[:, 0],   # ←x, x→  wall distances
+                src_xyz[:, 1],      Ly - src_xyz[:, 1],   # ←y, y→
+                src_xyz[:, 2],      Lz - src_xyz[:, 2],   # ←z, z→
+            ], dim=1) / half_min                          # [B, 6]
+            d_walls_exp = d_walls.unsqueeze(1).expand(-1, M_max, -1)  # [B, M_max, 6]
+            rel = torch.cat([rel, d_walls_exp], dim=-1)  # [B, M_max, 9]
+
+        # ── 5. Gather ATF values ─────────────────────────────────────────────
+        z_flat = z_full.view(B, C, -1)                            # [B, C, N]
+        idx_expanded = obs_idx.unsqueeze(1).expand(-1, C, -1)     # [B, C, M_max]
+        vals = torch.gather(z_flat, 2, idx_expanded).transpose(1, 2)  # [B, M_max, C]
+
+        # Padded positions hold junk values but mask ensures transformer ignores them.
+        return rel, vals, mask
+
     def get_train_loss_flow_matching(self, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
+        iteration = kwargs.get('iteration')
+
+        torch.manual_seed(42 + iteration)  # deterministic per-step: batch, mics, t, x0, CFG mask
+
+        # 2. Now everything below is tied to 'iteration'
+        # This picks the SAME 4 sources every time this iteration is run
         # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
         z_full, src_xyz, _ = self.path.p_data.sample(batch_size)
 
@@ -1812,8 +1950,10 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full
 
-        # 2. Create the sparse observation set on the fly
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        # 2. Create the sparse observation set (fast vectorised path)
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(
+            z_full, src_xyz, deterministic=False
+        )
 
         # 3. Encode the observations into conditioning tokens
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
@@ -1928,14 +2068,21 @@ class ATF3DTrainer(Trainer):
     @torch.no_grad()
     def get_val_loss_ddpm(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
-        z_full, src_xyz, _ = valid_sampler.sample(batch_size)
+        z_full, src_xyz, indices = valid_sampler.sample(batch_size)
 
         dev = next(self.model.parameters()).device
         z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
 
         x1 = z_full
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        # Get absolute source IDs for deterministic mic selection
+        abs_src_ids = valid_sampler.sample_info[indices].flatten()
+
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(
+            z_full, src_xyz, 
+            sample_indices=abs_src_ids, 
+            deterministic = self.perm_matrix is not None
+        )
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
@@ -1954,50 +2101,111 @@ class ATF3DTrainer(Trainer):
 
         loss = torch.mean(torch.square(predicted_noise - noise_target))
 
-        return loss
+        # LSD monitor: denormalize x1 vs a rough x0-prediction, freq_dim=1 ([B,F,D,H,W])
+        mean, std = valid_sampler.mean.to(dev), valid_sampler.std.to(dev)
+        x1_db = x1 * std + mean
+        # Predict x0 from noise prediction at a representative alpha_bar (midpoint t=0.5)
+        alpha_bar = self.ddpm_scheduler.alphas_cumprod[499].to(dev)
+        pred_x0 = (xt - (1 - alpha_bar).sqrt() * predicted_noise) / alpha_bar.sqrt()
+        pred_x0_db = pred_x0 * std + mean
+        lsd = torch.sqrt(torch.mean((pred_x0_db - x1_db) ** 2, dim=1)).mean()
+
+        return loss, lsd
 
     @torch.no_grad()
-    def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
+    def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Evaluates the full validation set:
+          - FM MSE : single forward pass per batch (cheap, tracks training objective)
+          - LSD    : 10-step Euler reconstruction per batch (real metric, in dB)
+        Returns (mean_fm_mse, mean_lsd) as scalar tensors.
+        """
         batch_size = kwargs.get('batch_size')
-        z_full, src_xyz, _ = valid_sampler.sample(batch_size)
-
         dev = next(self.model.parameters()).device
-        z_full = z_full.to(dev)
-        src_xyz = src_xyz.to(dev)
+        n_val = len(valid_sampler.cubes)
+        mean_db = valid_sampler.mean.to(dev)
+        std_db  = valid_sampler.std.to(dev)
 
-        x1 = z_full
+        # --- Build the correct ODE wrapper once (no weight copies, just references) ---
+        uses_pooled = self.version in ("v2_residual_context", "v3_attention")
+        if uses_pooled:
+            ode = CFGVectorFieldODE_3D_V2(unet=self.model, set_encoder=self.set_encoder)
+        else:
+            ode = CFGVectorFieldODE_3D(unet=self.model, set_encoder=self.set_encoder)
+        simulator = EulerSimulator(ode=ode)
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
-        y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+        # Pre-build timestep template for Euler integration (N_STEPS=10 good for monitoring)
+        N_STEPS = 10
+        ts_1d = torch.linspace(0, 1, N_STEPS + 1, device=dev)  # [N_STEPS+1]
 
-        t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
-        x0 = torch.randn_like(x1)
+        all_mse, all_lsd = [], []
 
-        xt = (1 - (1 - self.sigma) * t) * x0 + t * x1
-        ut_ref = x1 - (1 - self.sigma) * x0
+        # Iterate over the full validation set in fixed-size batches
+        for start in range(0, n_val, batch_size):
+            end = min(start + batch_size, n_val)
+            idx = torch.arange(start, end)
+            B = idx.shape[0]
 
-        model_kwargs = {
-            'context': y_tokens,
-            'context_mask': obs_mask
-        }
+            z_full = valid_sampler.cubes[idx].to(dev)          # [B, F, D, H, W]
+            src_xyz = valid_sampler.source_coords[idx].to(dev) # [B, 3]
+            abs_src_ids = valid_sampler.sample_info[idx].flatten()
 
-        if self.version == "v2_residual_context" or self.version == "v3_attention":
-            model_kwargs['pooled_context'] = pooled_context
+            x1 = z_full
 
-        # For validation, we are always conditional
-        ut_theta = self.model(xt, t, **model_kwargs)
-        # 7. Compute the loss based on the selected typeclass
+            # ── Conditioning ────────────────────────────────────────────────
+            obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(
+                z_full, src_xyz,
+                sample_indices=abs_src_ids,
+                deterministic=self.perm_matrix is not None
+            )
+            y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-        # --- Standard Loss ---
-        loss = torch.mean(torch.square(ut_theta - ut_ref))
+            # ── 1. FM MSE (single forward pass) ─────────────────────────────
+            torch.manual_seed(start)  # deterministic per batch, reproducible across runs
+            t  = torch.rand(B, device=dev).view(-1, 1, 1, 1, 1)
+            x0 = torch.randn_like(x1)
+            xt     = (1 - (1 - self.sigma) * t) * x0 + t * x1
+            ut_ref =  x1 - (1 - self.sigma) * x0
 
-        return loss
+            model_kwargs = {'context': y_tokens, 'context_mask': obs_mask}
+            if uses_pooled:
+                model_kwargs['pooled_context'] = pooled_context
+
+            ut_theta = self.model(xt, t, **model_kwargs)
+            batch_mse = torch.mean(torch.square(ut_theta - ut_ref))
+            all_mse.append(batch_mse)
+
+            # ── 2. Full ODE reconstruction → LSD ────────────────────────────
+            torch.manual_seed(start)  # same seed → same x0 for reproducibility
+            x0_recon = torch.randn_like(x1)
+
+            # ts shape: [B, N_STEPS+1, 1, 1, 1, 1]
+            ts = ts_1d.view(1, -1, 1, 1, 1, 1).expand(B, -1, -1, -1, -1, -1)
+
+            sim_kwargs = dict(y_tokens=y_tokens, obs_mask=obs_mask, silent=True)
+            if uses_pooled:
+                sim_kwargs['pooled_context'] = pooled_context
+
+            x1_hat = simulator.simulate(x0_recon, ts, **sim_kwargs)  # [B, F, D, H, W]
+
+            # Denormalize both prediction and ground truth
+            x1_hat_db = x1_hat * std_db + mean_db
+            x1_db     = x1     * std_db + mean_db
+
+            # LSD: sqrt(mean_over_freq((pred-gt)^2)), then mean over all positions & batch
+            lsd = torch.sqrt(torch.mean((x1_hat_db - x1_db) ** 2, dim=1)).mean()
+            all_lsd.append(lsd)
+
+        mean_fm_mse = torch.stack(all_mse).mean()
+        mean_lsd    = torch.stack(all_lsd).mean()
+        return mean_fm_mse, mean_lsd
 
     def get_valid_loss(self, **kwargs):
         if self.FM_vs_Diff == 'score_matching':
             return self.get_val_loss_ddpm(**kwargs)
         elif self.FM_vs_Diff == "flow_matching":  # Default to flow matching
             return self.get_val_loss_flow_matching(**kwargs)
+        # Both branches return (loss, lsd)
 
 
 # """ Part 3: An Architecture for Spectrograms: Building a U-Net """

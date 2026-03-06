@@ -3,6 +3,8 @@ from torchvision import transforms
 import os
 import json
 import time
+import random
+import numpy as np
 import wandb
 import argparse
 from tqdm import tqdm
@@ -12,6 +14,18 @@ from fm_utils import (model_factory,
                       LinearAlpha, LinearBeta,
                       ATF3DTrainer
                       )
+
+
+def set_all_seeds(seed: int = 42):
+    """Seed all RNGs for reproducible training.
+    NOTE: does NOT set cudnn.deterministic=True (expensive for conv models).
+    cudnn.benchmark=False is enough to prevent non-deterministic algorithm selection.
+    """
+    torch.manual_seed(seed)          # seeds CPU and CUDA RNGs
+    torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    torch.backends.cudnn.benchmark = False  # disable auto-tuner (cheap, removes one source of non-det.)
 
 
 def calculate_and_cache_coord_stats(train_sampler, dataset_version="r1"):
@@ -54,6 +68,10 @@ def calculate_and_cache_coord_stats(train_sampler, dataset_version="r1"):
 
 
 def main(args):
+    # Seed all RNGs first, before any data loading or model construction.
+    # This makes training batch order, t, x0 draws, and val metrics reproducible.
+    set_all_seeds(seed=42)
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     # --- 1. Initial Config from Arguments ---
@@ -69,12 +87,15 @@ def main(args):
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
-                  "FM_vs_Diff": args.FM_vs_Diff},
+                  "FM_vs_Diff": args.FM_vs_Diff,
+                  "coord_dim": 9 if args.geo_conditioning else 3},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
                      "min_lr": args.min_lr,
-                     "M_range": args.M_range, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
-                     "validation_interval": args.validation_interval},
+                     "M_range": args.M_range, "M_val_fixed": args.M_val_fixed, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
+                     "validation_interval": args.validation_interval,
+                     "idx_mes_pos_path": args.idx_mes_pos_path,
+                     "geo_conditioning": args.geo_conditioning},
         "experiments_dir": args.experiments_dir
     }
 
@@ -245,20 +266,35 @@ def main(args):
     # model_cfg
     set_encoder, unet_3d = model_factory(config, device)
 
+    # Parse room dimensions from data_dir path (e.g. "...room4.0x6.0x3.0_rt200")
+    import re as _re
+    _m = _re.search(r'room(\d+\.?\d*)x(\d+\.?\d*)x(\d+\.?\d*)', args.data_dir)
+    room_dims = (float(_m.group(1)), float(_m.group(2)), float(_m.group(3))) if _m else None
+    if args.geo_conditioning:
+        if room_dims is None:
+            raise ValueError("--geo_conditioning requires room dims in data_dir path (e.g. room4.0x6.0x3.0)")
+        print(f"--- Geo conditioning ON: room_dims={room_dims}, coord_dim=9 (rel[3]+d_walls[6]) ---")
+    else:
+        print("--- Geo conditioning OFF: coord_dim=3 (relative only) ---")
+
     trainer = ATF3DTrainer(
         path=path,
         model=unet_3d,
         set_encoder=set_encoder,
         eta=training_cfg['eta'],
         M_range=training_cfg['M_range'],
+        M_val_fixed=training_cfg['M_val_fixed'],
         sigma=training_cfg['sigma'],
         loss_type=training_cfg.get('loss_type'),
         FM_vs_Diff=model_cfg['FM_vs_Diff'],
         grid_xyz=atf_train_sampler.grid_xyz,
         version=model_cfg.get("architecture_version"),
         setencoderversion=model_cfg.get("setencoder_version"),
-        coord_mean=coord_mean,  # Pass the mean here
-        coord_std=coord_std  # Pass the std here
+        coord_mean=coord_mean,
+        coord_std=coord_std,
+        idx_mes_pos_path=training_cfg.get("idx_mes_pos_path"),
+        geo_conditioning=args.geo_conditioning,
+        room_dims=room_dims,
     )
 
     training_cfg['warmup_iterations'] = args.warmup_iterations
@@ -316,14 +352,21 @@ if __name__ == '__main__':
     parser.add_argument('--min_lr', type=float, default=1e-7,
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
+    parser.add_argument('--M_val_fixed', type=int, default= None)
     parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard', choices=['standard', 'weighted'],
                         help='Type of loss function for training: "standard" MSE or "weighted" perceptual MSE.')
+    parser.add_argument('--idx_mes_pos_path', type=str, default= None,
+                        help='Path to the deterministic mic permutation matrix for validation.')
 
     parser.add_argument('--FM_vs_Diff', type=str, default='flow_matching', choices=['flow_matching', 'score_matching'])
     parser.add_argument('--checkpoint_interval', type=int, default=3)
+    parser.add_argument('--geo_conditioning', action='store_true', default=False,
+                        help='If set, augment the set encoder coordinate input from 3D (relative only) '
+                             'to 7D: [rel_pos(3), abs_src_pos(3), d_to_nearest_wall(1)]. '
+                             'Requires room dims to be encoded in --data_dir path.')
     parser.add_argument('--validation_interval', type=int, default=20)
     parser.add_argument('--version', type=str, default="v3_attention",
                         help='Model architecture version, e.g. v1, v2, etc.')
@@ -334,4 +377,6 @@ if __name__ == '__main__':
     parser.add_argument('--experiments_dir', type=str, default="experiments_3d")
 
     args = parser.parse_args()
+    if (args.M_val_fixed is None) != (args.idx_mes_pos_path is None):
+        parser.error("--M_val_fixed and --idx_mes_pos_path must both be provided together or both omitted.")
     main(args)
