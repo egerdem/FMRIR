@@ -85,7 +85,7 @@ def main(args):
         "data": {"data_dir": args.data_dir,
                  "src_splits": src_splits_config},
         "model": {"name": args.model_name, "channels": args.channels, "d_model": args.d_model, "nhead": args.nhead,
-                  "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to,
+                  "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to, "freq_from": args.freq_from,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
                   "FM_vs_Diff": args.FM_vs_Diff,
                   "coord_dim": 9 if args.geo_conditioning else 3},
@@ -201,6 +201,7 @@ def main(args):
         mode='train',
         src_splits=data_cfg['src_splits'],
         freq_up_to=model_cfg['freq_up_to'],
+        freq_from=model_cfg.get('freq_from', 0),
         normalize=True,
         model_name=args.model_name
     )
@@ -212,6 +213,7 @@ def main(args):
         mode='valid',
         src_splits=data_cfg['src_splits'],
         freq_up_to=model_cfg['freq_up_to'],
+        freq_from=model_cfg.get('freq_from', 0),
         normalize=False,
         model_name=args.model_name
     )
@@ -353,7 +355,8 @@ if __name__ == '__main__':
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
     parser.add_argument('--M_val_fixed', type=int, default= None)
-    parser.add_argument('--freq_up_to', type=int, default=20, help='Use only the first N frequency channels')
+    parser.add_argument('--freq_up_to', type=int, default=20, help='Upper freq bin (exclusive upper bound of subband)')
+    parser.add_argument('--freq_from', type=int, default=0, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard', choices=['standard', 'weighted'],

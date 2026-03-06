@@ -183,6 +183,7 @@ def evaluate_your_model(set_encoder, ode_3d, config, device, model_name, coord_m
     
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
+    freq_from  = config['model'].get('freq_from', 0)
     num_sources = NUM_SOURCES
 
     # Detect geo_conditioning from checkpoint config and parse room dims
@@ -200,12 +201,12 @@ def evaluate_your_model(set_encoder, ode_3d, config, device, model_name, coord_m
             _geo = False
     # Load data
     train_sampler = ATF3DSampler(
-        data_path=DATA_DIR, mode='train', src_splits=src_split, 
-        normalize=True, freq_up_to=freq_up_to, model_name=model_name
+        data_path=DATA_DIR, mode='train', src_splits=src_split,
+        normalize=True, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name
     )
     test_sampler = ATF3DSampler(
-        data_path=DATA_DIR, mode='test', src_splits=src_split, 
-        normalize=False, freq_up_to=freq_up_to, model_name=model_name
+        data_path=DATA_DIR, mode='test', src_splits=src_split,
+        normalize=False, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name
     )
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
     

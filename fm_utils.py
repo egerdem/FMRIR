@@ -160,12 +160,17 @@ def model_factory(config, device):
     architecture = model_cfg.get('architecture_version')
     setversion = model_cfg.get('setencoder_version')
 
+    # --- Compute actual channel count from the freq subband ---
+    # freq_from defaults to 0 for backward compatibility (full 0..freq_up_to range)
+    freq_from = model_cfg.get('freq_from', 0)
+    num_freqs = model_cfg['freq_up_to'] - freq_from
+
     # --- Instantiate models based on version ---
     if setversion == "v3":
         print("--- Creating set encoder v3 ---")
         coord_dim = model_cfg.get('coord_dim', 3)
         set_encoder = SetEncoder(
-            num_freqs=model_cfg['freq_up_to'],
+            num_freqs=num_freqs,
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
             num_layers=model_cfg['num_encoder_layers'],
@@ -175,7 +180,7 @@ def model_factory(config, device):
     elif setversion == "v12" or setversion is None:
         print("--- Creating set encoder v12 ---")
         set_encoder = SetEncoder_v12(
-            num_freqs=model_cfg['freq_up_to'],
+            num_freqs=num_freqs,
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
             num_layers=model_cfg['num_encoder_layers']
@@ -184,8 +189,8 @@ def model_factory(config, device):
     if architecture == "v2_residual_context":
         print("--- Creating (v2) architecture ---")
         unet_3d = CrossAttentionUNet3D_RED3d(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
+            in_channels=num_freqs,
+            out_channels=num_freqs,
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
@@ -195,8 +200,8 @@ def model_factory(config, device):
         print("--- Creating v1 architecture: standard 3d unet ---")
         # Instantiate the old U-Net and ODE wrapper for old checkpoints
         unet_3d = CrossAttentionUNet3D(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
+            in_channels=num_freqs,
+            out_channels=num_freqs,
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
@@ -205,8 +210,8 @@ def model_factory(config, device):
     elif architecture == "v4_DiT":
         # Instantiate the old U-Net and ODE wrapper for old checkpoints
         unet_3d = DiffusionTransformer3D(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
+            in_channels=num_freqs,
+            out_channels=num_freqs,
             patch_size=model_cfg['patch_size'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
@@ -215,8 +220,8 @@ def model_factory(config, device):
     elif architecture == "v3_attention":
         print("--- Creating (v3) architecture with Self-Attention ---")
         unet_3d = CrossAttentionUNet3D_v3(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
+            in_channels=num_freqs,
+            out_channels=num_freqs,
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
@@ -1238,8 +1243,8 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         Each sample is a tensor of shape [64, 11, 11, 11] (freq, Z, Y, X).
         """
 
-    def __init__(self, data_path: str, mode: str, src_splits: dict, freq_up_to: int, normalize: bool = True,
-                 model_name: str = None):
+    def __init__(self, data_path: str, mode: str, src_splits: dict, freq_up_to: int, freq_from: int = 0,
+                 normalize: bool = True, model_name: str = None):
         super().__init__()
         self.mode = mode
         self.src_splits = src_splits
@@ -1247,20 +1252,19 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
         self.mean = None
         self.std = None
         self.freq_up_to = freq_up_to
+        self.freq_from = freq_from
 
         # Determine dataset version from model name
         self.dataset_version = get_dataset_version_from_model_name(model_name)
         print(f"Using dataset version: {self.dataset_version} (from model_name: {model_name})")
 
-        # Use a distinct cache file to avoid clobbering 2D slice caches
-        # Include dataset version in filename
-        # if self.dataset_version == "r1":
-        #     print("yes")
-        #     processed_file = os.path.join(data_path, f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}.pt')
-
-        # else:
+        # Cache filename encodes the subband [freq_from, freq_up_to) so different subbands
+        # don't clobber each other.  When freq_from=0 the name matches the old convention
+        # (except the '0to' prefix), so existing caches are NOT reused — re-generation is safe
+        # because the slice is now explicit.
+        freq_tag = f"{self.freq_from}to{self.freq_up_to}" if self.freq_from != 0 else f"{self.freq_up_to}"
         processed_file = os.path.join(data_path,
-                                      f'processed_atf3d_{self.mode}_freqs{self.freq_up_to}_{self.dataset_version}.pt')
+                                      f'processed_atf3d_{self.mode}_freqs{freq_tag}_{self.dataset_version}.pt')
 
         # Check if preprocessed file exists and matches config
         recreate_file = False
@@ -1352,7 +1356,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
 
                 # Reshape the ordered data into the 3D cube
                 full_cube = atf_perm.T.contiguous().view(np_of_freqs, self.nz, self.ny, self.nx)  # [64, 11, 11, 11]
-                cube = full_cube[:self.freq_up_to, :, :, :]
+                cube = full_cube[self.freq_from:self.freq_up_to, :, :, :]
 
                 all_cubes.append(cube)
                 all_source_coords.append(torch.tensor(source_pos, dtype=torch.float32))

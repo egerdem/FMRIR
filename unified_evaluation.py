@@ -73,6 +73,7 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
     data_dir = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
+    freq_from  = config['model'].get('freq_from', 0)
 
     # Detect geo_conditioning from checkpoint config and parse room dims
     _geo = config.get('training', {}).get('geo_conditioning', False)
@@ -90,12 +91,12 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
     
     # Load data
     train_sampler = ATF3DSampler(
-        data_path=data_dir, mode='train', src_splits=src_split, 
-        normalize=True, freq_up_to=freq_up_to, model_name=model_name
+        data_path=data_dir, mode='train', src_splits=src_split,
+        normalize=True, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name
     )
     test_sampler = ATF3DSampler(
-        data_path=data_dir, mode='test', src_splits=src_split, 
-        normalize=False, freq_up_to=freq_up_to, model_name=model_name
+        data_path=data_dir, mode='test', src_splits=src_split,
+        normalize=False, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name
     )
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
     
@@ -573,15 +574,16 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
     # Load your data (same as in inference_1d_atf.py)
     data_path = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
     src_split = config['data']['src_splits']
-    
+    freq_from  = config['model'].get('freq_from', 0)
+
     # Load normalized data
     train_sampler = ATF3DSampler(
-        data_path=data_path, mode='train', src_splits=src_split, 
-        normalize=True, freq_up_to=freq_up_to, model_name=model_name
+        data_path=data_path, mode='train', src_splits=src_split,
+        normalize=True, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name
     )
     test_sampler = ATF3DSampler(
-        data_path=data_path, mode='test', src_splits=src_split, 
-        normalize=False, freq_up_to=freq_up_to, model_name=model_name
+        data_path=data_path, mode='test', src_splits=src_split,
+        normalize=False, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name
     )
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
     

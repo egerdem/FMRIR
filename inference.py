@@ -235,17 +235,24 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
     setversion = model_cfg.get('setencoder_version')
     fm_or_diff = model_cfg.get('FM_vs_Diff', 'flow_matching')
 
+    # Derive the actual channel count from the subband.  freq_from defaults to 0
+    # for all pre-existing checkpoints that don't have this key in their config.
+    freq_from = model_cfg.get('freq_from', 0)
+    num_freqs = model_cfg['freq_up_to'] - freq_from
+
     # --- 1. Instantiate SetEncoder ---
     if setversion == "v3":
         print("--- Creating set encoder v3 ---")
+        coord_dim = model_cfg.get('coord_dim', 3)
         set_encoder = SetEncoder(
-            num_freqs=model_cfg['freq_up_to'], d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers']
+            num_freqs=num_freqs, d_model=model_cfg['d_model'],
+            nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers'],
+            coord_dim=coord_dim
         ).to(device)
     else: # Fallback to v12
         print("--- Creating set encoder v12 ---")
         set_encoder = SetEncoder_v12(
-            num_freqs=model_cfg['freq_up_to'], d_model=model_cfg['d_model'],
+            num_freqs=num_freqs, d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers']
         ).to(device)
 
@@ -253,14 +260,14 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
     if architecture == "v3_attention":
         print("--- Creating (v3) architecture with Self-Attention ---")
         main_model = CrossAttentionUNet3D_v3(
-            in_channels=model_cfg['freq_up_to'], out_channels=model_cfg['freq_up_to'],
+            in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'], input_size=11
         ).to(device)
     elif architecture == "v2_residual_context":
         print("--- Creating (v2) architecture ---")
         main_model = CrossAttentionUNet3D_RED3d(
-            in_channels=model_cfg['freq_up_to'], out_channels=model_cfg['freq_up_to'],
+            in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
         ).to(device)
@@ -268,7 +275,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
     elif architecture == "v1_legacy" or architecture is None:
         print("--- Creating v1 architecture: standard 3d unet ---")
         main_model = CrossAttentionUNet3D(
-            in_channels=model_cfg['freq_up_to'], out_channels=model_cfg['freq_up_to'],
+            in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
         ).to(device)
@@ -276,25 +283,14 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
     elif architecture == "v4_DiT":
         # Instantiate the old U-Net and ODE wrapper for old checkpoints
         main_model = DiffusionTransformer3D(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
+            in_channels=num_freqs,
+            out_channels=num_freqs,
             patch_size=model_cfg['patch_size'],
             depth=model_cfg.get('dit_depth', 12),
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead']
         ).to(device)
         ode_sde_wrapper = CFGVectorFieldODE_DiT_3D(unet=main_model, set_encoder=set_encoder)
-
-    elif architecture == "v3_attention":
-        print("--- Creating (v3) architecture with Self-Attention ---")
-        main_model = CrossAttentionUNet3D_v3(
-            in_channels=model_cfg['freq_up_to'],
-            out_channels=model_cfg['freq_up_to'],
-            channels=model_cfg['channels'],
-            d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead'],
-            input_size=11  # Assuming your cube dimension is 11
-        ).to(device)
 
     # --- 3. Instantiate the Correct Inference Wrapper ---
     if fm_or_diff == 'score_matching':
@@ -534,6 +530,7 @@ if __name__ == '__main__':
     data_dir = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"  # Override with local
     src_split = config['data']['src_splits']
     freq_up_to = config['model'].get('freq_up_to')
+    freq_from  = config['model'].get('freq_from', 0)  # 0 for all pre-subband checkpoints
 
     if VISUALIZE_slice:
         MODEL_NAME = get_model_name(MODEL_LOAD_PATH)
@@ -568,11 +565,13 @@ if __name__ == '__main__':
     # --- 1. Data Loading (Shared for both modes) ---
     # Create train sampler to get normalization stats and grid coordinates
     train_sampler = ATF3DSampler(
-        data_path=data_dir, mode='train', src_splits=src_split, normalize=True, freq_up_to=freq_up_to,
+        data_path=data_dir, mode='train', src_splits=src_split, normalize=True,
+        freq_up_to=freq_up_to, freq_from=freq_from,
     model_name = MODEL_NAME)
     # Create test sampler with raw data
     test_sampler = ATF3DSampler(
-        data_path=data_dir, mode='test', src_splits=src_split, normalize=False, freq_up_to=freq_up_to,
+        data_path=data_dir, mode='test', src_splits=src_split, normalize=False,
+        freq_up_to=freq_up_to, freq_from=freq_from,
     model_name = MODEL_NAME)
     # Normalize the test data using the stats from the training set
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
