@@ -109,66 +109,31 @@ def main(args):
     experiment_dir = None
     experiment_name = ""
 
-    # if args.resume_from_checkpoint:
-    #     if os.path.exists(args.resume_from_checkpoint):
-    #         print(f"RESUMING training from: {args.resume_from_checkpoint}")
-    #         resume_checkpoint_state = torch.load(args.resume_from_checkpoint, map_location=device)
-    #
-    #         # Load the old config, but then immediately update it with new args
-    #         loaded_config = resume_checkpoint_state.get('config', {})
-    #         loaded_config.update(config)
-    #         config = loaded_config
-    #
-    #         start_iteration = resume_checkpoint_state.get('iteration', 0)
-    #         print(f"Resuming from iteration {start_iteration}")
-    #
-    #         parent = os.path.dirname(args.resume_from_checkpoint)
-    #         experiment_dir = os.path.dirname(parent) if os.path.basename(parent) == 'checkpoints' else parent
-    #         experiment_name = os.path.basename(experiment_dir)
-    #
-    #         # Initialize WandB if enabled and resume run
-    #         if args.wandb:
-    #             wandb.login(key=args.wandb_key)
-    #             run_id = resume_checkpoint_state.get('wandb_run_id')
-    #             wandb.init(project="FM-RIR-3D", id=run_id, resume="allow", config=config)
-    #             print(f"Resuming W&B run ID: {run_id}")
-    #     else:
-    #         print(f"⚠️ Warning: resume path does not exist: {args.resume_from_checkpoint}")
-    #
-    #     # --- Configuration ---
-    #     # Create a config dict from args to save with the model
-    #     config = {
-    #         "data": {
-    #             "data_dir": args.data_dir,
-    #             "src_splits": {
-    #                 # "train": [[0, 820], [1024, 3100]],
-    #                 "valid": [820, 922],
-    #                 "test": [922, 1024]
-    #             }
-    #         },
-    #         "model": {
-    #             "name": args.model_name,
-    #             "channels": args.channels,
-    #             "d_model": args.d_model,
-    #             "nhead": args.nhead,
-    #             "num_encoder_layers": args.num_encoder_layers,
-    #             "freq_up_to": args.freq_up_to,
-    #             "architecture_version": args.version, "setencoder_version": args.setencoder_version,
-    #             "FM_vs_Diff": args.FM_vs_Diff
-    #         },
-    #         "training": {
-    #             "num_iterations": args.num_iterations,
-    #             "batch_size": args.batch_size,
-    #             "lr": args.lr,
-    #             "warmup_iterations": args.warmup_iterations,
-    #             "min_lr": args.min_lr,
-    #             "M_range": args.M_range,
-    #             "eta": args.eta,
-    #             "sigma": args.sigma, "loss_type": args.loss_type,
-    #             "validation_interval": args.validation_interval
-    #         },
-    #         "experiments_dir": args.experiments_dir
-    #     }
+    if args.resume_from_checkpoint:
+        if os.path.exists(args.resume_from_checkpoint):
+            print(f"RESUMING training from: {args.resume_from_checkpoint}")
+            resume_checkpoint_state = torch.load(args.resume_from_checkpoint, map_location=device)
+            start_iteration = resume_checkpoint_state.get('iteration', 0)
+            print(f"  → Resuming from iteration {start_iteration}")
+
+            # Reuse the original experiment directory so model is saved in the same place.
+            _ckpt_parent = os.path.dirname(args.resume_from_checkpoint)
+            experiment_dir = (
+                os.path.dirname(_ckpt_parent)
+                if os.path.basename(_ckpt_parent) == 'checkpoints'
+                else _ckpt_parent
+            )
+            experiment_name = os.path.basename(experiment_dir)
+            print(f"  → Experiment dir: {experiment_dir}")
+
+            # Resume W&B run (continues the existing run's graphs)
+            if args.wandb:
+                wandb.login(key=args.wandb_key)
+                run_id = resume_checkpoint_state.get('wandb_run_id')
+                wandb.init(project="FM-RIR-3D", id=run_id, resume="allow", config=config)
+                print(f"  → Resuming W&B run ID: {run_id}")
+        else:
+            print(f"⚠️  Warning: resume path does not exist: {args.resume_from_checkpoint}")
 
     if experiment_dir is None:
         timestamp = time.strftime("%Y%m%d-%H%M%S")
