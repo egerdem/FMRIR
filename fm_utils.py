@@ -1011,50 +1011,43 @@ class Trainer(ABC):
         # if resume_checkpoint_state:
         #     print("Resuming from provided in-memory checkpoint state")
         #
-        #     # New, robust way: load multiple model states
-        #     if 'model_states' in resume_checkpoint_state:
-        #         for key, state_dict in resume_checkpoint_state['model_states'].items():
-        #             if key in self.models:
-        #                 self.models[key].load_state_dict(state_dict)
-        #                 print(f"  - Loaded state for model: '{key}'")
-        #     # Fallback for old, single-model checkpoints
-        #     elif 'model_state_dict' in resume_checkpoint_state:
-        #         print("  - Loading state from legacy 'model_state_dict' key.")
-        #         self.model.load_state_dict(resume_checkpoint_state['model_state_dict'])
-        #
-        #     # Restore optimizer and other trainer state
-        #     if 'optimizer_state_dict' in resume_checkpoint_state:
-        #         opt.load_state_dict(resume_checkpoint_state['optimizer_state_dict'])
-        #         print("  - Optimizer state restored.")
-        #
-        #     if hasattr(self, 'y_null_token') and 'y_null_token' in resume_checkpoint_state:
-        #         self.set_encoder.y_null_token.data = resume_checkpoint_state['y_null_token'].to(device)
-        #         print("  - y_null_token restored.")
-        #
-        #         # --- Robust y_null Loading ---
-        #         # Try to load the new, unified key first
-        #         if 'y_null_token' in resume_checkpoint_state and resume_checkpoint_state['y_null_token'] is not None:
-        #             y_null_val = resume_checkpoint_state['y_null_token'].to(device)
-        #             # Check if the current trainer is a 3D one
-        #             if hasattr(self, 'set_encoder') and hasattr(self.set_encoder, 'y_null_token'):
-        #                 self.set_encoder.y_null_token.data = y_null_val
-        #                 print("  - y_null_token restored.")
-        #             # Check if the current trainer is a 2D one
-        #             elif hasattr(self, 'y_null'):
-        #                 self.y_null.data = y_null_val
-        #                 print("  - y_null restored (from 'y_null_token' key).")
-        #
-        #         # Fallback for old checkpoints with the legacy 'y_null' key
-        #         elif 'y_null' in resume_checkpoint_state and resume_checkpoint_state['y_null'] is not None:
-        #             if hasattr(self, 'y_null'):
-        #                 self.y_null.data = resume_checkpoint_state['y_null'].to(device)
-        #                 print("  - y_null restored from legacy 'y_null' key.")
-        #
-        #     start_iteration = resume_checkpoint_state.get('iteration', start_iteration)
-        #     best_val_loss = resume_checkpoint_state.get('best_val_loss', best_val_loss)
-        #     best_iteration = resume_checkpoint_state.get('best_iteration', best_iteration)
-        #     print(f"Resumed state. start_iteration={start_iteration}, best_val_loss={best_val_loss:.5f} at iteration {best_iteration}")
-        #     scheduler.last_epoch = start_iteration - 1
+        # --- Resume: restore model/optimizer/scheduler state if a checkpoint was provided ---
+        if resume_checkpoint_state is not None:
+            print("--- Restoring checkpoint state ---")
+
+            # 1. Model weights (supports new multi-model dict and legacy single-model key)
+            if 'model_states' in resume_checkpoint_state:
+                for key, state_dict in resume_checkpoint_state['model_states'].items():
+                    if key in self.models:
+                        self.models[key].load_state_dict(state_dict)
+                        print(f"  - '{key}' weights restored")
+            elif 'model_state_dict' in resume_checkpoint_state:
+                self.model.load_state_dict(resume_checkpoint_state['model_state_dict'])
+                print("  - model weights restored (legacy key)")
+
+            # 2. Optimizer (momentum, second moments, etc.)
+            if 'optimizer_state_dict' in resume_checkpoint_state:
+                opt.load_state_dict(resume_checkpoint_state['optimizer_state_dict'])
+                print("  - optimizer state restored")
+
+            # 3. LR scheduler position — critical for correct LR at resumed step.
+            #    After setting last_epoch = N-1, the next scheduler.step() inside the
+            #    loop computes the LR for step N, which is exactly correct.
+            start_iteration = resume_checkpoint_state.get('iteration', start_iteration)
+            scheduler.last_epoch = start_iteration - 1
+            print(f"  - scheduler.last_epoch set to {start_iteration - 1}")
+
+            # 4. Best metric tracking (so new best-model saves are compared correctly)
+            best_val_loss = resume_checkpoint_state.get('best_val_loss', best_val_loss)
+            best_val_lsd  = resume_checkpoint_state.get('best_val_lsd',  best_val_lsd)
+            best_iteration = resume_checkpoint_state.get('best_iteration', best_iteration)
+            print(f"  - start_iteration={start_iteration}, best_val_lsd={best_val_lsd:.4f} dB at iter {best_iteration}")
+
+            # 5. NOTE: RNG state is NOT saved or restored because torch.manual_seed(42 + iteration)
+            #    seeds each training step independently. Resuming from step N automatically gives
+            #    bit-identical draws for every subsequent step — no global RNG state needed.
+            print("--- Checkpoint restored. Continuing training... ---\n")
+
 
         # --- TRAINING LOOP ---
         batch_size = kwargs.get('batch_size')
