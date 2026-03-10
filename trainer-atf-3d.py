@@ -25,7 +25,7 @@ def set_all_seeds(seed: int = 42):
     torch.cuda.manual_seed_all(seed)
     np.random.seed(seed)
     random.seed(seed)
-    torch.backends.cudnn.benchmark = False  # disable auto-tuner (cheap, removes one source of non-det.)
+    torch.backends.cudnn.benchmark = True   # enable auto-tuner for faster conv kernels
 
 
 def calculate_and_cache_coord_stats(train_sampler, dataset_version="r1"):

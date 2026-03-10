@@ -1060,7 +1060,8 @@ class Trainer(ABC):
                 model.train()
             # self.model.train()
             opt.zero_grad()
-            loss = self.get_train_loss(iteration=iteration, **kwargs)
+            with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                loss = self.get_train_loss(iteration=iteration, **kwargs)
             loss.backward()
             opt.step()
             scheduler.step()
