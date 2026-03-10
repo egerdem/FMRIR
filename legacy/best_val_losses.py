@@ -3,10 +3,14 @@ import torch
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-results_dir = "/artifacts"
+results_dir = "../artifacts"
 
 # PREVIOUS NAME "results.py"
 # print the best val losses of all models in the results_dir
+
+# Optional filter: only load models whose path contains this string.
+# Set to None or "" to load all models (original behaviour).
+PATH_FILTER = "215410"   # e.g. "2015", "ATF3D", "iter4" — or None for all
 
 # Navigate in the directories under results_dir and load all file names starting with "model", don't traverse the nested folders, only do first level
 def find_model_files(results_dir):
@@ -43,26 +47,31 @@ for i, model_path in enumerate(available_models):
     # You can choose which model to load by index
     # For now, let's use the first one as an example
     MODEL_LOAD_PATH = available_models[i]  # Change index to select different model
+    # Apply path filter if set; skip models that don't match
     # if MODEL_LOAD_PATH[36:41] == "ATF3D":
-    if True:
-        # Load the checkpoint
+    if PATH_FILTER and PATH_FILTER not in MODEL_LOAD_PATH:
+        continue
+
+    # Load the checkpoint
+    try:
+        checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
+        all.append(checkpoint)
+        print(f"\n{i}: model: {MODEL_LOAD_PATH[35:]}")
+        # print(f"Checkpoint keys: {list(checkpoint.keys()) if isinstance(checkpoint, dict) else 'Not a dictionary'}")
+
         try:
-            checkpoint = torch.load(MODEL_LOAD_PATH, map_location=device)
-            all.append(checkpoint)
-            print(f"\n{i}: model: {MODEL_LOAD_PATH[35:]}")
-            # print(f"Checkpoint keys: {list(checkpoint.keys()) if isinstance(checkpoint, dict) else 'Not a dictionary'}")
+            it = checkpoint["config"]["training"].get("num_iterations")
+            print(f"Total iter: {it}")
+            print(f"Best val loss: {checkpoint.get('best_val_loss', 'N/A')} at iteration {checkpoint.get('best_iteration', 'N/A')}")
+            best_lsd = checkpoint.get('best_val_lsd', None)
+            print(f"Best val LSD:  {f'{best_lsd:.4f} dB' if best_lsd is not None else 'N/A'}")
+            losses.append((i, checkpoint.get('best_val_loss', float('inf'))))
+        except (KeyError, AttributeError) as e:
+            print(f"Could not read training info: {e}")
 
-            try:
-                it = checkpoint["config"]["training"].get("num_iterations")
-                print(f"Total iter: {it}")
-                print(f"Best val loss: {checkpoint.get('best_val_loss', 'N/A')} at iteration {checkpoint.get('best_iteration', 'N/A')}")
-                losses.append((i, checkpoint.get('best_val_loss', float('inf'))))
-            except (KeyError, AttributeError) as e:
-                print(f"Could not read training info: {e}")
-
-        except Exception as e:
-            print(f"Error loading model {MODEL_LOAD_PATH}: {e}")
-            continue
+    except Exception as e:
+        print(f"Error loading model {MODEL_LOAD_PATH}: {e}")
+        continue
 
 print("\nSummary of best validation losses:")
 for loss in losses:
