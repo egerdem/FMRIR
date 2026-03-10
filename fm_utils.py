@@ -1062,7 +1062,10 @@ class Trainer(ABC):
             opt.zero_grad()
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 loss = self.get_train_loss(iteration=iteration, **kwargs)
+            _t_bwd0 = time.time(); torch.cuda.synchronize() if iteration < 15 else None
             loss.backward()
+            torch.cuda.synchronize() if iteration < 15 else None
+            if iteration < 15: print(f"  [iter {iteration}] backward={time.time()-_t_bwd0:.3f}s")
             opt.step()
             scheduler.step()
 
@@ -1949,12 +1952,16 @@ class ATF3DTrainer(Trainer):
         x1 = z_full
 
         # 2. Create the sparse observation set (fast vectorised path)
+        _do_time = iteration < 15
+        if _do_time: import time; torch.cuda.synchronize(); _t0 = time.time()
         obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(
             z_full, src_xyz, deterministic=False
         )
+        if _do_time: torch.cuda.synchronize(); _t1 = time.time()
 
         # 3. Encode the observations into conditioning tokens
         y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
+        if _do_time: torch.cuda.synchronize(); _t2 = time.time()
 
         # 4. Define the Flow Matching path from noise to data
         t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
@@ -1989,7 +1996,9 @@ class ATF3DTrainer(Trainer):
             model_kwargs['pooled_context'] = final_pooled_context
 
         # The 3D U-Net's forward pass must accept `context` and `context_mask`
+        if _do_time: torch.cuda.synchronize(); _t3 = time.time()
         ut_theta = self.model(xt, t, **model_kwargs)
+        if _do_time: torch.cuda.synchronize(); _t4 = time.time()
 
         # 7. Compute the loss based on the selected type
         if self.loss_type == 'weighted':
@@ -2010,6 +2019,9 @@ class ATF3DTrainer(Trainer):
         elif self.loss_type == 'standard':  # Default to 'standard'
             # --- Standard Loss ---
             loss = torch.mean(torch.square(ut_theta - ut_ref))
+
+        if _do_time:
+            print(f"  [iter {iteration}] obs={_t1-_t0:.3f}s  encoder={_t2-_t1:.3f}s  unet={_t4-_t3:.3f}s")
 
         return loss
 
