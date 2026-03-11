@@ -1,6 +1,6 @@
 import torch
-torch.set_num_threads(4)          # limit PyTorch CPU thread pool
-torch.set_num_interop_threads(2)  # limit inter-op parallelism
+# torch.set_num_threads(4)          # limit PyTorch CPU thread pool
+# torch.set_num_interop_threads(2)  # limit inter-op parallelism
 from torchvision import transforms
 import os
 import json
