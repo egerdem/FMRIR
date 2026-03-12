@@ -1755,6 +1755,7 @@ class ATF3DTrainer(Trainer):
         self.coord_std = coord_std.to(next(model.parameters()).device)
 
         self.loss_type = loss_type
+        self.freq_weight_max = kwargs.get('freq_weight_max', 3.0)
         self.FM_vs_Diff = FM_vs_Diff
 
         if self.FM_vs_Diff == 'score_matching':
@@ -1766,6 +1767,8 @@ class ATF3DTrainer(Trainer):
 
         if self.loss_type == 'weighted':
             print("--- Using PERCEPTUALLY WEIGHTED training loss. ---")
+        elif self.loss_type == 'freq_weighted':
+            print(f"--- Using FREQ-BIN WEIGHTED training loss (max weight={self.freq_weight_max}). ---")
         else:
             print("--- Using STANDARD training loss. ---")
 
@@ -2015,6 +2018,19 @@ class ATF3DTrainer(Trainer):
 
             weighted_error = weights * (ut_theta - ut_ref)
             loss = torch.mean(torch.square(weighted_error))
+
+        elif self.loss_type == 'freq_weighted':
+            # --- Per-Frequency-Bin Weighted Loss ---
+            # ut_theta / ut_ref shape: [B, F, D, H, W]  (F = num freq bins)
+            # Linear ramp: bin 0 gets weight 1.0, bin F-1 gets freq_weight_max.
+            # Diagnostic showed LSD grows monotonically from DC to Nyquist;
+            # upweighting high bins forces the network to invest more capacity there.
+            F_bins = ut_theta.shape[1]
+            freq_weight_max = getattr(self, 'freq_weight_max', 3.0)
+            freq_weights = torch.linspace(1.0, freq_weight_max, F_bins,
+                                          device=ut_theta.device)  # [F]
+            freq_weights = freq_weights.view(1, F_bins, 1, 1, 1)   # broadcast [B,F,D,H,W]
+            loss = torch.mean(freq_weights * torch.square(ut_theta - ut_ref))
 
         elif self.loss_type == 'standard':  # Default to 'standard'
             # --- Standard Loss ---

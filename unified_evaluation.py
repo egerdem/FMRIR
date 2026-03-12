@@ -695,8 +695,8 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-guidance_scales = [1.0, 2.0]
-M_values = [5]
+guidance_scales = [1.0]
+M_values = [200]
 num_sources_eval = 102  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
 random_M_sampling = False
@@ -920,7 +920,7 @@ if best_model in all_model_info:
     print(f"   UNet3D: {best_model_info['unet']['total_params_str']} params")
 # print(f"   Improvement over Reference: {ref_results['mean'] - best_lsd:+.4f} dB")
 print("="*80)
-print(f"Note: All models use M={ref_results['num_mics']} observation microphones")
+print(f"Note: Ref models use M={ref_results['num_mics']} observation microphones")
 print(f"      Reference uses source-specific microphone selection")
 print(f"      Your models use SAME source-specific microphone selection")
 print(f"      (Different M=5 microphones for each source, as per reference)")

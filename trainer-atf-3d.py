@@ -94,7 +94,8 @@ def main(args):
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
                      "min_lr": args.min_lr,
-                     "M_range": args.M_range, "M_val_fixed": args.M_val_fixed, "eta": args.eta, "sigma": args.sigma, "loss_type": args.loss_type,
+                     "M_range": args.M_range, "M_val_fixed": args.M_val_fixed, "eta": args.eta, "sigma": args.sigma,
+                     "loss_type": args.loss_type, "freq_weight_max": args.freq_weight_max,
                      "validation_interval": args.validation_interval,
                      "idx_mes_pos_path": args.idx_mes_pos_path,
                      "geo_conditioning": args.geo_conditioning},
@@ -254,7 +255,8 @@ def main(args):
         M_range=training_cfg['M_range'],
         M_val_fixed=training_cfg['M_val_fixed'],
         sigma=training_cfg['sigma'],
-        loss_type=training_cfg.get('loss_type'),
+        loss_type=training_cfg.get('loss_type', 'standard'),
+        freq_weight_max=training_cfg.get('freq_weight_max', 3.0),
         FM_vs_Diff=model_cfg['FM_vs_Diff'],
         grid_xyz=atf_train_sampler.grid_xyz,
         version=model_cfg.get("architecture_version"),
@@ -326,8 +328,12 @@ if __name__ == '__main__':
     parser.add_argument('--freq_from', type=int, default=0, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
-    parser.add_argument('--loss_type', type=str, default='standard', choices=['standard', 'weighted'],
-                        help='Type of loss function for training: "standard" MSE or "weighted" perceptual MSE.')
+    parser.add_argument('--loss_type', type=str, default='standard',
+                        choices=['standard', 'weighted', 'freq_weighted'],
+                        help='Loss type: standard MSE, perceptual amplitude-weighted, or freq-bin-weighted.')
+    parser.add_argument('--freq_weight_max', type=float, default=3.0,
+                        help='For --loss_type freq_weighted: weight applied to the highest freq bin '
+                             '(bin 0 always has weight 1.0). Default 3.0.')
     parser.add_argument('--idx_mes_pos_path', type=str, default= None,
                         help='Path to the deterministic mic permutation matrix for validation.')
 
