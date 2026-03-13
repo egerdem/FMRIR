@@ -133,7 +133,15 @@ def main(args):
             if args.wandb:
                 wandb.login(key=args.wandb_key)
                 run_id = resume_checkpoint_state.get('wandb_run_id')
-                wandb.init(project="FM-RIR-3D", id=run_id, resume="allow", config=config)
+                # Fallback: read run_id from config.json saved in the experiment dir
+                if run_id is None:
+                    _config_json = os.path.join(experiment_dir, 'config.json')
+                    if os.path.exists(_config_json):
+                        with open(_config_json) as _f:
+                            run_id = json.load(_f).get('wandb_run_id')
+                        if run_id:
+                            print(f"  → W&B run ID loaded from config.json: {run_id}")
+                wandb.init(project="FM-RIR-3D", name=experiment_name, id=run_id, resume="allow", config=config)
                 print(f"  → Resuming W&B run ID: {run_id}")
         else:
             print(f"⚠️  Warning: resume path does not exist: {args.resume_from_checkpoint}")

@@ -696,7 +696,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 guidance_scales = [1.0]
-M_values = [200]
+M_values = [1,5,50,200]
 num_sources_eval = 102  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
 random_M_sampling = False
@@ -850,9 +850,9 @@ print()
 print("M_fundamental = 5 specific evaluation positions [0, 272, 665, 937, 1330] for PDFs")
 print("Full cube = All 1331 spatial positions")
 print(f"FAIR COMPARISON: Both models evaluated on same {freq_up_to} frequency bins (0-{freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
-print("-"*180)
-print(f"{'Method':<35} | {'w':<4} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'NMSE Full (dB)':<14} | {'Freq Range':<15}")
-print("-"*180)
+print("-"*190)
+print(f"{'Method':<45} | {'w':<4} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'NMSE Full (dB)':<14} | {'Freq Range':<15}")
+print("-"*190)
 
 # Reference model - USE MATCHED FREQUENCY RANGE for fair comparison
 ref_lsd_m_fund = ref_results['lsd_mean_m_fund']  # Now uses matched freq range
@@ -862,21 +862,15 @@ ref_lsd_full_fair = ref_results.get('lsd_mean_matched_freq', ref_results['lsd_me
 ref_mse_full_fair = ref_results.get('mse_mean_matched_freq', ref_results['mse_mean'])
 ref_nmse_full_fair = ref_results.get('nmse_mean_matched_freq', ref_results['nmse_mean'])
 
-print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<35} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {freq_up_to} bins':<15}")
+print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {freq_up_to} bins':<15}")
 
 # All your models
+COL_W = 45  # Method column width
+
 for model_name, model_results in all_your_results.items():
     for M in M_values:
-        # Truncate long model names for better display
-        if len(model_name) > 35:
-            if "_model_" in model_name:
-                parts = model_name.split("_model_")
-                dir_part = parts[0][:15] + "..." if len(parts[0]) > 15 else parts[0]
-                display_name = f"{dir_part}_model_{parts[1]}"
-            else:
-                display_name = model_name[:32] + "..."
-        else:
-            display_name = model_name
+        label = f"{model_name} (M={M})"
+        display = label[-COL_W:] if len(label) > COL_W else label
 
         # Print results for each guidance scale
         for w in guidance_scales:
@@ -886,8 +880,8 @@ for model_name, model_results in all_your_results.items():
             your_mse_full = model_results[M][w]['mse_mean']
             your_nmse_full = model_results[M][w]['nmse_mean']
 
-            print(f"{display_name + f' (M={M})':<35} | {w:<4.1f} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {your_nmse_full:.4f}       | {f'First {freq_up_to} bins':<15}")
-            print("-"*180)
+            print(f"{display:<{COL_W}} | {w:<4.1f} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {your_nmse_full:.4f}       | {f'First {freq_up_to} bins':<15}")
+            print("-"*190)
 
 # Find best model and guidance scale combination
 best_model = None

@@ -1,6 +1,35 @@
 
 
-# KCL VM
+# KCL VM
+
+python trainer-atf-3d.py \
+    --loss_type 'freq_weighted'
+    --geo_conditioning \
+    --freq_up_to 20 \
+    --M_range 5,10,20,50 \
+    --channels 64,128,256 \
+    --model_name "KCL_RNG_Val102src10step_Mval5_r1_M5_10_20_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3_64to256v1_setv3_300k" \
+    --data_dir /home/ubuntu/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200 \
+    --experiments_dir /home/ubuntu/EGE/FMRIR_experiments \
+    --batch_size 4 \
+    --num_iterations 300000 \
+    --lr 1e-4 \
+    --min_lr 1e-5 \
+    --warmup_iterations 5000 \
+    --decay_iterations 100000 \
+    --version v1_legacy \
+    --setencoder_version v3 \
+    --d_model 512 \
+    --nhead 8 \
+    --num_encoder_layers 3 \
+    --eta 0. \
+    --sigma 0 \
+    --FM_vs_Diff flow_matching \
+    --validation_interval 100 \
+    --checkpoint_interval 150000 \
+    --idx_mes_pos_path idx_mes_pos_s1024_m1331.npy \
+    --M_val_fixed 5 \
+
 
 python trainer-atf-3d.py \
     --model_name "KCL_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_600k" \
