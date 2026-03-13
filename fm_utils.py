@@ -1093,9 +1093,10 @@ class Trainer(ABC):
                     torch.cuda.set_rng_state_all(_cuda_rng)
                 wandb.log({"val_loss": val_loss.item(), "val_lsd": val_lsd.item(),
                            "epoch": current_epoch, "iteration": iteration})
-                pbar.set_description(
-                    f'Epoch: {current_epoch:.4f}, Iter: {iteration}, '
-                    f'Loss: {loss.item():.5f}, Val MSE: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
+                val_desc = (f'Epoch: {current_epoch:.4f}, Iter: {iteration}, '
+                            f'Loss: {loss.item():.5f}, Val MSE: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
+                pbar.set_description(val_desc)
+                print(val_desc, flush=True)
 
                 # Always update FM-MSE tracker (reference only)
                 best_val_loss = min(best_val_loss, val_loss.item())
