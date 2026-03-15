@@ -1062,10 +1062,10 @@ class Trainer(ABC):
             opt.zero_grad()
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 loss = self.get_train_loss(iteration=iteration, **kwargs)
-            _t_bwd0 = time.time(); torch.cuda.synchronize() if iteration < 15 else None
+            _t_bwd0 = time.time(); torch.cuda.synchronize() if iteration < 0 else None
             loss.backward()
-            torch.cuda.synchronize() if iteration < 15 else None
-            if iteration < 15: print(f"  [iter {iteration}] backward={time.time()-_t_bwd0:.3f}s")
+            torch.cuda.synchronize() if iteration < 0 else None
+            if iteration < 0: print(f"  [iter {iteration}] backward={time.time()-_t_bwd0:.3f}s")
             opt.step()
             scheduler.step()
 
@@ -1956,7 +1956,7 @@ class ATF3DTrainer(Trainer):
         x1 = z_full
 
         # 2. Create the sparse observation set (fast vectorised path)
-        _do_time = iteration < 15
+        _do_time = iteration < 0
         if _do_time: import time; torch.cuda.synchronize(); _t0 = time.time()
         obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(
             z_full, src_xyz, deterministic=False
