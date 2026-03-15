@@ -696,14 +696,14 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 guidance_scales = [1.0]
-M_values = [1,5,50,200]
+M_values = [5]
 num_sources_eval = 102  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
 random_M_sampling = False
 
 # Set to True to generate distribution and ATF comparison PDFs after the summary table.
 # Printing the table is always executed regardless of this flag.
-GENERATE_PLOTS = False
+GENERATE_PLOTS = True
 
 # Set to True  → coord normalisation applied (correct, matches training pipeline for new runs).
 # Set to False → no coord normalisation (legacy behaviour; needed to reproduce old Tokyo best 2.86 dB).

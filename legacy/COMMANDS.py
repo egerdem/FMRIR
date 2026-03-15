@@ -249,7 +249,8 @@ scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATFUNet_M5_holeloss_Gaus
 
 #HPC CREATE
 ssh k24037994@hpc.create.kcl.ac.uk
-scp -r k24037994@hpc.create.kcl.ac.uk:~/FMRIR_experiments/ATF3D-CrossAttn-v1_20250824-173107_iter20000 /Users/ege/Projects/FMRIR/artifacts
+scp -r k24037994@hpc.create.kcl.ac.uk:~/FMRIR_experiments/KCL_RNG_Val102src10step_Mval5_r1_M5_10_20_100_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3_128to512v1_setv3_300k_20260313-144117_iter300000/model.pt /Users/ege/Projects/FMRIR/artifacts
+
 
 # --data_dir ~/DATASET
 # --experiments_dir ~/FMRIR_experiments
