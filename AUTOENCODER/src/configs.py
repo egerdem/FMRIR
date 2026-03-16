@@ -3555,7 +3555,8 @@ config_KRR_10006 = {
 # based on FSMPAE 10026 experiment
 config_EEAE_10001 = {
         "fs": 2000,
-        "num_freq": 64,
+        "freq_from": 0,
+        "freq_up_to": 20,
         "init_delay": False,
         "dataset": ['ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200'],
         "src_index": {

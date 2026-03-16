@@ -663,9 +663,9 @@ if __name__ == "__main__":
     config_name = f"config_{args.model}_{args.idx_config}"
     config.update(eval(config_name))
 
-    # Apply frequency slicing args (override config num_freq)
-    config['freq_from'] = args.freq_from
-    config['freq_up_to'] = args.freq_up_to if args.freq_up_to is not None else config['num_freq']
+    # CLI args override config values; config values override defaults
+    config['freq_from'] = args.freq_from if args.freq_from != 0 else config.get('freq_from', 0)
+    config['freq_up_to'] = args.freq_up_to if args.freq_up_to is not None else config.get('freq_up_to', config['num_freq'])
     config['num_freq'] = config['freq_up_to'] - config['freq_from']
 
     if config["model"] in ["FSMPAE", "EEAE"]:
