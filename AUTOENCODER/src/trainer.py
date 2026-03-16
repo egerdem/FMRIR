@@ -3,7 +3,7 @@ import torch as th
 from torch.utils.data import DataLoader
 import time
 
-import AUTOENCODER.src.utils as utils
+import src.utils as utils
 
 class Trainer:
     def __init__(self, config, net, dataset):
