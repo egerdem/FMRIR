@@ -1,5 +1,9 @@
 import numpy as np
 import torch as th
+import os
+
+# src/ -> AUTOENCODER/ -> FMRIR/ -> EGE/DATA/
+_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'DATA')
 
 class ATFdataset:
     def __init__(self, config):
@@ -14,7 +18,7 @@ class ATFdataset:
         
         for dataset_name in self.config["dataset"]:
             for src_id in self.config['src_index'][dataset_name]['all']:
-                path = f"{dataset_name}/data_s{src_id+1:04d}.npz"
+                path = os.path.join(_DATA_DIR, dataset_name, f"data_s{src_id+1:04d}.npz")
                 data_np = np.load(path)
                 if src_id == 0:
                     src_position = th.zeros(data_np['posMic'].shape[0], data_np['posSrc'].shape[0], len(self.config['src_index'][dataset_name]['all'])) # M x 3 x S
@@ -52,7 +56,8 @@ class ATFdataset:
                 self.Data[data_for]['src_position'][dataset_name] = self.Data['all']['src_position'][dataset_name][..., self.config['src_index'][dataset_name][data_for]]
                 self.Data[data_for]['mic_position'][dataset_name] = self.Data['all']['mic_position'][dataset_name]
 
-        self.config["idx_mes_pos_mat"] = np.load(self.config["idx_mes_pos_mat_path"])
+        _idx_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', self.config["idx_mes_pos_mat_path"])
+        self.config["idx_mes_pos_mat"] = np.load(_idx_path)
 
         self.DataStat = {}
         for data_type in self.Data['train']:

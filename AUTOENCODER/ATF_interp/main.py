@@ -30,6 +30,7 @@ def arg_parser():
     parser.add_argument("-m", "--model", type=str, default="FSMPAE", help="Model name")
     parser.add_argument("-c", "--idx_config", type=int, default=1, help="index of config")
     parser.add_argument("-test", "--test", action="store_true", help="")
+    parser.add_argument("-d", "--data_dir", type=str, default="", help="Root directory containing dataset folders")
     args = parser.parse_args()
     return args
 
