@@ -668,7 +668,7 @@ if __name__ == "__main__":
     config['freq_up_to'] = args.freq_up_to if args.freq_up_to is not None else config['num_freq']
     config['num_freq'] = config['freq_up_to'] - config['freq_from']
 
-    if config["model"] == "FSMPAE":
+    if config["model"] in ["FSMPAE", "EEAE"]:
         net = models.ATFApproxNetwork(config)
     elif config["model"] == "FSMPAEPI":
         net = models.ATFApproxNetworkPI(config)
@@ -680,7 +680,7 @@ if __name__ == "__main__":
     pprint.pprint(config)
     print("=====================")
 
-    if config["model"] in ["FSMPAE", "FSMPAEPI"]:
+    if config["model"] in ["FSMPAE", "FSMPAEPI", "EEAE"]:
         if not config["activation_function"].startswith('nn.ReLU'):
             utils.replace_activation_function(net, act_func_new=eval(config["activation_function"]))
         print(net)
@@ -714,7 +714,7 @@ if __name__ == "__main__":
     config["Table"] = idataset.Table
     config["data_stat"] = idataset.DataStat
 
-    if config["model"] in ["FSMPAE", "FSMPAEPI"]:
+    if config["model"] in ["FSMPAE", "FSMPAEPI", "EEAE"]:
         traindataset = idataset
         ptins = ""
         if flg_train:

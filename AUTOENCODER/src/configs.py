@@ -1655,7 +1655,7 @@ config_FSMPAE_10025 = {
         "fs": 2000,#16000,
         "num_freq": 64, #512,#1024,
         "init_delay": False,
-        "dataset": ['ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200'],
+        "dataset": ['ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200'],
         "src_index": {
             'ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200': {
                 'train': range(0, 820),
@@ -3546,6 +3546,79 @@ config_KRR_10006 = {
             'frequency': 8
         },
         "ffm_trainable": True,
+        "droprate": 0.0,
+        "newbob_decay": 0.5,
+        "newbob_max_decay": 1e-06,
+        "num_gpus": 1,
+        "timestamp": "",
+    }
+# based on FSMPAE 10026 experiment
+config_EEAE_10001 = {
+        "fs": 2000,
+        "num_freq": 64,
+        "init_delay": False,
+        "dataset": ['ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200'],
+        "src_index": {
+            'ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200': {
+                'train': range(0, 820),
+                'valid': range(820, 922),
+                'test': range(922, 1024),
+                'all': range(0, 1024)
+            }
+        },
+        "idx_mes_pos_mat_path": 'idx_mes_pos_s1024_m1331.npy',
+        "num_mes_list": [50, 20, 10, 5],
+        "num_mes_test": 5,
+        "M_mes_norm": 100,
+        "model": 'EEAE',
+        "learning_rate": 1e-3,
+        "epochs": 1400,
+        "lr_update": 'step',
+        "lr_milestones": [800, 1200],
+        "lr_gamma": 0.1,
+        "batch_size": 1,
+        "loss_weights": {
+            "lsd": 1.0
+        },
+        "save_frequency": 500,
+        "activation_function": 'nn.Mish()',
+        "data_type_interp": ['atf_mag'],
+        "data_type_hyper_en": ['src_position', 'mic_position', 'frequency', 'M_mes'],
+        "data_type_hyper_de": ['src_position', 'mic_position', 'frequency'],
+        "dim_data_hyper": {
+            'src_position': 3,
+            'mic_position': 3,
+            'frequency': 1,
+            'M_mes': 1
+        },
+        "mid_mean_dim": (1,),
+        "aggr_mean": True,
+        # Fourier feature mapping
+        "data_type_ffm": ['src_position', 'mic_position', 'frequency'],
+        "num_ff": {
+            'src_position': 16,
+            'mic_position': 16,
+            'frequency': 8,
+            'M_mes': 16
+        },
+        "ffm_trainable": True,
+        # Hypernetwork
+        "de_2_skip": True,
+        "dim_z": 64,
+        "channel_En_0": 16,
+        "channel_En_z": 128,
+        "channel_De_z": 128,
+        "channel_De_-1": 16,
+        "channel_hyper": 64,
+        "hyper_use_res": True,
+        "hlayers_En_0": 2,
+        "hlayers_En_z": 0,
+        "hyperlinear_en_0": True,
+        "hlayers_De_z": 0,
+        "hlayers_De_-1": 2,
+        "hlayers_hyper": 2,
+        "hyperlinear_de_0": True,
+        "hyperlinear_de_-1": True,
         "droprate": 0.0,
         "newbob_decay": 0.5,
         "newbob_max_decay": 1e-06,
