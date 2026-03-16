@@ -34,6 +34,8 @@ def arg_parser():
     parser.add_argument("-c", "--idx_config", type=int, default=1, help="index of config")
     parser.add_argument("-test", "--test", action="store_true", help="")
     parser.add_argument("-d", "--data_dir", type=str, default="", help="Root directory containing dataset folders")
+    parser.add_argument("--freq_from", type=int, default=0, help="Lower freq bin index (inclusive). Default 0.")
+    parser.add_argument("--freq_up_to", type=int, default=None, help="Upper freq bin index (exclusive). Default None = use config num_freq (all bins).")
     args = parser.parse_args()
     return args
 
@@ -660,6 +662,11 @@ if __name__ == "__main__":
     }
     config_name = f"config_{args.model}_{args.idx_config}"
     config.update(eval(config_name))
+
+    # Apply frequency slicing args (override config num_freq)
+    config['freq_from'] = args.freq_from
+    config['freq_up_to'] = args.freq_up_to if args.freq_up_to is not None else config['num_freq']
+    config['num_freq'] = config['freq_up_to'] - config['freq_from']
 
     if config["model"] == "FSMPAE":
         net = models.ATFApproxNetwork(config)

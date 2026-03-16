@@ -45,7 +45,9 @@ class ATFdataset:
 
             #self.Data['all']['rir'][dataset_name] = rir
             #self.Data['all']['atf'][dataset_name] = atf
-            self.Data['all']['atf_mag'][dataset_name] = atf_mag
+            freq_from = self.config.get('freq_from', 0)
+            freq_up_to = self.config.get('freq_up_to', atf_mag.shape[1])
+            self.Data['all']['atf_mag'][dataset_name] = atf_mag[:, freq_from:freq_up_to, :]
             self.Data['all']['src_position'][dataset_name] = src_position
             self.Data['all']['mic_position'][dataset_name] = mic_position
 
