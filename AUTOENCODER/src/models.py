@@ -3,7 +3,7 @@ import math
 import torch as th
 import torch.nn as nn
 from torch.distributions.multivariate_normal import MultivariateNormal
-import AUTOENCODER.src.utils as utils
+import src.utils as utils
 
 from icecream import ic
 ic.configureOutput(includeContext=True)
