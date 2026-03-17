@@ -1106,8 +1106,9 @@ class Trainer(ABC):
             # Calculate and display the current epoch number**
             current_lr = scheduler.get_last_lr()[0]
             current_epoch = (iteration + 1) * batch_size / dataset_size
-            wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration,
-                       "learning_rate": current_lr})
+            if iteration % 100 == 0:
+                wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration,
+                           "learning_rate": current_lr})
 
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
