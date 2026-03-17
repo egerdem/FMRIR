@@ -665,7 +665,7 @@ if __name__ == "__main__":
 
     # CLI args override config values; config values override defaults
     config['freq_from'] = args.freq_from if args.freq_from != 0 else config.get('freq_from', 0)
-    config['freq_up_to'] = args.freq_up_to if args.freq_up_to is not None else config.get('freq_up_to', config['num_freq'])
+    config['freq_up_to'] = args.freq_up_to if args.freq_up_to is not None else config.get('freq_up_to', 64)
     config['num_freq'] = config['freq_up_to'] - config['freq_from']
 
     if config["model"] in ["FSMPAE", "EEAE"]:

@@ -11,7 +11,3 @@
 source ~/fmvenv/bin/activate
 cd ~/FMRIR
 
-python AUTOENCODER/ATF_interp/main.py \
-    -m FSMPAE \
-    -c 10025 \
-    --freq_up_to 20

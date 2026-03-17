@@ -9,22 +9,21 @@
 #SBATCH --error=/scratch/users/%u/%j.err
 
 source ~/fmvenv/bin/activate
-cd ~/FMRIR
 
 python trainer-atf-3d.py \
     --geo_conditioning \
     --freq_up_to 20 \
     --M_range 5,10,20,50 \
-    --channels 64,128,256 \
-    --model_name "KCL_BIG_8192R4_Val102src10step_Mval5_r1_M5_10_20_50_freq30_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay500_unet3_128to512v1_setv3_700k" \
+    --channels 128,256,512 \
+    --decay_iterations 100000 \
+    --num_iterations 400000 \
+    --model_name "KCL_SWEEP_Val102_Mval5_r1_M5_10_20_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3_128to512v1_setv3_400k" \
     --data_dir ~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200 \
     --experiments_dir ~/EGE/FMRIR_experiments \
     --batch_size 4 \
-    --num_iterations 700000 \
     --lr 1e-4 \
     --min_lr 1e-5 \
     --warmup_iterations 5000 \
-    --decay_iterations 500000 \
     --version v1_legacy \
     --setencoder_version v3 \
     --d_model 512 \
@@ -34,7 +33,7 @@ python trainer-atf-3d.py \
     --sigma 0 \
     --FM_vs_Diff flow_matching \
     --validation_interval 100 \
-    --checkpoint_interval 500000 \
-    --idx_mes_pos_path idx_mes_pos_s1024_m1331.npy \
-    --M_val_fixed 5 
-
+    --checkpoint_interval 200000 \
+    --idx_mes_pos_path idx_mes_pos_s8192_m1331.npy \
+    --M_val_fixed 5 \
+    --sweep_M
