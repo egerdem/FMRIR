@@ -274,6 +274,7 @@ def main(args):
         idx_mes_pos_path=training_cfg.get("idx_mes_pos_path"),
         geo_conditioning=args.geo_conditioning,
         room_dims=room_dims,
+        sweep_M=args.sweep_M,
     )
 
     training_cfg['warmup_iterations'] = args.warmup_iterations
@@ -347,6 +348,9 @@ if __name__ == '__main__':
 
     parser.add_argument('--FM_vs_Diff', type=str, default='flow_matching', choices=['flow_matching', 'score_matching'])
     parser.add_argument('--checkpoint_interval', type=int, default=3)
+    parser.add_argument('--sweep_M', action='store_true', default=False,
+                        help='If set, loop over all M values in M_range per step and average losses '
+                             '(AE-style training). Default: one random M per step.')
     parser.add_argument('--geo_conditioning', action='store_true', default=False,
                         help='If set, augment the set encoder coordinate input from 3D (relative only) '
                              'to 7D: [rel_pos(3), abs_src_pos(3), d_to_nearest_wall(1)]. '

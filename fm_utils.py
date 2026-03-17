@@ -1758,6 +1758,8 @@ class ATF3DTrainer(Trainer):
         self.loss_type = loss_type
         self.freq_weight_max = kwargs.get('freq_weight_max', 3.0)
         self.FM_vs_Diff = FM_vs_Diff
+        self.sweep_M = kwargs.get('sweep_M', False)
+        self.exhaust_M = kwargs.get('exhaust_M', False)
 
         if self.FM_vs_Diff == 'score_matching':
             self.ddpm_scheduler = DDPMScheduler(num_timesteps=1000)
@@ -1954,6 +1956,43 @@ class ATF3DTrainer(Trainer):
         src_xyz = src_xyz.to(dev)
 
         x1 = z_full
+
+        # sweep_M: loop over every M in M_range, average losses (AE-style)
+        # t/x0/xt/ut_ref are shared; only the observation set varies per M
+        if self.sweep_M:
+            t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
+            x0 = torch.randn_like(x1)
+            xt = (1 - (1 - self.sigma) * t) * x0 + t * x1
+            ut_ref = x1 - (1 - self.sigma) * x0
+            is_conditional_mask = (torch.rand(batch_size, device=x1.device) > self.eta)
+            losses = []
+            for m in self.M_range:
+                orig_range = self.M_range
+                self.M_range = [m]
+                obs_c, obs_v, obs_msk = self.make_observation_set_fast(z_full, src_xyz, deterministic=False)
+                self.M_range = orig_range
+                y_tok, pool_ctx = self.set_encoder(obs_c, obs_v, obs_msk)
+                null_tok = self.set_encoder.y_null_token.expand(batch_size, y_tok.shape[1], -1)
+                null_ctx = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, -1)
+                fin_tok = torch.where(is_conditional_mask.view(-1, 1, 1), y_tok, null_tok)
+                fin_ctx = torch.where(is_conditional_mask.view(-1, 1), pool_ctx, null_ctx)
+                mk = {'context': fin_tok, 'context_mask': obs_msk}
+                if self.version in ("v2_residual_context", "v3_attention"):
+                    mk['pooled_context'] = fin_ctx
+                ut_theta = self.model(xt, t, **mk)
+                if self.loss_type == 'weighted':
+                    with torch.no_grad():
+                        xt_lin = 10 ** ((xt * self.path.p_data.std + self.path.p_data.mean) / 20.0)
+                        w = torch.clamp(1.0 / (xt_lin + 1e-6), max=10.0)
+                    losses.append(torch.mean(torch.square(w * (ut_theta - ut_ref))))
+                elif self.loss_type == 'freq_weighted':
+                    F_bins = ut_theta.shape[1]
+                    fw = torch.linspace(1.0, getattr(self, 'freq_weight_max', 3.0), F_bins,
+                                        device=ut_theta.device).view(1, F_bins, 1, 1, 1)
+                    losses.append(torch.mean(fw * torch.square(ut_theta - ut_ref)))
+                else:
+                    losses.append(torch.mean(torch.square(ut_theta - ut_ref)))
+            return torch.stack(losses).mean()
 
         # 2. Create the sparse observation set (fast vectorised path)
         _do_time = iteration < 0
