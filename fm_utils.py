@@ -1108,7 +1108,7 @@ class Trainer(ABC):
             current_epoch = (iteration + 1) * batch_size / dataset_size
             if iteration % 100 == 0:
                 wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration,
-                           "learning_rate": current_lr})
+                           "learning_rate": current_lr}, step=iteration)
 
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
@@ -1127,7 +1127,7 @@ class Trainer(ABC):
                 if _cuda_rng is not None:
                     torch.cuda.set_rng_state_all(_cuda_rng)
                 wandb.log({"val_loss": val_loss.item(), "val_lsd": val_lsd.item(),
-                           "epoch": current_epoch, "iteration": iteration})
+                           "epoch": current_epoch, "iteration": iteration}, step=iteration)
                 val_desc = (f'Epoch: {current_epoch:.4f}, Iter: {iteration}, '
                             f'Loss: {loss.item():.5f}, Val MSE: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
                 pbar.set_description(val_desc)
