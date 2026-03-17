@@ -2,8 +2,10 @@ import numpy as np
 import torch as th
 import os
 
-# src/ -> AUTOENCODER/ -> FMRIR/ -> EGE/DATA/
-_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'DATA')
+_src_dir = os.path.dirname(os.path.abspath(__file__))
+_DATA_DIR_HPC   = os.path.join(_src_dir, '..', '..', '..', 'DATA')  # HPC: ~/DATA/ (sibling of FMRIR)
+_DATA_DIR_LOCAL = os.path.join(_src_dir, '..', '..')                 # Local: FMRIR/ (datasets are directly inside)
+_DATA_DIR = _DATA_DIR_HPC if os.path.isdir(_DATA_DIR_HPC) else _DATA_DIR_LOCAL
 
 class ATFdataset:
     def __init__(self, config):

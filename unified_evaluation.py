@@ -298,43 +298,36 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
     
     # 5 fundamental positions for PDF evaluation
     m_fundamental_indices = [0, 272, 665, 937, 1330]
-    
+
+    # If predictions have fewer freq bins than GT (e.g. EEAE with 20 bins), truncate GT to match
+    pred_freq_bins = atf_mag_est.shape[1]
+
     for src_idx in tqdm(range(eval_sources), desc="Reference Model"):
-        # Full frequency range (64 bins)
+        # Full frequency range (truncated to match prediction if necessary)
         lsd_val_full = calculate_lsd_unified(
-            atf_mag_est[:, :, src_idx], 
-            atf_mag_gt[:, :, src_idx], 
+            atf_mag_est[:, :, src_idx],
+            atf_mag_gt[:, :pred_freq_bins, src_idx],
             freq_dim=1
         )
         lsd_per_sample_full.append(lsd_val_full.item())
-        
-        # MSE for full frequency range (now possible since reference predicts all 1331 positions!)
-        mse_val_full = torch.mean((atf_mag_est[:, :, src_idx] - atf_mag_gt[:, :, src_idx]) ** 2).item()
+
+        # MSE for full frequency range
+        mse_val_full = torch.mean((atf_mag_est[:, :, src_idx] - atf_mag_gt[:, :pred_freq_bins, src_idx]) ** 2).item()
         mse_per_sample_full.append(mse_val_full)
         
         # NMSE for full frequency range (in dB)
-        gt_var_full = torch.var(atf_mag_gt[:, :, src_idx]).item()
+        gt_var_full = torch.var(atf_mag_gt[:, :pred_freq_bins, src_idx]).item()
         nmse_linear_full = mse_val_full / gt_var_full if gt_var_full > 0 else float('inf')
         nmse_val_full = 10 * np.log10(nmse_linear_full) if nmse_linear_full > 0 and nmse_linear_full != float('inf') else float('inf')
         nmse_per_sample_full.append(nmse_val_full)
-        
-        # M_fundamental evaluation (5 specific positions) - USE MATCHED FREQUENCY RANGE
-        if freq_up_to is not None:
-            # Fair comparison: use same frequency range as your model
-            lsd_val_m_fund = calculate_lsd_unified(
-                atf_mag_est[m_fundamental_indices, :freq_up_to, src_idx], 
-                atf_mag_gt[m_fundamental_indices, :freq_up_to, src_idx], 
-                freq_dim=1
-            )
-            mse_val_m_fund = torch.mean((atf_mag_est[m_fundamental_indices, :freq_up_to, src_idx] - atf_mag_gt[m_fundamental_indices, :freq_up_to, src_idx]) ** 2).item()
-        else:
-            # Full frequency range if no matching needed
-            lsd_val_m_fund = calculate_lsd_unified(
-                atf_mag_est[m_fundamental_indices, :, src_idx], 
-                atf_mag_gt[m_fundamental_indices, :, src_idx], 
-                freq_dim=1
-            )
-            mse_val_m_fund = torch.mean((atf_mag_est[m_fundamental_indices, :, src_idx] - atf_mag_gt[m_fundamental_indices, :, src_idx]) ** 2).item()
+
+        # M_fundamental evaluation — use pred_freq_bins (handles both FSMPAE 64-bin and EEAE 20-bin)
+        lsd_val_m_fund = calculate_lsd_unified(
+            atf_mag_est[m_fundamental_indices, :pred_freq_bins, src_idx],
+            atf_mag_gt[m_fundamental_indices, :pred_freq_bins, src_idx],
+            freq_dim=1
+        )
+        mse_val_m_fund = torch.mean((atf_mag_est[m_fundamental_indices, :pred_freq_bins, src_idx] - atf_mag_gt[m_fundamental_indices, :pred_freq_bins, src_idx]) ** 2).item()
         
         lsd_per_sample_m_fund.append(lsd_val_m_fund.item())
         mse_per_sample_m_fund.append(mse_val_m_fund)
@@ -417,7 +410,7 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
     return result
 
 
-def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, best_guidance=None, output_dir=None):
+def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, best_guidance=None, output_dir=None, atf_mag_est_eeae=None):
     """
     Plot ATF comparisons with 3 methods: True, Reference, Your Model for multiple combinations
     
@@ -511,7 +504,10 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
                 # Plot all three methods with correct frequency axes
                 # All models plot the same frequency range for comparison (0-312 Hz)
                 ax.plot(freq_axis, atf_mag_gt[mic_idx, :freq_up_to, src_idx], 'k--', label="True", linewidth=2)
-                ax.plot(freq_axis, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="Reference: AE", linewidth=1.5)
+                ax.plot(freq_axis, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="FSMPAE", linewidth=1.5)
+                if atf_mag_est_eeae is not None:
+                    eeae_bins = atf_mag_est_eeae.shape[1]
+                    ax.plot(freq_axis[:eeae_bins], atf_mag_est_eeae[mic_idx, :, src_idx], 'g-', label="EEAE", linewidth=1.5)
                 print(f"Plotting Source {src_idx+922}, Mic {mic_idx} (index {i+1}/5)")
                 ax.plot(freq_axis, atf_mag_est_yours_best[mic_idx, :, src_idx], 'b-',
                        label=f"SF-Flow", linewidth=1.5) #(w={best_guidance})
@@ -559,6 +555,9 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
         guidance_scales = [single_guidance]
     print("Generating ATF predictions from your 3D model...")
 
+    # Load your data (same as in inference_1d_atf.py)
+    data_path = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
+
     # Detect geo_conditioning from checkpoint config
     _geo_atf = config.get('training', {}).get('geo_conditioning', False)
     _room_dims_atf = None
@@ -570,9 +569,6 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
             _room_dims_atf = (float(_rm_atf.group(1)), float(_rm_atf.group(2)), float(_rm_atf.group(3)))
         else:
             _geo_atf = False
-    
-    # Load your data (same as in inference_1d_atf.py)
-    data_path = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
     src_split = config['data']['src_splits']
     freq_from  = config['model'].get('freq_from', 0)
 
@@ -1068,7 +1064,9 @@ if GENERATE_PLOTS:
 
         # Use the already computed best guidance scale
         plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config,
-                            freq_up_to, num_sources_eval, best_guidance=best_results['guidance'], output_dir=os.path.dirname(MULTI_MODEL_PATHS[-1]))
+                            freq_up_to, num_sources_eval, best_guidance=best_results['guidance'],
+                            output_dir=os.path.dirname(MULTI_MODEL_PATHS[-1]),
+                            atf_mag_est_eeae=eeae_atf_est)
     else:
         print("Could not find best model for plotting")
 
