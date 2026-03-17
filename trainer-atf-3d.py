@@ -90,7 +90,8 @@ def main(args):
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to, "freq_from": args.freq_from,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
                   "FM_vs_Diff": args.FM_vs_Diff,
-                  "coord_dim": 9 if args.geo_conditioning else 3},
+                  "coord_dim": 9 if args.geo_conditioning else 3,
+                  "num_ff_coord": args.num_ff_coord},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
                      "min_lr": args.min_lr,
@@ -320,6 +321,10 @@ if __name__ == '__main__':
     parser.add_argument('--d_model', type=int, default=512, help='Dimension for tokens and context.')
     parser.add_argument('--nhead', type=int, default=8, help='Number of attention heads.')
     parser.add_argument('--num_encoder_layers', type=int, default=3, help='Layers in the SetEncoder.')
+    parser.add_argument('--num_ff_coord', type=int, default=0,
+                        help='Fourier Feature Mapping for coordinates. 0=disabled (raw coords, legacy). '
+                             '>0: coords mapped to 2*num_ff_coord dims via sin/cos before positional MLP. '
+                             'E.g. --num_ff_coord 16 with coord_dim=9 gives v:[16,9], output 32-dim.')
 
     # --- Training ---
     parser.add_argument('--num_iterations', type=int, default=200)

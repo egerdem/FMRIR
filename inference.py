@@ -244,10 +244,11 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
     if setversion == "v3":
         print("--- Creating set encoder v3 ---")
         coord_dim = model_cfg.get('coord_dim', 3)
+        num_ff_coord = model_cfg.get('num_ff_coord', 0)
         set_encoder = SetEncoder(
             num_freqs=num_freqs, d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers'],
-            coord_dim=coord_dim
+            coord_dim=coord_dim, num_ff_coord=num_ff_coord
         ).to(device)
     else: # Fallback to v12
         print("--- Creating set encoder v12 ---")

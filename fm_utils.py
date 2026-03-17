@@ -14,13 +14,34 @@ import random
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, ConstantLR, _LRScheduler
 
 
+class FourierFeatureMapping(nn.Module):
+    """
+    Random Fourier Feature Mapping for coordinates.
+    Maps coord_dim → 2*num_ff via [sin(2π·v·x), cos(2π·v·x)].
+    v is a [num_ff, coord_dim] matrix of random frequencies, optionally trainable.
+    """
+    def __init__(self, num_ff, coord_dim, trainable=True):
+        super().__init__()
+        v = torch.randn(num_ff, coord_dim)
+        if trainable:
+            self.v = nn.Parameter(v)
+        else:
+            self.register_buffer('v', v)
+
+    def forward(self, x):  # x: [..., coord_dim]
+        vx = x @ self.v.T  # [..., num_ff]
+        return torch.cat([torch.sin(2 * math.pi * vx),
+                          torch.cos(2 * math.pi * vx)], dim=-1)  # [..., 2*num_ff]
+
+
 class SetEncoder(nn.Module):
     """
     Encodes a sparse set of observations into a sequence of tokens and a pooled context vector,
     using a dedicated positional encoding for the coordinates.
     """
 
-    def __init__(self, num_freqs, d_model, nhead, num_layers, coord_dim=3):
+    def __init__(self, num_freqs, d_model, nhead, num_layers, coord_dim=3,
+                 num_ff_coord=0, ffm_trainable=True):
         super().__init__()
         self.d_model = d_model
 
@@ -31,11 +52,21 @@ class SetEncoder(nn.Module):
             nn.Linear(d_model, d_model)
         )
 
+        # Optional Fourier Feature Mapping for coordinates.
+        # num_ff_coord=0 → legacy raw coord input (backward compatible)
+        # num_ff_coord>0 → coords expanded to 2*num_ff_coord via sin/cos before MLP
+        if num_ff_coord > 0:
+            self.coord_ffm = FourierFeatureMapping(num_ff_coord, coord_dim, trainable=ffm_trainable)
+            pos_input_dim = 2 * num_ff_coord
+        else:
+            self.coord_ffm = None
+            pos_input_dim = coord_dim
+
         # A separate MLP for the "where": the coordinate conditioning vector.
         # coord_dim=3  → only relative mic position  (default, backward compatible)
-        # coord_dim=7  → [rel_pos(3), abs_src(3), d_wall(1)]  (geo_conditioning=True)
+        # coord_dim=9  → [rel_pos(3), d_walls(6)]  (geo_conditioning=True)
         self.positional_encoder = nn.Sequential(
-            nn.Linear(coord_dim, d_model),
+            nn.Linear(pos_input_dim, d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model)
         )
@@ -58,8 +89,9 @@ class SetEncoder(nn.Module):
         # 1. Create value embeddings
         value_tokens = self.value_tokenizer(obs_values)
 
-        # 2. Create positional embeddings
-        positional_tokens = self.positional_encoder(obs_coords_rel)
+        # 2. Create positional embeddings (optionally via FFM first)
+        coords = self.coord_ffm(obs_coords_rel) if self.coord_ffm is not None else obs_coords_rel
+        positional_tokens = self.positional_encoder(coords)
 
         # 3. Add them together to get the final input tokens for the transformer
         tokens = value_tokens + positional_tokens
