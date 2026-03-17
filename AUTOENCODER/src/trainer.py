@@ -81,7 +81,7 @@ class Trainer:
                 self.config["num_mes"] = num_mes
                 if itr > num_data-1:
                     break
-                if self.config["model"] in ["FSMPAE", "FSMPAEPI"]:
+                if self.config["model"] in ["FSMPAE", "FSMPAEPI", "EEAE"]:
                     bs = self.config["batch_size"]
                     slice = range(itr*bs, itr*bs + min(bs, data["src_position"].shape[0]))
                     label = th.tensor(slice).cuda()
@@ -112,7 +112,7 @@ class Trainer:
         time_str = f"({time.strftime('%H:%M:%S', time.gmtime(t_end-t_start))})"
         print(f"epoch {epoch} (train) ")
         print(loss_str + "        " + time_str)
-        if self.config["model"] in ["FSMPAE", "FSMPAEPI"]:
+        if self.config["model"] in ["FSMPAE", "FSMPAEPI", "EEAE"]:
             return loss_stats
         else:
             raise NotImplementedError
