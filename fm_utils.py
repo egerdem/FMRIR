@@ -1085,6 +1085,8 @@ class Trainer(ABC):
         batch_size = kwargs.get('batch_size')
         # dataset_size = len(self.path.p_data.spectrograms)
         dataset_size = len(self.path.p_data)
+        experiment_dir = os.path.dirname(save_path)
+        _config_path = os.path.join(experiment_dir, 'config.json')
 
         pbar = tqdm(range(start_iteration, num_iterations))
         for iteration in pbar:
@@ -1128,7 +1130,8 @@ class Trainer(ABC):
                 val_desc = (f'Epoch: {current_epoch:.4f}, Iter: {iteration}, '
                             f'Loss: {loss.item():.5f}, Val MSE: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
                 pbar.set_description(val_desc)
-                print(val_desc, flush=True)
+                if (iteration + 1) % 1000 == 0:
+                    print(val_desc, flush=True)
 
                 # Always update FM-MSE tracker (reference only)
                 best_val_loss = min(best_val_loss, val_loss.item())
@@ -1163,11 +1166,12 @@ class Trainer(ABC):
                     torch.save(best_model_state, save_path)
                     best_iteration = iteration
 
-                    if iteration > checkpoint_interval:
-                        filename_part_formatted = f"model_{iteration}_lsd{best_val_lsd:.4f}.pt"
-                        experiment_dir = os.path.dirname(save_path)
-                        MODEL_SAVE_PATH = os.path.join(experiment_dir, filename_part_formatted)
-                        torch.save(best_model_state, MODEL_SAVE_PATH)
+                    # Update config.json with latest best metrics
+                    config['best_val_lsd']   = float(best_val_lsd)
+                    config['best_val_loss']  = float(best_val_loss)
+                    config['best_iteration'] = best_iteration
+                    with open(_config_path, 'w') as _f:
+                        json.dump(config, _f, indent=4)
 
                 # Re-enable training mode after validation
                 for model in self.models.values():
@@ -1255,6 +1259,15 @@ class Trainer(ABC):
                 return f"{minutes}m {secs:.1f}s"
             else:
                 return f"{secs:.1f}s"
+
+        # Rename model.pt -> model_{iter}_lsd{lsd:.4f}.pt now that training is done
+        if os.path.exists(save_path) and best_val_lsd < float("inf"):
+            named_path = os.path.join(experiment_dir, f"model_{best_iteration}_lsd{float(best_val_lsd):.4f}.pt")
+            os.rename(save_path, named_path)
+            config['best_model_path'] = named_path
+            with open(_config_path, 'w') as _f:
+                json.dump(config, _f, indent=4)
+            print(f"Best model saved as: {os.path.basename(named_path)}")
 
         print(f"--- Training finished. Best LSD: {best_val_lsd:.4f} dB | Best FM-MSE: {best_val_loss:.5f} | at iteration {best_iteration}. ---")
         print(f"--- TIMING SUMMARY ---")
