@@ -1946,14 +1946,17 @@ class ATF3DTrainer(Trainer):
 
         torch.manual_seed(42 + iteration)  # deterministic per-step: batch, mics, t, x0, CFG mask
 
+        _do_time = iteration < 5
+
         # 2. Now everything below is tied to 'iteration'
         # This picks the SAME 4 sources every time this iteration is run
         # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
+        if _do_time: torch.cuda.synchronize(); _t_data0 = time.time()
         z_full, src_xyz, _ = self.path.p_data.sample(batch_size)
-
         dev = next(self.model.parameters()).device
         z_full = z_full.to(dev)
         src_xyz = src_xyz.to(dev)
+        if _do_time: torch.cuda.synchronize(); print(f"  [iter {iteration}] data+transfer={time.time()-_t_data0:.3f}s")
 
         x1 = z_full
 
@@ -1995,8 +1998,7 @@ class ATF3DTrainer(Trainer):
             return torch.stack(losses).mean()
 
         # 2. Create the sparse observation set (fast vectorised path)
-        _do_time = iteration < 0
-        if _do_time: import time; torch.cuda.synchronize(); _t0 = time.time()
+        if _do_time: torch.cuda.synchronize(); _t0 = time.time()
         obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(
             z_full, src_xyz, deterministic=False
         )
