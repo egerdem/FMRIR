@@ -839,6 +839,13 @@ atf_mag_est, atf_mag_gt, ref_config, ref_data = load_reference_model(device, fre
 
 ref_results = evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_eval, freq_up_to)
 
+# Load and evaluate EEAE 10001 results
+eeae_pt_path = 'RESULTS/out_20250916_EEAE_10001/atf_mag/atf_mag_test_ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200_freq20.pt'
+print(f"\n2b. Loading EEAE 10001 results from {eeae_pt_path}...")
+eeae_atf_est = torch.load(eeae_pt_path, weights_only=False)
+print(f"EEAE results loaded: {eeae_atf_est.shape}")
+eeae_results = evaluate_reference_model(eeae_atf_est, atf_mag_gt, ref_config, num_sources_eval, freq_up_to)
+
 # Print results
 print("\n" + "="*80)
 print("=== COMPARISON RESULTS ===")
@@ -862,7 +869,14 @@ ref_lsd_full_fair = ref_results.get('lsd_mean_matched_freq', ref_results['lsd_me
 ref_mse_full_fair = ref_results.get('mse_mean_matched_freq', ref_results['mse_mean'])
 ref_nmse_full_fair = ref_results.get('nmse_mean_matched_freq', ref_results['nmse_mean'])
 
-print(f"{'Reference (M=' + str(ref_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {freq_up_to} bins':<15}")
+print(f"{'Reference FSMPAE 10026 (M=' + str(ref_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {freq_up_to} bins':<15}")
+
+eeae_lsd_m_fund = eeae_results['lsd_mean_m_fund']
+eeae_mse_m_fund = eeae_results['mse_mean_m_fund']
+eeae_lsd_full_fair = eeae_results.get('lsd_mean_matched_freq', eeae_results['lsd_mean'])
+eeae_mse_full_fair = eeae_results.get('mse_mean_matched_freq', eeae_results['mse_mean'])
+eeae_nmse_full_fair = eeae_results.get('nmse_mean_matched_freq', eeae_results['nmse_mean'])
+print(f"{'Reference EEAE 10001 (M=' + str(eeae_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {eeae_lsd_m_fund:.4f}     | {eeae_mse_m_fund:.4f}     | {eeae_lsd_full_fair:.4f}     | {eeae_mse_full_fair:.4f}     | {eeae_nmse_full_fair:.4f}       | {f'First {freq_up_to} bins':<15}")
 
 # All your models
 COL_W = 45  # Method column width
