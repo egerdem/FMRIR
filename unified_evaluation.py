@@ -494,45 +494,36 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
         grid_xyz = train_sampler.grid_xyz
         
         for src_idx in source_indices:
-            # Create one PDF with 5 subplots (like reference AUTOENCODER PDFs)
-            fig, axes = plt.subplots(5, 1, figsize=(12, 6*5))
-            plt.subplots_adjust(wspace=0.4, hspace=0.6)
-            
+            fig, axes = plt.subplots(5, 1, figsize=(10, 4*5))
+            plt.subplots_adjust(hspace=0.5)
+
             for i, mic_idx in enumerate(mic_indices):
                 ax = axes[i]
-                
-                # Plot all three methods with correct frequency axes
-                # All models plot the same frequency range for comparison (0-312 Hz)
-                ax.plot(freq_axis, atf_mag_gt[mic_idx, :freq_up_to, src_idx], 'k--', label="True", linewidth=2)
-                ax.plot(freq_axis, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="FSMPAE", linewidth=1.5)
+
+                ax.plot(freq_axis, atf_mag_gt[mic_idx, :freq_up_to, src_idx], 'k--', label="True", linewidth=1.0)
+                ax.plot(freq_axis, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="FSMPAE", linewidth=0.9)
                 if atf_mag_est_eeae is not None:
                     eeae_bins = atf_mag_est_eeae.shape[1]
-                    ax.plot(freq_axis[:eeae_bins], atf_mag_est_eeae[mic_idx, :, src_idx], 'g-', label="EEAE", linewidth=1.5)
-                print(f"Plotting Source {src_idx+922}, Mic {mic_idx} (index {i+1}/5)")
-                ax.plot(freq_axis, atf_mag_est_yours_best[mic_idx, :, src_idx], 'b-',
-                       label=f"SF-Flow", linewidth=1.5) #(w={best_guidance})
-                
+                    ax.plot(freq_axis[:eeae_bins], atf_mag_est_eeae[mic_idx, :, src_idx], 'g-', label="EEAE", linewidth=0.9)
+                ax.plot(freq_axis, atf_mag_est_yours_best[mic_idx, :, src_idx], 'b-', label="SF-Flow", linewidth=0.9)
+
                 ax.set_xscale('log')
                 ax.grid(True)
-                ax.legend()
-                ax.set_xlabel("Frequency (Hz)")
-                ax.set_ylabel("Magnitude (dB)")
-                # ax.set_ylim([-50, 30])  # Same y-limits as reference
-                
-                # Set x-limits to show meaningful frequency range (avoid white space)
-                # ax.set_xlim([freq_yours[0], freq_yours[-1]])  # From ~31 Hz to ~312 Hz
-                
-                # Get microphone coordinates for title (same format as reference)
+                ax.tick_params(labelsize=8)
+                ax.set_xlabel("Frequency (Hz)", fontsize=8)
+                ax.set_ylabel("Magnitude (dB)", fontsize=8)
+
                 mic_coord = grid_xyz[mic_idx].numpy()
-                ax.set_title(f"ATF ({mic_coord[0]:.2f} m, {mic_coord[1]:.2f} m, {mic_coord[2]:.2f} m)")
-            
+                ax.set_title(f"ATF ({mic_coord[0]:.2f} m, {mic_coord[1]:.2f} m, {mic_coord[2]:.2f} m)", fontsize=9)
+                ax.legend(fontsize=7, loc='upper right', ncol=2)
+                print(f"Plotting Source {src_idx+922}, Mic {mic_idx} (index {i+1}/5)")
+
             plt.tight_layout()
-            
-            # Save with source-specific filename (like reference: ATF_Mag_..._src-XX_test.pdf)
+
             filename = f"ATF_Comparison_src{src_idx+922:04d}_test.pdf"
             filepath = os.path.join(output_dir, filename)
             fig.savefig(filepath, dpi=150, bbox_inches='tight')
-            plt.close(fig)  # Close to save memory
+            plt.close(fig)
             
             plot_count += 1
             print(f"Saved {plot_count}/{len(source_indices)} plots: {filename}")
@@ -1005,22 +996,29 @@ if GENERATE_PLOTS:
     parent_dir = os.path.dirname(os.path.dirname(MULTI_MODEL_PATHS[0]))  # Go up two levels
     os.makedirs(parent_dir, exist_ok=True)
 
+    # EEAE per-source LSD for combined plot
+    eeae_per_source = eeae_results['per_source_errors']
+    eeae_lsd = [eeae_per_source[i].get('lsd_matched', eeae_per_source[i]['lsd_full']) for i in range(len(eeae_per_source))]
+    eeae_mean_lsd = np.mean(eeae_lsd)
+
     # Combined LSD plot
     plt.figure(figsize=(14, 8))
     ref_mean = np.mean(ref_lsd)
-    plt.plot(source_indices, ref_lsd, 'r-', label=f'Reference (mean: {ref_mean:.4f} dB)', alpha=0.8, linewidth=2)
+    plt.plot(source_indices, ref_lsd, 'r-', label=f'FSMPAE (mean: {ref_mean:.4f} dB)', alpha=0.8, linewidth=2)
+    plt.plot(source_indices, eeae_lsd, 'g-', label=f'EEAE (mean: {eeae_mean_lsd:.4f} dB)', alpha=0.8, linewidth=2)
 
     for model_name, data in all_model_lsd.items():
         model_mean = np.mean(data['values'])
+        # Wrap long names: insert newline before parenthetical info
+        wrapped = model_name.replace('_', '\n', 1) if len(model_name) > 30 else model_name
         plt.plot(source_indices, data['values'], '-', color=data['color'],
-                label=f'{model_name} w={data["guidance"]} (mean: {model_mean:.4f} dB)', alpha=0.7)
+                label=f'{wrapped}\nw={data["guidance"]} mean={model_mean:.4f} dB', alpha=0.7)
 
     plt.xlabel('Source Index')
     plt.ylabel('LSD Error (dB)')
     plt.title('LSD Distribution Comparison - All Models')
     plt.grid(True, alpha=0.3)
-    # plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.legend()
+    plt.legend(loc='upper right', fontsize=8)
     plt.tight_layout()
     plt.savefig(os.path.join(parent_dir, 'Zcombined_lsd_distribution.pdf'), dpi=300, bbox_inches='tight')
     plt.show()
