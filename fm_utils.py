@@ -1108,8 +1108,10 @@ class Trainer(ABC):
             current_lr = scheduler.get_last_lr()[0]
             current_epoch = (iteration + 1) * batch_size / dataset_size
             if iteration % 100 == 0:
-                wandb.log({"train_loss": loss.item(), "epoch": current_epoch, "iteration": iteration,
+                loss_float = loss.item()  # single GPU sync every 100 iters
+                wandb.log({"train_loss": loss_float, "epoch": current_epoch, "iteration": iteration,
                            "learning_rate": current_lr}, step=iteration)
+                pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss_float:.5f}')
 
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
@@ -1186,7 +1188,7 @@ class Trainer(ABC):
                     break
 
             else:
-                pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss.item():.5f}')
+                pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}')
 
             # --- Periodic Checkpointing Logic ---
             # if (iteration + 1) % checkpoint_interval == 0:
@@ -1993,7 +1995,7 @@ class ATF3DTrainer(Trainer):
 
         torch.manual_seed(42 + iteration)  # deterministic per-step: batch, mics, t, x0, CFG mask
 
-        _do_time = iteration < 5
+        _do_time = iteration < 0
 
         # 2. Now everything below is tied to 'iteration'
         # This picks the SAME 4 sources every time this iteration is run
