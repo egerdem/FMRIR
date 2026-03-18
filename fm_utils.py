@@ -56,21 +56,21 @@ class SetEncoder(nn.Module):
         # Optional Fourier Feature Mapping for coordinates.
         # num_ff_coord=0 → legacy raw coord input (backward compatible)
         # num_ff_coord>0 → coords expanded to 2*num_ff_coord via sin/cos before MLP
-        if num_ff_coord > 0:
-            self.coord_ffm = FourierFeatureMapping(num_ff_coord, coord_dim, trainable=ffm_trainable)
-            pos_input_dim = 2 * num_ff_coord
-        else:
-            self.coord_ffm = None
-            pos_input_dim = coord_dim
-
         # A separate MLP for the "where": the coordinate conditioning vector.
         # coord_dim=3  → only relative mic position  (default, backward compatible)
         # coord_dim=9  → [rel_pos(3), d_walls(6)]  (geo_conditioning=True)
-        self.positional_encoder = nn.Sequential(
-            nn.Linear(pos_input_dim, d_model),
-            nn.ReLU(),
-            nn.Linear(d_model, d_model)
-        )
+        if num_ff_coord > 0:
+            self.coord_ffm = FourierFeatureMapping(num_ff_coord, coord_dim, trainable=ffm_trainable)
+            # FFMv1: FFM already provides non-linearity via sin/cos, so one linear projection suffices
+            self.positional_encoder = nn.Linear(2 * num_ff_coord, d_model)
+        else:
+            self.coord_ffm = None
+            # Legacy: 2-layer MLP on raw coords (coord_dim=3 or 9)
+            self.positional_encoder = nn.Sequential(
+                nn.Linear(coord_dim, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, d_model)
+            )
 
         # Transformer encoder remains the same
         encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, batch_first=True)
