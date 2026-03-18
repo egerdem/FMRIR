@@ -11,3 +11,6 @@
 source ~/fmvenv/bin/activate
 cd ~/FMRIR
 
+python AUTOENCODER/ATF_interp/main.py \
+    -m EEAE \
+    -c 10001 
