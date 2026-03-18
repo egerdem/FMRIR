@@ -309,7 +309,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume_from_checkpoint', type=str, help='Path to a checkpoint to resume from.')
 
     # --- WandB ---
-    parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--wandb_key', type=str, default="ec2cf1718868be26a8055412b556d952681ee0b6")
 
     # --- Data ---
@@ -338,8 +338,8 @@ if __name__ == '__main__':
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
     parser.add_argument('--M_val_fixed', type=int, default= None)
-    parser.add_argument('--freq_up_to', type=int, default=30, help='Upper freq bin (exclusive upper bound of subband)')
-    parser.add_argument('--freq_from', type=int, default=25, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
+    parser.add_argument('--freq_up_to', type=int, default=20, help='Upper freq bin (exclusive upper bound of subband)')
+    parser.add_argument('--freq_from', type=int, default=0, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard',

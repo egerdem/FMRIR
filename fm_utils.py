@@ -212,11 +212,15 @@ def model_factory(config, device):
 
     elif setversion == "v12" or setversion is None:
         print("--- Creating set encoder v12 ---")
+        coord_dim = model_cfg.get('coord_dim', 3)
+        num_ff_coord = model_cfg.get('num_ff_coord', 0)
         set_encoder = SetEncoder_v12(
             num_freqs=num_freqs,
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
-            num_layers=model_cfg['num_encoder_layers']
+            num_layers=model_cfg['num_encoder_layers'],
+            coord_dim=coord_dim,
+            num_ff_coord=num_ff_coord
         ).to(device)
 
     if architecture == "v2_residual_context":
