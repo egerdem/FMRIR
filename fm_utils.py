@@ -1314,6 +1314,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
                                       f'processed_atf3d_{self.mode}_freqs{freq_tag}_{self.dataset_version}.pt')
 
         # Check if preprocessed file exists and matches config
+        print(f"Looking for pre-processed file: {processed_file}")
         recreate_file = False
         if os.path.exists(processed_file):
             print(f"Loading pre-processed ATF-3D {self.mode} data from {processed_file}")
