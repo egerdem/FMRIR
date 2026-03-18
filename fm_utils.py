@@ -1473,14 +1473,27 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
 
 class SetEncoder_v12(nn.Module):
     # this was v1 and v2 models' setencoder, now siwtcihng to v3 for sadding positional encodings separately
+    # Updated to support variable coord_dim (3 or 9 for geo-conditioning) and optional FFM on coords
     """Encodes a sparse set of observations into a sequence of tokens. and a pooled context vector."""
 
-    def __init__(self, num_freqs=64, d_model=256, nhead=4, num_layers=3):
+    def __init__(self, num_freqs=64, d_model=256, nhead=4, num_layers=3, coord_dim=3,
+                 num_ff_coord=0, ffm_trainable=True):
         super().__init__()
         self.d_model = d_model
-        # MLP to tokenize each observation: [rel_coord(3), values(64)] -> d_model
+
+        # Optional Fourier Feature Mapping for coordinates
+        # num_ff_coord=0 → use raw coords (legacy, coord_dim=3)
+        # num_ff_coord>0 → coords → FFM → 2*num_ff_coord dims before concat
+        if num_ff_coord > 0:
+            self.coord_ffm = FourierFeatureMapping(num_ff_coord, coord_dim, trainable=ffm_trainable)
+            coord_feat_dim = 2 * num_ff_coord
+        else:
+            self.coord_ffm = None
+            coord_feat_dim = coord_dim
+
+        # MLP to tokenize each observation: [coord_feats, values] -> d_model
         self.tokenizer_mlp = nn.Sequential(
-            nn.Linear(3 + num_freqs, d_model),
+            nn.Linear(coord_feat_dim + num_freqs, d_model),
             nn.ReLU(),
             nn.Linear(d_model, d_model)
         )
@@ -1502,8 +1515,9 @@ class SetEncoder_v12(nn.Module):
             pooled_context (Tensor): A single context vector per batch item [B, d_model]
 
         """
-        # 1. Concatenate coordinates and values for each observation
-        token_features = torch.cat([obs_coords_rel, obs_values], dim=-1)  # [B, M_max, 67]
+        # 1. Concatenate coordinates (optionally FFM-expanded) and values for each observation
+        coords = self.coord_ffm(obs_coords_rel) if self.coord_ffm is not None else obs_coords_rel
+        token_features = torch.cat([coords, obs_values], dim=-1)  # [B, M_max, coord_feat_dim + num_freqs]
 
         # 2. Project each observation to a token of dimension d_model
         tokens = self.tokenizer_mlp(token_features)  # [B, M_max, d_model]

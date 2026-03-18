@@ -252,9 +252,12 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
         ).to(device)
     else: # Fallback to v12
         print("--- Creating set encoder v12 ---")
+        coord_dim = model_cfg.get('coord_dim', 3)
+        num_ff_coord = model_cfg.get('num_ff_coord', 0)
         set_encoder = SetEncoder_v12(
             num_freqs=num_freqs, d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers']
+            nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers'],
+            coord_dim=coord_dim, num_ff_coord=num_ff_coord
         ).to(device)
 
     # --- 2. Instantiate Main Model (U-Net/DiT) ---
