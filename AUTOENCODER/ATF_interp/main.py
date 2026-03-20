@@ -36,6 +36,7 @@ def arg_parser():
     parser.add_argument("-d", "--data_dir", type=str, default="", help="Root directory containing dataset folders")
     parser.add_argument("--freq_from", type=int, default=0, help="Lower freq bin index (inclusive). Default 0.")
     parser.add_argument("--freq_up_to", type=int, default=None, help="Upper freq bin index (exclusive). Default None = use config num_freq (all bins).")
+    parser.add_argument("--num_mes_test", type=int, default=None, help="Number of input microphones at test time. Overrides config num_mes_test. Output filename will include _M{N}.")
     args = parser.parse_args()
     return args
 
@@ -89,7 +90,7 @@ def train(trainer, ptins=None):
     trainer.save(suffix="final_"+f'{epoch:03}'+"ep")
 
 def test(net, flg_save, best_loss, data, mode, use_coeff=False, coeff=None, use_cuda=True):
-    device = 'cuda' if use_cuda else 'cpu'
+    device = 'cuda' if (use_cuda and th.cuda.is_available()) else 'cpu'
     # net.cpu()
     net.to(device)
     net.eval()
@@ -162,7 +163,8 @@ def test(net, flg_save, best_loss, data, mode, use_coeff=False, coeff=None, use_
                 pt_dir = f'{config["artifacts_dir"]}/{data_type}'
                 os.makedirs(pt_dir, exist_ok=True)
                 for dataset_name in prediction_all[data_type]:
-                    th.save(prediction_all[data_type][dataset_name], f'{pt_dir}/{data_type}_{mode}_{dataset_name}.pt')
+                    m_suffix = f'_M{config["num_mes_test"]}'
+                    th.save(prediction_all[data_type][dataset_name], f'{pt_dir}/{data_type}_{mode}_{dataset_name}{m_suffix}.pt')
 
     loss = 0
     for k in keys:
@@ -667,6 +669,8 @@ if __name__ == "__main__":
     config['freq_from'] = args.freq_from if args.freq_from != 0 else config.get('freq_from', 0)
     config['freq_up_to'] = args.freq_up_to if args.freq_up_to is not None else config.get('freq_up_to', 64)
     config['num_freq'] = config['freq_up_to'] - config['freq_from']
+    if args.num_mes_test is not None:
+        config['num_mes_test'] = args.num_mes_test
 
     if config["model"] in ["FSMPAE", "EEAE"]:
         net = models.ATFApproxNetwork(config)
