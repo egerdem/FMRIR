@@ -223,6 +223,8 @@ def model_factory(config, device):
             num_ff_coord=num_ff_coord
         ).to(device)
 
+    freq_channel_bias = model_cfg.get('freq_channel_bias', False)
+
     if architecture == "v2_residual_context":
         print("--- Creating (v2) architecture ---")
         unet_3d = CrossAttentionUNet3D_RED3d(
@@ -230,7 +232,8 @@ def model_factory(config, device):
             out_channels=num_freqs,
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead']
+            nhead=model_cfg['nhead'],
+            freq_channel_bias=freq_channel_bias
         ).to(device)
 
     elif architecture == "v1_legacy" or architecture is None:
@@ -241,7 +244,8 @@ def model_factory(config, device):
             out_channels=num_freqs,
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead']
+            nhead=model_cfg['nhead'],
+            freq_channel_bias=freq_channel_bias
         ).to(device)
 
     elif architecture == "v4_DiT":
@@ -262,7 +266,8 @@ def model_factory(config, device):
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
-            input_size=11  # Assuming your cube dimension is 11
+            input_size=11,  # Assuming your cube dimension is 11
+            freq_channel_bias=freq_channel_bias
         ).to(device)
 
     return set_encoder, unet_3d
@@ -2603,10 +2608,20 @@ class ConvBlock3D(nn.Module):
 
 # Second version with dynamic parametric channel unet
 class CrossAttentionUNet3D(nn.Module):
-    def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11):
+    def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11,
+                 freq_channel_bias=False):
         super().__init__()
         # Ensure channel dimensions are divisible by the number of attention heads
         assert all(c % nhead == 0 for c in channels), "Channel dimensions must be divisible by nhead"
+
+        # Optional learnable per-frequency channel bias added before init_conv.
+        # Acts like a positional encoding over the frequency axis, telling the network
+        # explicitly which channel corresponds to which frequency (DC vs high freq).
+        # ~in_channels params, negligible cost.
+        if freq_channel_bias:
+            self.freq_channel_bias = nn.Parameter(torch.zeros(in_channels, 1, 1, 1))
+        else:
+            self.freq_channel_bias = None
 
         self.pad = nn.ConstantPad3d((0, 1, 0, 1, 0, 1), 0.0)
         self.time_embedder = FourierEncoder(d_model)
@@ -2663,6 +2678,10 @@ class CrossAttentionUNet3D(nn.Module):
         B = x.size(0)
         x = F.pad(x, self.padding_tuple, mode='reflect')
 
+        # Apply learnable per-frequency bias (if enabled)
+        if self.freq_channel_bias is not None:
+            x = x + self.freq_channel_bias
+
         # Initial conv
         x = self.init_conv(x)
 
@@ -2697,8 +2716,15 @@ class CrossAttentionUNet3D(nn.Module):
 
 
 class CrossAttentionUNet3D_RED3d(nn.Module):
-    def __init__(self, channels, d_model, nhead, in_channels=20, out_channels=20, input_size=11):
+    def __init__(self, channels, d_model, nhead, in_channels=20, out_channels=20, input_size=11,
+                 freq_channel_bias=False):
         super().__init__()
+
+        # Optional learnable per-frequency channel bias (see CrossAttentionUNet3D for rationale)
+        if freq_channel_bias:
+            self.freq_channel_bias = nn.Parameter(torch.zeros(in_channels, 1, 1, 1))
+        else:
+            self.freq_channel_bias = None
 
         self.time_embedder = FourierEncoder(d_model)
 
@@ -2743,6 +2769,11 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
 
     def forward(self, x, t, context, context_mask, pooled_context):
         x = F.pad(x, self.padding_tuple, mode='reflect')
+
+        # Apply learnable per-frequency bias (if enabled)
+        if self.freq_channel_bias is not None:
+            x = x + self.freq_channel_bias
+
         t_emb = self.time_embedder(t.squeeze())
 
         # --- Encoder ---
@@ -2830,8 +2861,15 @@ class CrossAttentionUNet3D_v3(nn.Module):
     U-Net v3: Combines Residual Blocks, Self-Attention, and Cross-Attention.
     """
 
-    def __init__(self, in_channels=20, out_channels=20, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11):
+    def __init__(self, in_channels=20, out_channels=20, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11,
+                 freq_channel_bias=False):
         super().__init__()
+
+        # Optional learnable per-frequency channel bias (see CrossAttentionUNet3D for rationale)
+        if freq_channel_bias:
+            self.freq_channel_bias = nn.Parameter(torch.zeros(in_channels, 1, 1, 1))
+        else:
+            self.freq_channel_bias = None
 
         self.time_embedder = FourierEncoder(d_model)
 
@@ -2873,6 +2911,11 @@ class CrossAttentionUNet3D_v3(nn.Module):
     def forward(self, x, t, context, context_mask, pooled_context):
         x = F.pad(x, self.padding_tuple, mode='reflect')
         x = x.float()
+
+        # Apply learnable per-frequency bias (if enabled)
+        if self.freq_channel_bias is not None:
+            x = x + self.freq_channel_bias
+
         t_emb = self.time_embedder(t.squeeze())
 
         # --- Encoder ---

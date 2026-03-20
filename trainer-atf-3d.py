@@ -91,7 +91,8 @@ def main(args):
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
                   "FM_vs_Diff": args.FM_vs_Diff,
                   "coord_dim": 9 if args.geo_conditioning else 3,
-                  "num_ff_coord": args.num_ff_coord},
+                  "num_ff_coord": args.num_ff_coord,
+                  "freq_channel_bias": args.freq_channel_bias},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
                      "min_lr": args.min_lr,
@@ -316,7 +317,7 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
-    parser.add_argument('--model_name', default="r1_ZZZATF-3D-CrossAttn-UNet", type=str)
+    parser.add_argument('--model_name', default="BIG_8192R4_ZZZATF-3D-CrossAttn-UNet", type=str)
     parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128])
     parser.add_argument('--d_model', type=int, default=512, help='Dimension for tokens and context.')
     parser.add_argument('--nhead', type=int, default=8, help='Number of attention heads.')
@@ -325,6 +326,10 @@ if __name__ == '__main__':
                         help='Fourier Feature Mapping for coordinates. 0=disabled (raw coords, legacy). '
                              '>0: coords mapped to 2*num_ff_coord dims via sin/cos before positional MLP. '
                              'E.g. --num_ff_coord 16 with coord_dim=9 gives v:[16,9], output 32-dim.')
+    parser.add_argument('--freq_channel_bias', action='store_true', default=False,
+                        help='Add a learnable per-frequency channel bias to the UNet input. '
+                             'Acts as a positional encoding over the frequency axis (~num_freqs params). '
+                             'Tells the network explicitly which channel = which frequency.')
 
     # --- Training ---
     parser.add_argument('--num_iterations', type=int, default=200)

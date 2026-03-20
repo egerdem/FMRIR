@@ -261,19 +261,23 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
         ).to(device)
 
     # --- 2. Instantiate Main Model (U-Net/DiT) ---
+    freq_channel_bias = model_cfg.get('freq_channel_bias', False)
+
     if architecture == "v3_attention":
         print("--- Creating (v3) architecture with Self-Attention ---")
         main_model = CrossAttentionUNet3D_v3(
             in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead'], input_size=11
+            nhead=model_cfg['nhead'], input_size=11,
+            freq_channel_bias=freq_channel_bias
         ).to(device)
     elif architecture == "v2_residual_context":
         print("--- Creating (v2) architecture ---")
         main_model = CrossAttentionUNet3D_RED3d(
             in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead']
+            nhead=model_cfg['nhead'],
+            freq_channel_bias=freq_channel_bias
         ).to(device)
     # Add other architectures like v1_legacy as needed...
     elif architecture == "v1_legacy" or architecture is None:
@@ -281,7 +285,8 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
         main_model = CrossAttentionUNet3D(
             in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
-            nhead=model_cfg['nhead']
+            nhead=model_cfg['nhead'],
+            freq_channel_bias=freq_channel_bias
         ).to(device)
 
     elif architecture == "v4_DiT":
