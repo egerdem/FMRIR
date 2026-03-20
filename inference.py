@@ -262,6 +262,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
 
     # --- 2. Instantiate Main Model (U-Net/DiT) ---
     freq_channel_bias = model_cfg.get('freq_channel_bias', False)
+    freq_film = model_cfg.get('freq_film', False)
 
     if architecture == "v3_attention":
         print("--- Creating (v3) architecture with Self-Attention ---")
@@ -269,7 +270,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
             in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'], input_size=11,
-            freq_channel_bias=freq_channel_bias
+            freq_channel_bias=freq_channel_bias, freq_film=freq_film
         ).to(device)
     elif architecture == "v2_residual_context":
         print("--- Creating (v2) architecture ---")
@@ -277,7 +278,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
             in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
-            freq_channel_bias=freq_channel_bias
+            freq_channel_bias=freq_channel_bias, freq_film=freq_film
         ).to(device)
     # Add other architectures like v1_legacy as needed...
     elif architecture == "v1_legacy" or architecture is None:
@@ -286,7 +287,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
             in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
-            freq_channel_bias=freq_channel_bias
+            freq_channel_bias=freq_channel_bias, freq_film=freq_film
         ).to(device)
 
     elif architecture == "v4_DiT":

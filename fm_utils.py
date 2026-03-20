@@ -224,6 +224,7 @@ def model_factory(config, device):
         ).to(device)
 
     freq_channel_bias = model_cfg.get('freq_channel_bias', False)
+    freq_film = model_cfg.get('freq_film', False)
 
     if architecture == "v2_residual_context":
         print("--- Creating (v2) architecture ---")
@@ -233,7 +234,8 @@ def model_factory(config, device):
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
-            freq_channel_bias=freq_channel_bias
+            freq_channel_bias=freq_channel_bias,
+            freq_film=freq_film
         ).to(device)
 
     elif architecture == "v1_legacy" or architecture is None:
@@ -245,7 +247,8 @@ def model_factory(config, device):
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
-            freq_channel_bias=freq_channel_bias
+            freq_channel_bias=freq_channel_bias,
+            freq_film=freq_film
         ).to(device)
 
     elif architecture == "v4_DiT":
@@ -267,7 +270,8 @@ def model_factory(config, device):
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
             input_size=11,  # Assuming your cube dimension is 11
-            freq_channel_bias=freq_channel_bias
+            freq_channel_bias=freq_channel_bias,
+            freq_film=freq_film
         ).to(device)
 
     return set_encoder, unet_3d
@@ -1600,12 +1604,10 @@ class DDPM_ODE_Sampler(ODE):
         unguided_y_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], guided_y_tokens.shape[1], -1)
         unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
 
-        model_kwargs_guided = {'context': guided_y_tokens, 'context_mask': obs_mask}
-        model_kwargs_unguided = {'context': unguided_y_tokens, 'context_mask': obs_mask}
-
-        if self.architecture in ["v2_residual_context", "v3_attention", "v4_DiT"]:
-            model_kwargs_guided['pooled_context'] = guided_pooled_context
-            model_kwargs_unguided['pooled_context'] = unguided_pooled_context
+        model_kwargs_guided = {'context': guided_y_tokens, 'context_mask': obs_mask,
+                               'pooled_context': guided_pooled_context}
+        model_kwargs_unguided = {'context': unguided_y_tokens, 'context_mask': obs_mask,
+                                 'pooled_context': unguided_pooled_context}
 
         epsilon_theta_guided = self.epsilon_theta(xt, t_continuous.squeeze(), **model_kwargs_guided)
         epsilon_theta_unguided = self.epsilon_theta(xt, t_continuous.squeeze(), **model_kwargs_unguided)
@@ -2052,9 +2054,7 @@ class ATF3DTrainer(Trainer):
                 null_ctx = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, -1)
                 fin_tok = torch.where(is_conditional_mask.view(-1, 1, 1), y_tok, null_tok)
                 fin_ctx = torch.where(is_conditional_mask.view(-1, 1), pool_ctx, null_ctx)
-                mk = {'context': fin_tok, 'context_mask': obs_msk}
-                if self.version in ("v2_residual_context", "v3_attention"):
-                    mk['pooled_context'] = fin_ctx
+                mk = {'context': fin_tok, 'context_mask': obs_msk, 'pooled_context': fin_ctx}
                 ut_theta = self.model(xt, t, **mk)
                 if self.loss_type == 'weighted':
                     with torch.no_grad():
@@ -2107,11 +2107,9 @@ class ATF3DTrainer(Trainer):
         # 6. Get the model's prediction for the velocity field
         model_kwargs = {
             'context': final_tokens,
-            'context_mask': final_obs_mask
+            'context_mask': final_obs_mask,
+            'pooled_context': final_pooled_context
         }
-
-        if self.version == "v2_residual_context" or self.version == "v3_attention":
-            model_kwargs['pooled_context'] = final_pooled_context
 
         # The 3D U-Net's forward pass must accept `context` and `context_mask`
         if _do_time: torch.cuda.synchronize(); _t3 = time.time()
@@ -2183,9 +2181,7 @@ class ATF3DTrainer(Trainer):
         final_tokens = torch.where(is_conditional_mask.view(-1, 1, 1), y_tokens, null_tokens)
         final_pooled_context = torch.where(is_conditional_mask.view(-1, 1), pooled_context, null_context)
 
-        model_kwargs = {'context': final_tokens, 'context_mask': obs_mask}
-        if self.version in ["v2_residual_context", "v3_attention", "v4_DiT"]:
-            model_kwargs['pooled_context'] = final_pooled_context
+        model_kwargs = {'context': final_tokens, 'context_mask': obs_mask, 'pooled_context': final_pooled_context}
 
         # 4. Pass continuous-time equivalent to the model
         continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
@@ -2231,9 +2227,7 @@ class ATF3DTrainer(Trainer):
         xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
         xt = xt.float()
 
-        model_kwargs = {'context': y_tokens, 'context_mask': obs_mask}
-        if self.version in ["v2_residual_context", "v3_attention", "v4_DiT"]:
-            model_kwargs['pooled_context'] = pooled_context
+        model_kwargs = {'context': y_tokens, 'context_mask': obs_mask, 'pooled_context': pooled_context}
 
         continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
         continuous_time = continuous_time.view(-1, 1, 1, 1, 1)
@@ -2268,11 +2262,8 @@ class ATF3DTrainer(Trainer):
         std_db  = valid_sampler.std.to(dev)
 
         # --- Build the correct ODE wrapper once (no weight copies, just references) ---
-        uses_pooled = self.version in ("v2_residual_context", "v3_attention")
-        if uses_pooled:
-            ode = CFGVectorFieldODE_3D_V2(unet=self.model, set_encoder=self.set_encoder)
-        else:
-            ode = CFGVectorFieldODE_3D(unet=self.model, set_encoder=self.set_encoder)
+        # Always use V2 wrapper (passes pooled_context); v1_legacy accepts it with pooled_context=None default
+        ode = CFGVectorFieldODE_3D_V2(unet=self.model, set_encoder=self.set_encoder)
         simulator = EulerSimulator(ode=ode)
 
         # Pre-build timestep template for Euler integration (N_STEPS=10 good for monitoring)
@@ -2609,7 +2600,7 @@ class ConvBlock3D(nn.Module):
 # Second version with dynamic parametric channel unet
 class CrossAttentionUNet3D(nn.Module):
     def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11,
-                 freq_channel_bias=False):
+                 freq_channel_bias=False, freq_film=False):
         super().__init__()
         # Ensure channel dimensions are divisible by the number of attention heads
         assert all(c % nhead == 0 for c in channels), "Channel dimensions must be divisible by nhead"
@@ -2622,6 +2613,19 @@ class CrossAttentionUNet3D(nn.Module):
             self.freq_channel_bias = nn.Parameter(torch.zeros(in_channels, 1, 1, 1))
         else:
             self.freq_channel_bias = None
+
+        # FiLM: observation-conditional per-frequency scale+shift derived from SetEncoder pooled_context.
+        # Projects pooled_context [B, d_model] → scale [B, F] and shift [B, F], then modulates
+        # the UNet input x [B, F, D, H, W] before the first conv: x = x*(1+scale) + shift.
+        # Initialised to zero so it starts as identity. ~2 * F * d_model extra params.
+        if freq_film:
+            self.film_scale = nn.Linear(d_model, in_channels)
+            self.film_shift = nn.Linear(d_model, in_channels)
+            nn.init.zeros_(self.film_scale.weight); nn.init.zeros_(self.film_scale.bias)
+            nn.init.zeros_(self.film_shift.weight); nn.init.zeros_(self.film_shift.bias)
+        else:
+            self.film_scale = None
+            self.film_shift = None
 
         self.pad = nn.ConstantPad3d((0, 1, 0, 1, 0, 1), 0.0)
         self.time_embedder = FourierEncoder(d_model)
@@ -2673,7 +2677,7 @@ class CrossAttentionUNet3D(nn.Module):
         # --- Final Convolution ---
         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
 
-    def forward(self, x, t, context, context_mask):
+    def forward(self, x, t, context, context_mask, pooled_context=None):
         # x: [B, C, 11, 11, 11]
         B = x.size(0)
         x = F.pad(x, self.padding_tuple, mode='reflect')
@@ -2681,6 +2685,12 @@ class CrossAttentionUNet3D(nn.Module):
         # Apply learnable per-frequency bias (if enabled)
         if self.freq_channel_bias is not None:
             x = x + self.freq_channel_bias
+
+        # FiLM: observation-conditional per-frequency scale+shift from pooled_context
+        if self.film_scale is not None and pooled_context is not None:
+            scale = self.film_scale(pooled_context).view(B, -1, 1, 1, 1)  # [B, F, 1, 1, 1]
+            shift = self.film_shift(pooled_context).view(B, -1, 1, 1, 1)
+            x = x * (1 + scale) + shift
 
         # Initial conv
         x = self.init_conv(x)
@@ -2717,7 +2727,7 @@ class CrossAttentionUNet3D(nn.Module):
 
 class CrossAttentionUNet3D_RED3d(nn.Module):
     def __init__(self, channels, d_model, nhead, in_channels=20, out_channels=20, input_size=11,
-                 freq_channel_bias=False):
+                 freq_channel_bias=False, freq_film=False):
         super().__init__()
 
         # Optional learnable per-frequency channel bias (see CrossAttentionUNet3D for rationale)
@@ -2725,6 +2735,16 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
             self.freq_channel_bias = nn.Parameter(torch.zeros(in_channels, 1, 1, 1))
         else:
             self.freq_channel_bias = None
+
+        # FiLM: see CrossAttentionUNet3D for rationale
+        if freq_film:
+            self.film_scale = nn.Linear(d_model, in_channels)
+            self.film_shift = nn.Linear(d_model, in_channels)
+            nn.init.zeros_(self.film_scale.weight); nn.init.zeros_(self.film_scale.bias)
+            nn.init.zeros_(self.film_shift.weight); nn.init.zeros_(self.film_shift.bias)
+        else:
+            self.film_scale = None
+            self.film_shift = None
 
         self.time_embedder = FourierEncoder(d_model)
 
@@ -2767,12 +2787,19 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
 
         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
 
-    def forward(self, x, t, context, context_mask, pooled_context):
+    def forward(self, x, t, context, context_mask, pooled_context=None):
+        B = x.size(0)
         x = F.pad(x, self.padding_tuple, mode='reflect')
 
         # Apply learnable per-frequency bias (if enabled)
         if self.freq_channel_bias is not None:
             x = x + self.freq_channel_bias
+
+        # FiLM: observation-conditional per-frequency scale+shift from pooled_context
+        if self.film_scale is not None and pooled_context is not None:
+            scale = self.film_scale(pooled_context).view(B, -1, 1, 1, 1)
+            shift = self.film_shift(pooled_context).view(B, -1, 1, 1, 1)
+            x = x * (1 + scale) + shift
 
         t_emb = self.time_embedder(t.squeeze())
 
@@ -2862,7 +2889,7 @@ class CrossAttentionUNet3D_v3(nn.Module):
     """
 
     def __init__(self, in_channels=20, out_channels=20, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11,
-                 freq_channel_bias=False):
+                 freq_channel_bias=False, freq_film=False):
         super().__init__()
 
         # Optional learnable per-frequency channel bias (see CrossAttentionUNet3D for rationale)
@@ -2870,6 +2897,16 @@ class CrossAttentionUNet3D_v3(nn.Module):
             self.freq_channel_bias = nn.Parameter(torch.zeros(in_channels, 1, 1, 1))
         else:
             self.freq_channel_bias = None
+
+        # FiLM: see CrossAttentionUNet3D for rationale
+        if freq_film:
+            self.film_scale = nn.Linear(d_model, in_channels)
+            self.film_shift = nn.Linear(d_model, in_channels)
+            nn.init.zeros_(self.film_scale.weight); nn.init.zeros_(self.film_scale.bias)
+            nn.init.zeros_(self.film_shift.weight); nn.init.zeros_(self.film_shift.bias)
+        else:
+            self.film_scale = None
+            self.film_shift = None
 
         self.time_embedder = FourierEncoder(d_model)
 
@@ -2908,13 +2945,20 @@ class CrossAttentionUNet3D_v3(nn.Module):
 
         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
 
-    def forward(self, x, t, context, context_mask, pooled_context):
+    def forward(self, x, t, context, context_mask, pooled_context=None):
+        B = x.size(0)
         x = F.pad(x, self.padding_tuple, mode='reflect')
         x = x.float()
 
         # Apply learnable per-frequency bias (if enabled)
         if self.freq_channel_bias is not None:
             x = x + self.freq_channel_bias
+
+        # FiLM: observation-conditional per-frequency scale+shift from pooled_context
+        if self.film_scale is not None and pooled_context is not None:
+            scale = self.film_scale(pooled_context).view(B, -1, 1, 1, 1)
+            shift = self.film_shift(pooled_context).view(B, -1, 1, 1, 1)
+            x = x * (1 + scale) + shift
 
         t_emb = self.time_embedder(t.squeeze())
 

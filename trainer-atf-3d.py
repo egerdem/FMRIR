@@ -92,7 +92,8 @@ def main(args):
                   "FM_vs_Diff": args.FM_vs_Diff,
                   "coord_dim": 9 if args.geo_conditioning else 3,
                   "num_ff_coord": args.num_ff_coord,
-                  "freq_channel_bias": args.freq_channel_bias},
+                  "freq_channel_bias": args.freq_channel_bias,
+                  "freq_film": args.freq_film},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
                      "min_lr": args.min_lr,
@@ -330,6 +331,10 @@ if __name__ == '__main__':
                         help='Add a learnable per-frequency channel bias to the UNet input. '
                              'Acts as a positional encoding over the frequency axis (~num_freqs params). '
                              'Tells the network explicitly which channel = which frequency.')
+    parser.add_argument('--freq_film', action='store_true', default=False,
+                        help='FiLM conditioning: project SetEncoder pooled_context to per-frequency '
+                             'scale+shift applied to UNet input before first conv. '
+                             'Observation-conditional frequency modulation. ~2*F*d_model extra params.')
 
     # --- Training ---
     parser.add_argument('--num_iterations', type=int, default=200)
