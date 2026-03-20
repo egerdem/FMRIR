@@ -2299,10 +2299,7 @@ class ATF3DTrainer(Trainer):
             xt     = (1 - (1 - self.sigma) * t) * x0 + t * x1
             ut_ref =  x1 - (1 - self.sigma) * x0
 
-            model_kwargs = {'context': y_tokens, 'context_mask': obs_mask}
-            if uses_pooled:
-                model_kwargs['pooled_context'] = pooled_context
-
+            model_kwargs = {'context': y_tokens, 'context_mask': obs_mask, 'pooled_context': pooled_context}
             ut_theta = self.model(xt, t, **model_kwargs)
             batch_mse = torch.mean(torch.square(ut_theta - ut_ref))
             all_mse.append(batch_mse)
@@ -2314,9 +2311,7 @@ class ATF3DTrainer(Trainer):
             # ts shape: [B, N_STEPS+1, 1, 1, 1, 1]
             ts = ts_1d.view(1, -1, 1, 1, 1, 1).expand(B, -1, -1, -1, -1, -1)
 
-            sim_kwargs = dict(y_tokens=y_tokens, obs_mask=obs_mask, silent=True)
-            if uses_pooled:
-                sim_kwargs['pooled_context'] = pooled_context
+            sim_kwargs = dict(y_tokens=y_tokens, obs_mask=obs_mask, pooled_context=pooled_context, silent=True)
 
             x1_hat = simulator.simulate(x0_recon, ts, **sim_kwargs)  # [B, F, D, H, W]
 
