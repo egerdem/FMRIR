@@ -2823,9 +2823,23 @@ class CrossAttentionUNet3D(nn.Module):
 
 
 class CrossAttentionUNet3D_RED3d(nn.Module):
+    """
+    Parametric v2 UNet with residual blocks + cross-attention at every level.
+    Supports arbitrary depth via len(channels):
+      channels=[A, B, C]       → 2 down-steps, bottleneck at C  (original)
+      channels=[A, B, C, D]    → 3 down-steps, bottleneck at D
+      etc.
+
+    Channel layout:
+      Encoder level 0:  channels[0] → channels[0]  (identity, full resolution)
+      Encoder level i≥1: channels[i-1] → channels[i]
+      Bottleneck:       channels[-2] → channels[-1] → channels[-2]
+      Decoder level k:  upsample + skip-concat → channels[idx-1]  (mirrors encoder)
+    """
     def __init__(self, channels, d_model, nhead, in_channels=20, out_channels=20, input_size=11,
                  freq_channel_bias=False, freq_film=False, freq_ctx=False):
         super().__init__()
+        assert len(channels) >= 3, "channels must have at least 3 values (2 encoder levels + bottleneck peak)"
 
         # Optional learnable per-frequency channel bias (see CrossAttentionUNet3D for rationale)
         if freq_channel_bias:
@@ -2855,42 +2869,61 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
 
         self.time_embedder = FourierEncoder(d_model)
 
-        # --- Padding Calculation ---
-        # With 2 downsampling layers, we need the size to be divisible by 4.
-        # Input 11 -> Pad to 12. 12 -> 6 -> 3. This requires careful upsampling.
-        # Let's pad to a safer size: 16. 16 -> 8 -> 4.
-        target_size = 16
+        # --- Padding: pad input so spatial size is divisible by 2^n_downs ---
+        # n_downs = len(channels) - 1  spatial downsampling steps (bottleneck peak is channels[-1])
+        n_downs = len(channels) - 1
+        divisor = 2 ** n_downs
+        # For n_downs=2, input_size=11: ceil(11/4)*4 = 12 → bottleneck 3³=27 voxels.
+        # This is preferred over the original hardcoded 16 (31% padding waste) since
+        # 12 gives only 8% padding overhead and a tighter, less-diluted bottleneck.
+        target_size = math.ceil(input_size / divisor) * divisor
         total_pad = target_size - input_size
         pad_front = total_pad // 2
         pad_back = total_pad - pad_front
         self.padding_tuple = (pad_front, pad_back, pad_front, pad_back, pad_front, pad_back)
         self.crop_start = pad_front
         self.crop_end = pad_front + input_size
+        self.n_downs = n_downs
 
-        # --- ENCODER PATH ---
+        # --- Initial conv: in_channels → channels[0] ---
         self.init_conv = nn.Conv3d(in_channels, channels[0], kernel_size=3, padding=1)
 
-        self.enc1_res = ResidualBlock3D(channels[0], channels[0], d_model, d_model)
-        self.enc1_attn = CrossAttentionBlock3D(channels[0], d_model, nhead)
-        self.down1 = nn.MaxPool3d(2)  # 16 -> 8
+        # --- Encoder: n_downs levels, each with ResBlock + CrossAttn + MaxPool ---
+        # Level 0:  channels[0] → channels[0]  (no channel expansion at first level)
+        # Level i≥1: channels[i-1] → channels[i]
+        self.enc_res  = nn.ModuleList()
+        self.enc_attn = nn.ModuleList()
+        for i in range(n_downs):
+            in_c  = channels[0] if i == 0 else channels[i - 1]
+            out_c = channels[i]
+            self.enc_res.append(ResidualBlock3D(in_c, out_c, d_model, d_model))
+            self.enc_attn.append(CrossAttentionBlock3D(out_c, d_model, nhead))
+        self.down = nn.MaxPool3d(2)  # shared; stateless
 
-        self.enc2_res = ResidualBlock3D(channels[0], channels[1], d_model, d_model)
-        self.enc2_attn = CrossAttentionBlock3D(channels[1], d_model, nhead)
-        self.down2 = nn.MaxPool3d(2)  # 8 -> 4
+        # --- Bottleneck: channels[-2] → channels[-1] → channels[-2] ---
+        self.bottle_res1 = ResidualBlock3D(channels[-2], channels[-1], d_model, d_model)
+        self.bottle_attn = CrossAttentionBlock3D(channels[-1], d_model, nhead)
+        self.bottle_res2 = ResidualBlock3D(channels[-1], channels[-2], d_model, d_model)
 
-        # --- BOTTLENECK ---
-        self.bottle_res1 = ResidualBlock3D(channels[1], channels[2], d_model, d_model)
-        self.bottle_attn = CrossAttentionBlock3D(channels[2], d_model, nhead)
-        self.bottle_res2 = ResidualBlock3D(channels[2], channels[1], d_model, d_model)
-
-        # --- DECODER PATH ---
-        self.up1 = nn.ConvTranspose3d(channels[1], channels[1], kernel_size=2, stride=2)  # 4 -> 8
-        self.dec1_res = ResidualBlock3D(channels[1] * 2, channels[0], d_model, d_model)
-        self.dec1_attn = CrossAttentionBlock3D(channels[0], d_model, nhead)
-
-        self.up2 = nn.ConvTranspose3d(channels[0], channels[0], kernel_size=2, stride=2)  # 8 -> 16
-        self.dec2_res = ResidualBlock3D(channels[0] * 2, channels[0], d_model, d_model)
-        self.dec2_attn = CrossAttentionBlock3D(channels[0], d_model, nhead)
+        # --- Decoder: n_downs levels (mirrors encoder in reverse) ---
+        # Step k (k=0 = deepest):
+        #   idx      = n_downs - 1 - k   (index into channels for current feature map)
+        #   cur_c    = channels[idx]       (current channels, same as matching encoder skip)
+        #   out_c    = channels[idx-1]     (output channels; channels[0] for the final step)
+        #   upsample : ConvTranspose cur_c → cur_c
+        #   concat   : cur_c + cur_c (skip) = 2*cur_c
+        #   ResBlock : 2*cur_c → out_c
+        #   CrossAttn: out_c
+        self.dec_up   = nn.ModuleList()
+        self.dec_res  = nn.ModuleList()
+        self.dec_attn = nn.ModuleList()
+        for k in range(n_downs):
+            idx   = n_downs - 1 - k
+            cur_c = channels[idx]
+            out_c = channels[idx - 1] if idx > 0 else channels[0]
+            self.dec_up.append(nn.ConvTranspose3d(cur_c, cur_c, kernel_size=2, stride=2))
+            self.dec_res.append(ResidualBlock3D(cur_c * 2, out_c, d_model, d_model))
+            self.dec_attn.append(CrossAttentionBlock3D(out_c, d_model, nhead))
 
         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
 
@@ -2916,34 +2949,28 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
 
         t_emb = self.time_embedder(t.squeeze())
 
-        # --- Encoder ---
-        h1 = self.init_conv(x)
-        h1 = self.enc1_res(h1, t_emb, pooled_context)
-        h1 = self.enc1_attn(h1, context, context_mask)  # Size: 16
-
-        h2 = self.down1(h1)  # Size: 8
-        h2 = self.enc2_res(h2, t_emb, pooled_context)
-        h2 = self.enc2_attn(h2, context, context_mask)
-
-        h3 = self.down2(h2)  # Size: 4
+        # --- Encoder: save skip connections before each downsampling ---
+        x = self.init_conv(x)
+        skips = []
+        for res, attn in zip(self.enc_res, self.enc_attn):
+            x = res(x, t_emb, pooled_context)
+            x = attn(x, context, context_mask)
+            skips.append(x)
+            x = self.down(x)
 
         # --- Bottleneck ---
-        bn = self.bottle_res1(h3, t_emb, pooled_context)
-        bn = self.bottle_attn(bn, context, context_mask)
-        bn = self.bottle_res2(bn, t_emb, pooled_context)
+        x = self.bottle_res1(x, t_emb, pooled_context)
+        x = self.bottle_attn(x, context, context_mask)
+        x = self.bottle_res2(x, t_emb, pooled_context)
 
-        # --- Decoder ---
-        d1 = self.up1(bn)  # Size: 8
-        d1 = torch.cat((d1, h2), dim=1)  # Concat with h2 (size 8)
-        d1 = self.dec1_res(d1, t_emb, pooled_context)
-        d1 = self.dec1_attn(d1, context, context_mask)
+        # --- Decoder: upsample, concat skip, ResBlock, CrossAttn ---
+        for up, res, attn, skip in zip(self.dec_up, self.dec_res, self.dec_attn, reversed(skips)):
+            x = up(x)
+            x = torch.cat((x, skip), dim=1)
+            x = res(x, t_emb, pooled_context)
+            x = attn(x, context, context_mask)
 
-        d2 = self.up2(d1)  # Size: 16
-        d2 = torch.cat((d2, h1), dim=1)  # Concat with h1 (size 16)
-        d2 = self.dec2_res(d2, t_emb, pooled_context)
-        d2 = self.dec2_attn(d2, context, context_mask)
-
-        out = self.final_conv(d2)
+        out = self.final_conv(x)
         s, e = self.crop_start, self.crop_end
         return out[..., s:e, s:e, s:e]
 

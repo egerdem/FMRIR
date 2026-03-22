@@ -378,7 +378,7 @@ if __name__ == '__main__':
                              'Requires room dims to be encoded in --data_dir path.')
     parser.add_argument('--validation_interval', type=int, default=20)
     parser.add_argument('--version', type=str, default="v3_attention",
-                        help='Model architecture version, e.g. v1, v2, etc.')
+                        help='Model architecture version, options: v1_legacy, v2_residual_context')
     parser.add_argument('--setencoder_version', type=str, default="v3",
                         help='setencoder architecture version, e.g. v12:merged feature, v3:pos embed')
 

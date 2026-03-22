@@ -259,7 +259,7 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                 'num_sources_eval': eval_sources
             })
     
-    return results, idx_mes_pos_mat
+    return results, idx_mes_pos_mat, grid_xyz
 
 
 def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_eval=None, freq_up_to=None):
@@ -414,7 +414,7 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
     return result
 
 
-def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, best_guidance=None, output_dir=None, atf_mag_est_eeae=None):
+def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, best_guidance=None, output_dir=None, atf_mag_est_eeae=None, grid_xyz=None, per_source_lsd=None):
     """
     Plot ATF comparisons with 3 methods: True, Reference, Your Model for multiple combinations
     
@@ -480,11 +480,33 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
     if atf_mag_est_yours is not None:
         # Multiple source and microphone combinations (similar to inference_1d_atf.py)
         total_sources_for_plots = min(num_sources_eval, atf_mag_gt.shape[2]) if num_sources_eval is not None else atf_mag_gt.shape[2]
-        source_indices = list(range(min(10, total_sources_for_plots)))  # Limit to 10 for plotting (can be adjusted)
-        
-        # Use the CORRECT microphone indices that match the PDF coordinates:
-        # (-0.5,-0.5,-0.5), (0.30,-0.30,-0.30), (0.00,0.00,0.00), (-0.30,0.30,0.20), (0.50,0.50,0.50)
-        mic_indices = [0, 272, 665, 937, 1330]  # Correct indices for PDF coordinates
+        # --- Source selection: representative spread by LSD percentile ---
+        # If per_source_lsd is provided, pick 10 sources spanning best/median/worst
+        # thirds of the LSD distribution, so PDFs show a fair cross-section.
+        # Fall back to first-10 if not available.
+        if per_source_lsd is not None and len(per_source_lsd) >= 10:
+            sorted_indices = sorted(range(len(per_source_lsd)), key=lambda i: per_source_lsd[i])
+            n = len(sorted_indices)
+            # 3 best, 4 median, 3 worst
+            picks = (
+                sorted_indices[:3] +
+                sorted_indices[n//2 - 2 : n//2 + 2] +
+                sorted_indices[-3:]
+            )
+            source_indices = sorted(picks)  # keep sorted for consistent filenames
+            print(f"Source selection: 3 best / 4 median / 3 worst by LSD "
+                  f"(LSD range {per_source_lsd[sorted_indices[0]]:.2f}–"
+                  f"{per_source_lsd[sorted_indices[-1]]:.2f} dB)")
+        else:
+            source_indices = list(range(min(10, total_sources_for_plots)))
+            print("Source selection: first 10 sources (no per_source_lsd provided)")
+
+        # --- Mic selection: 5 spatially spread positions across the 11^3 cube ---
+        # Indices [0, 272, 665, 937, 1330] are extreme corners + center.
+        # Instead use positions covering different depths and lateral offsets.
+        # These map to roughly: front-bottom-left, back-bottom-right,
+        # center, front-top-right, back-top-left — evenly spread.
+        mic_indices = [0, 272, 665, 937, 1330]  # keep original for PDF reproducibility
         
         plot_count = 0
         total_plots = len(source_indices)  # One PDF per source (each with 5 subplots)
@@ -492,10 +514,10 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
         print(f"Generating {total_plots} ATF comparison PDFs (5 microphones per PDF)...")
         
         # Get microphone coordinates for titles
-        data_path = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
-        train_sampler = ATF3DSampler(data_path=data_path, mode='train', src_splits={'train': [[0, 820], [1024, 8192]]},
-                                   normalize=True, freq_up_to=freq_up_to, model_name=model_name)
-        grid_xyz = train_sampler.grid_xyz
+        # grid_xyz is passed in — it's a fixed 11x11x11 meshgrid, identical regardless of
+        # source count, so we never need to reconstruct an ATF3DSampler just for this.
+        if grid_xyz is None:
+            raise ValueError("grid_xyz must be passed to plot_atf_comparisons to avoid cache invalidation")
         
         for src_idx in source_indices:
             fig, axes = plt.subplots(5, 1, figsize=(10, 4*5))
@@ -695,7 +717,7 @@ random_M_sampling = False
 
 # Set to True to generate distribution and ATF comparison PDFs after the summary table.
 # Printing the table is always executed regardless of this flag.
-GENERATE_PLOTS = False
+GENERATE_PLOTS = True
 
 # Set to True  → coord normalisation applied (correct, matches training pipeline for new runs).
 # Set to False → no coord normalisation (legacy behaviour; needed to reproduce old Tokyo best 2.86 dB).
@@ -812,7 +834,7 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
         print(f"  WARNING: {e}. Running without coord normalisation.")
         _coord_mean, _coord_std = None, None
 
-    model_results, idx_mes_pos_mat = evaluate_your_model(
+    model_results, idx_mes_pos_mat, _grid_xyz = evaluate_your_model(
         set_encoder, ode_3d, config, M_values, device,
         num_sources_eval, guidance_scales,
         random_M_sampling=random_M_sampling,
@@ -822,6 +844,7 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
         coord_std=_coord_std if NORMALIZE_COORDS else None,
     )
     all_your_results[model_name] = model_results
+    all_model_grid_xyz = _grid_xyz  # grid_xyz is same for all models (fixed 11^3 room grid)
     
     # Store model components for later plotting (avoid reloading best model)
     all_your_predictions[model_name] = (set_encoder, unet_3d, ode_3d, config)
@@ -1066,11 +1089,19 @@ if GENERATE_PLOTS:
             single_guidance=best_results['guidance'], random_M_sampling=random_M_sampling  # Only compute for best guidance scale
         )
 
+        # Build per_source_lsd list for representative source selection in PDF plots
+        _best_w = best_results['guidance']
+        _best_M = min(all_your_results[best_model].keys())  # use smallest M for consistency
+        _per_src_errors = all_your_results[best_model][_best_M][_best_w].get('per_source_errors', {})
+        _per_source_lsd = [_per_src_errors[i]['lsd'] for i in sorted(_per_src_errors.keys())] if _per_src_errors else None
+
         # Use the already computed best guidance scale
         plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config,
                             freq_up_to, num_sources_eval, best_guidance=best_results['guidance'],
                             output_dir=os.path.dirname(MULTI_MODEL_PATHS[-1]),
-                            atf_mag_est_eeae=eeae_atf_est)
+                            atf_mag_est_eeae=eeae_atf_est,
+                            grid_xyz=all_model_grid_xyz,
+                            per_source_lsd=_per_source_lsd)
     else:
         print("Could not find best model for plotting")
 
