@@ -266,13 +266,14 @@ def evaluate_your_model(set_encoder, ode_3d, config, device, model_name, coord_m
                 
                 # Inference
                 x0 = torch.randn_like(z_true)
-                y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
-                
+                y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
+
                 ts = torch.linspace(0, 1, 11, device=device)
                 ts = ts.view(1, -1, 1, 1, 1, 1).expand(x0.shape[0], -1, -1, -1, -1, -1)
-                
+
                 z_est = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                          obs_mask=obs_mask, pooled_context=pooled_context,
+                                         freq_contexts=freq_contexts,
                                          paste_observations=True, obs_indices=obs_indices)
                 
                 # Denormalize

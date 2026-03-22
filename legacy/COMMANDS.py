@@ -284,7 +284,7 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/pro
 
 scp -r /Users/ege/Projects/FMRIR/artifacts/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/checkpoints/ckpt_200000_CONV.pt eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/ATF3D-CrossAttn-v1-freq20_M5to50_sigmaE3_20250826-183304_iter200000/checkpoints
 #LOCALDEN KCL Create'e
-scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_valid_freqs20_r1.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_valid_freqs64_r4.pt k24037994@hpc.create.kcl.ac.uk:/users/k24037994/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200
 scp -r /Users/ege/Projects/FMRIR/idx_mes_pos_s8192_m1331.npy k24037994@hpc.create.kcl.ac.uk:/users/k24037994/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200
 
 
@@ -302,7 +302,12 @@ scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/VV_oldval_r1_ICASSP_M5_5
 
 #Create'den locale
 
-scp -r k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments /Volumes/T7/SFlow
+scp -r k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments/KCL_SWEEP_Val102_Mval5_r1_M5_10_20_50_freq30_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3_128to512v1_setv3_400k_20260318-000221_iter400000 /Volumes/T7/SFlow
+                                                                                                                                                                                                               # /Volumes/T7/SFlow)
+
+#clouddan lokale
+
+scp -r cloud-iov:~/EGE/FMRIR_experiments/KCL_Val102_Mval5_r1_M5_10_20_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3_256to1024v1_setv3_400k_20260320-032649_iter400000 /Users/ege/Projects/FMRIR/artifacts
 
 
 

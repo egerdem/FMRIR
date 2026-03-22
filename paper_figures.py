@@ -273,8 +273,8 @@ def generate_SFfigures_FM(model_path, freq_idx_to_plot,
         obs_mask = torch.ones(1, M_current, dtype=torch.bool, device=device)
         
         # Get conditioning tokens for this frequency
-        y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
-        
+        y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
+
         # Row 0: Input microphone configuration (2D scatter plot)
         ax_scatter = axes[col_idx, 0]
         obs_xyz_plot = obs_xyz_abs.cpu().numpy()
@@ -320,9 +320,10 @@ def generate_SFfigures_FM(model_path, freq_idx_to_plot,
             ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
             
             # Generate
-            x1_recon = simulator.simulate(xt, ts, x0=x0, z_true=z_true, 
+            x1_recon = simulator.simulate(xt, ts, x0=x0, z_true=z_true,
                                         y_tokens=y_tokens, obs_mask=obs_mask,
                                         pooled_context=pooled_context,
+                                        freq_contexts=freq_contexts,
                                         paste_observations=True, obs_indices=obs_indices)
 
         # Plot generated field
@@ -636,7 +637,7 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
         obs_mask = torch.ones(1, M_current, dtype=torch.bool, device=device)
 
         # Get conditioning tokens for this frequency
-        y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
+        y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         # Method 0: Input microphone configuration (2D scatter plot) - only show in middle row
         ax_scatter = axes[freq_row_idx, 0]
@@ -704,6 +705,7 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
             x1_recon = simulator.simulate(xt, ts, x0=x0, z_true=z_true,
                                           y_tokens=y_tokens, obs_mask=obs_mask,
                                           pooled_context=pooled_context,
+                                          freq_contexts=freq_contexts,
                                           paste_observations=True, obs_indices=obs_indices)
 
         # Plot generated field
@@ -1013,13 +1015,14 @@ def generate_atf_plots(model_path, source_indices=[0], mic_indices=[665],
         
         # Generate prediction
         x0 = torch.randn_like(z_true)
-        y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
-        
+        y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
+
         ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
         ts = ts.view(1, -1, 1, 1, 1, 1).expand(x0.shape[0], -1, -1, -1, -1, -1)
-        
+
         x1_recon = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                      obs_mask=obs_mask, pooled_context=pooled_context,
+                                     freq_contexts=freq_contexts,
                                      paste_observations=True, obs_indices=obs_indices)
         
         # Denormalize your model's prediction

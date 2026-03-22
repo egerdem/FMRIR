@@ -226,15 +226,15 @@ def main(MODEL_LOAD_PATH):
             simulator = model_info['simulator']
             
             # Get conditioning tokens for this model
-            y_tokens, pooled_context = set_encoder(obs_coords_rel_batch, obs_values_batch, obs_mask)
-            
+            y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel_batch, obs_values_batch, obs_mask)
+
             gen_cubes_denorm = {}
             for guid in guidance:
                 xt = x0.clone()  # Start from the same initial noise
-                
+
                 # Set the guidance scale on the ODE object
                 simulator.ode.guidance_scale = guid
-                
+
                 # Simulation loop
                 x1_recon = simulator.simulate(xt,
                                               ts,
@@ -243,6 +243,7 @@ def main(MODEL_LOAD_PATH):
                                               y_tokens=y_tokens,
                                               obs_mask=obs_mask,
                                               pooled_context=pooled_context,
+                                              freq_contexts=freq_contexts,
                                               paste_observations=False,
                                               obs_indices=obs_indices
                                               )

@@ -42,9 +42,11 @@ class SetEncoder(nn.Module):
     """
 
     def __init__(self, num_freqs, d_model, nhead, num_layers, coord_dim=3,
-                 num_ff_coord=0, ffm_trainable=True):
+                 num_ff_coord=0, ffm_trainable=True, use_freq_ctx=False):
         super().__init__()
         self.d_model = d_model
+        self.num_freqs = num_freqs
+        self.use_freq_ctx = use_freq_ctx
 
         # An MLP for the "what": the ATF values
         self.value_tokenizer = nn.Sequential(
@@ -78,12 +80,26 @@ class SetEncoder(nn.Module):
 
         self.y_null_token = nn.Parameter(torch.randn(1, 1, d_model))
 
+        # Per-frequency context MLP: for each (mic, freq) pair, embed [coord_feats, freq_idx, atf_val] → d_model.
+        # Masked mean over M → [B, F, d_model] frequency-specific conditioning for UNet FiLM.
+        if use_freq_ctx:
+            coord_feat_dim = 2 * num_ff_coord if num_ff_coord > 0 else coord_dim
+            self.freq_ctx_mlp = nn.Sequential(
+                nn.Linear(coord_feat_dim + 2, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, d_model)
+            )
+        else:
+            self.freq_ctx_mlp = None
+
     def forward(self, obs_coords_rel, obs_values, obs_mask):
         """
         Args:
             obs_coords_rel (Tensor): Relative mic coordinates [B, M_max, 3]
             obs_values (Tensor): ATF magnitudes at those mics [B, M_max, 20]
             obs_mask (Tensor): Boolean mask indicating valid observations [B, M_max]
+        Returns:
+            encoded_tokens [B, M_max, d_model], pooled_context [B, d_model], freq_contexts [B, F, d_model] or None
         """
         # ### <<< CHANGE 2: Process values and positions separately
 
@@ -106,7 +122,24 @@ class SetEncoder(nn.Module):
         num_valid_tokens = obs_mask.sum(dim=1, keepdim=True)
         pooled_context = masked_tokens.sum(dim=1) / (num_valid_tokens + 1e-8)
 
-        return encoded_tokens, pooled_context
+        # 6. Optionally compute per-frequency contexts [B, F, d_model]
+        freq_contexts = None
+        if self.freq_ctx_mlp is not None:
+            B, M_max, F = obs_values.shape
+            freq_idx = torch.arange(F, device=obs_values.device, dtype=obs_values.dtype) / F  # [F]
+            # coords already computed above: [B, M_max, coord_feat_dim]
+            coords_exp = coords.unsqueeze(2).expand(B, M_max, F, -1)       # [B, M, F, coord_feat_dim]
+            freq_exp   = freq_idx.view(1, 1, F, 1).expand(B, M_max, F, 1)  # [B, M, F, 1]
+            atf_exp    = obs_values.unsqueeze(-1)                           # [B, M, F, 1]
+            token_in   = torch.cat([coords_exp, freq_exp, atf_exp], dim=-1) # [B, M, F, coord_feat_dim+2]
+            freq_tokens = self.freq_ctx_mlp(token_in)                       # [B, M, F, d_model]
+            # Masked mean over M
+            mask_exp = obs_mask.unsqueeze(-1).unsqueeze(-1)                 # [B, M, 1, 1]
+            freq_tokens = freq_tokens.masked_fill(~mask_exp, 0.0)
+            n_valid = obs_mask.sum(dim=1).view(B, 1, 1)                     # [B, 1, 1]
+            freq_contexts = freq_tokens.sum(dim=1) / (n_valid + 1e-8)      # [B, F, d_model]
+
+        return encoded_tokens, pooled_context, freq_contexts
 
 
 def get_dataset_version_from_model_name(model_name: str) -> str:
@@ -199,6 +232,8 @@ def model_factory(config, device):
     num_freqs = model_cfg['freq_up_to'] - freq_from
 
     # --- Instantiate models based on version ---
+    freq_ctx = model_cfg.get('freq_ctx', False)
+
     if setversion == "v3":
         print("--- Creating set encoder v3 ---")
         coord_dim = model_cfg.get('coord_dim', 3)
@@ -207,7 +242,8 @@ def model_factory(config, device):
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
             num_layers=model_cfg['num_encoder_layers'],
-            coord_dim=coord_dim
+            coord_dim=coord_dim,
+            use_freq_ctx=freq_ctx
         ).to(device)
 
     elif setversion == "v12" or setversion is None:
@@ -220,7 +256,8 @@ def model_factory(config, device):
             nhead=model_cfg['nhead'],
             num_layers=model_cfg['num_encoder_layers'],
             coord_dim=coord_dim,
-            num_ff_coord=num_ff_coord
+            num_ff_coord=num_ff_coord,
+            use_freq_ctx=freq_ctx
         ).to(device)
 
     freq_channel_bias = model_cfg.get('freq_channel_bias', False)
@@ -235,7 +272,8 @@ def model_factory(config, device):
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
             freq_channel_bias=freq_channel_bias,
-            freq_film=freq_film
+            freq_film=freq_film,
+            freq_ctx=freq_ctx
         ).to(device)
 
     elif architecture == "v1_legacy" or architecture is None:
@@ -248,7 +286,8 @@ def model_factory(config, device):
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
             freq_channel_bias=freq_channel_bias,
-            freq_film=freq_film
+            freq_film=freq_film,
+            freq_ctx=freq_ctx
         ).to(device)
 
     elif architecture == "v4_DiT":
@@ -271,7 +310,8 @@ def model_factory(config, device):
             nhead=model_cfg['nhead'],
             input_size=11,  # Assuming your cube dimension is 11
             freq_channel_bias=freq_channel_bias,
-            freq_film=freq_film
+            freq_film=freq_film,
+            freq_ctx=freq_ctx
         ).to(device)
 
     return set_encoder, unet_3d
@@ -1158,8 +1198,8 @@ class Trainer(ABC):
                     best_val_lsd = val_lsd
                     best_val_loss_time = time.time()
                     print(
-                        f"** [Iter {iteration}] New best LSD: {best_val_lsd:.4f} dB "
-                        f"(FM-MSE: {val_loss.item():.5f}, train loss: {loss.item():.5f}). Saving model. **")
+                        f"** [Iter {iteration}] New best LSD: {best_val_lsd:.4f} dB Saving model. **")
+                        # f"(FM-MSE: {val_loss.item():.5f}, train loss: {loss.item():.5f}). ")
 
                     y_null_to_save = None
                     if hasattr(self, 'set_encoder') and self.set_encoder is not None:
@@ -1491,9 +1531,11 @@ class SetEncoder_v12(nn.Module):
     """Encodes a sparse set of observations into a sequence of tokens. and a pooled context vector."""
 
     def __init__(self, num_freqs=64, d_model=256, nhead=4, num_layers=3, coord_dim=3,
-                 num_ff_coord=0, ffm_trainable=True):
+                 num_ff_coord=0, ffm_trainable=True, use_freq_ctx=False):
         super().__init__()
         self.d_model = d_model
+        self.num_freqs = num_freqs
+        self.use_freq_ctx = use_freq_ctx
 
         # Optional Fourier Feature Mapping for coordinates
         # num_ff_coord=0 → use raw coords (legacy, coord_dim=3)
@@ -1518,6 +1560,16 @@ class SetEncoder_v12(nn.Module):
 
         self.y_null_token = nn.Parameter(torch.randn(1, 1, d_model))
 
+        # Per-frequency context MLP (same design as SetEncoder v3 version)
+        if use_freq_ctx:
+            self.freq_ctx_mlp = nn.Sequential(
+                nn.Linear(coord_feat_dim + 2, d_model),
+                nn.ReLU(),
+                nn.Linear(d_model, d_model)
+            )
+        else:
+            self.freq_ctx_mlp = None
+
     def forward(self, obs_coords_rel, obs_values, obs_mask):
         """
         Args:
@@ -1525,9 +1577,7 @@ class SetEncoder_v12(nn.Module):
             obs_values (Tensor): ATF magnitudes at those mics [B, M_max, 64]
             obs_mask (Tensor): Boolean mask indicating valid observations [B, M_max]
         Returns:
-            tokens (Tensor): Encoded observation tokens [B, M_max, d_model]
-            pooled_context (Tensor): A single context vector per batch item [B, d_model]
-
+            tokens [B, M_max, d_model], pooled_context [B, d_model], freq_contexts [B, F, d_model] or None
         """
         # 1. Concatenate coordinates (optionally FFM-expanded) and values for each observation
         coords = self.coord_ffm(obs_coords_rel) if self.coord_ffm is not None else obs_coords_rel
@@ -1548,7 +1598,22 @@ class SetEncoder_v12(nn.Module):
         num_valid_tokens = obs_mask.sum(dim=1, keepdim=True)
         pooled_context = masked_tokens.sum(dim=1) / (num_valid_tokens + 1e-8)
 
-        return tokens, pooled_context
+        # Optionally compute per-frequency contexts [B, F, d_model]
+        freq_contexts = None
+        if self.freq_ctx_mlp is not None:
+            B, M_max, F = obs_values.shape
+            freq_idx = torch.arange(F, device=obs_values.device, dtype=obs_values.dtype) / F  # [F]
+            coords_exp = coords.unsqueeze(2).expand(B, M_max, F, -1)       # [B, M, F, coord_feat_dim]
+            freq_exp   = freq_idx.view(1, 1, F, 1).expand(B, M_max, F, 1)  # [B, M, F, 1]
+            atf_exp    = obs_values.unsqueeze(-1)                           # [B, M, F, 1]
+            token_in   = torch.cat([coords_exp, freq_exp, atf_exp], dim=-1) # [B, M, F, coord_feat_dim+2]
+            freq_tokens = self.freq_ctx_mlp(token_in)                       # [B, M, F, d_model]
+            mask_exp = obs_mask.unsqueeze(-1).unsqueeze(-1)                 # [B, M, 1, 1]
+            freq_tokens = freq_tokens.masked_fill(~mask_exp, 0.0)
+            n_valid = obs_mask.sum(dim=1).view(B, 1, 1)                     # [B, 1, 1]
+            freq_contexts = freq_tokens.sum(dim=1) / (n_valid + 1e-8)      # [B, F, d_model]
+
+        return tokens, pooled_context, freq_contexts
 
 
 # In fm_utils.py, replace your SetEncoder class
@@ -1599,15 +1664,18 @@ class DDPM_ODE_Sampler(ODE):
         """Helper function to get the CFG-combined noise prediction."""
         # This part handles context extraction and CFG, same as your DDIMSampler
         obs_coords_rel, obs_values, obs_mask = kwargs['obs_coords_rel'], kwargs['obs_values'], kwargs['obs_mask']
-        guided_y_tokens, guided_pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+        guided_y_tokens, guided_pooled_context, guided_freq_ctx = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-        unguided_y_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], guided_y_tokens.shape[1], -1)
-        unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
+        B = xt.shape[0]
+        unguided_y_tokens = self.set_encoder.y_null_token.expand(B, guided_y_tokens.shape[1], -1)
+        unguided_pooled_context = self.set_encoder.y_null_token.squeeze(1).expand(B, -1)
+        null_freq_ctx = (self.set_encoder.y_null_token.squeeze(1).expand(B, guided_freq_ctx.shape[1], -1)
+                         if guided_freq_ctx is not None else None)
 
         model_kwargs_guided = {'context': guided_y_tokens, 'context_mask': obs_mask,
-                               'pooled_context': guided_pooled_context}
+                               'pooled_context': guided_pooled_context, 'freq_contexts': guided_freq_ctx}
         model_kwargs_unguided = {'context': unguided_y_tokens, 'context_mask': obs_mask,
-                                 'pooled_context': unguided_pooled_context}
+                                 'pooled_context': unguided_pooled_context, 'freq_contexts': null_freq_ctx}
 
         epsilon_theta_guided = self.epsilon_theta(xt, t_continuous.squeeze(), **model_kwargs_guided)
         epsilon_theta_unguided = self.epsilon_theta(xt, t_continuous.squeeze(), **model_kwargs_unguided)
@@ -1688,34 +1756,30 @@ class CFGVectorFieldODE_3D_V2(ODE):
         self.guidance_scale = guidance_scale
 
     def drift_coefficient(self, xt: torch.Tensor, t: torch.Tensor, **kwargs) -> torch.Tensor:
-        # The simulator will pass 'y_tokens', 'obs_mask', and now 'pooled_context' through kwargs
+        # The simulator will pass 'y_tokens', 'obs_mask', 'pooled_context', and 'freq_contexts' through kwargs
         y_tokens = kwargs['y_tokens']
         obs_mask = kwargs['obs_mask']
-
-        # ### <<< FIX: Get the new 'pooled_context' argument from kwargs
         pooled_context = kwargs['pooled_context']
+        freq_contexts = kwargs.get('freq_contexts', None)
+
+        B = xt.shape[0]
+        null_tokens = self.set_encoder.y_null_token.expand(B, y_tokens.shape[1], -1)
+        null_context = self.set_encoder.y_null_token.squeeze(1).expand(B, -1)
+        null_freq_ctx = (self.set_encoder.y_null_token.squeeze(1).expand(B, freq_contexts.shape[1], -1)
+                         if freq_contexts is not None else None)
 
         # 1. Get the guided prediction
         guided_vector_field = self.unet(
-            xt,
-            t.squeeze(),
-            context=y_tokens,
-            context_mask=obs_mask,
-            pooled_context=pooled_context  # ### <<< FIX: Pass it here
+            xt, t.squeeze(),
+            context=y_tokens, context_mask=obs_mask,
+            pooled_context=pooled_context, freq_contexts=freq_contexts
         )
 
-        # 2. Get the unguided prediction
-        null_tokens = self.set_encoder.y_null_token.expand(xt.shape[0], y_tokens.shape[1], -1)
-
-        # ### <<< FIX: Also create a null pooled_context for the unguided call
-        null_context = self.set_encoder.y_null_token.squeeze(1).expand(xt.shape[0], -1)
-
+        # 2. Get the unguided prediction (null conditioning)
         unguided_vector_field = self.unet(
-            xt,
-            t.squeeze(),
-            context=null_tokens,
-            context_mask=obs_mask,
-            pooled_context=null_context  # ### <<< FIX: Pass it here
+            xt, t.squeeze(),
+            context=null_tokens, context_mask=obs_mask,
+            pooled_context=null_context, freq_contexts=null_freq_ctx
         )
 
         # 3. Combine using the CFG formula
@@ -2049,12 +2113,17 @@ class ATF3DTrainer(Trainer):
                 self.M_range = [m]
                 obs_c, obs_v, obs_msk = self.make_observation_set_fast(z_full, src_xyz, deterministic=False)
                 self.M_range = orig_range
-                y_tok, pool_ctx = self.set_encoder(obs_c, obs_v, obs_msk)
+                y_tok, pool_ctx, freq_ctx = self.set_encoder(obs_c, obs_v, obs_msk)
                 null_tok = self.set_encoder.y_null_token.expand(batch_size, y_tok.shape[1], -1)
                 null_ctx = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, -1)
                 fin_tok = torch.where(is_conditional_mask.view(-1, 1, 1), y_tok, null_tok)
                 fin_ctx = torch.where(is_conditional_mask.view(-1, 1), pool_ctx, null_ctx)
-                mk = {'context': fin_tok, 'context_mask': obs_msk, 'pooled_context': fin_ctx}
+                if freq_ctx is not None:
+                    null_fctx = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, freq_ctx.shape[1], -1)
+                    fin_fctx = torch.where(is_conditional_mask.view(-1, 1, 1), freq_ctx, null_fctx)
+                else:
+                    fin_fctx = None
+                mk = {'context': fin_tok, 'context_mask': obs_msk, 'pooled_context': fin_ctx, 'freq_contexts': fin_fctx}
                 ut_theta = self.model(xt, t, **mk)
                 if self.loss_type == 'weighted':
                     with torch.no_grad():
@@ -2078,7 +2147,7 @@ class ATF3DTrainer(Trainer):
         if _do_time: torch.cuda.synchronize(); _t1 = time.time()
 
         # 3. Encode the observations into conditioning tokens
-        y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
+        y_tokens, pooled_context, freq_contexts = self.set_encoder(obs_coords_rel, obs_values, obs_mask)  # [B, M_max, d_model]
         if _do_time: torch.cuda.synchronize(); _t2 = time.time()
 
         # 4. Define the Flow Matching path from noise to data
@@ -2101,6 +2170,12 @@ class ATF3DTrainer(Trainer):
         final_tokens = torch.where(is_conditional_mask.view(-1, 1, 1), y_tokens, null_tokens)
         final_pooled_context = torch.where(is_conditional_mask.view(-1, 1), pooled_context, null_context)
 
+        if freq_contexts is not None:
+            null_freq_ctx = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, freq_contexts.shape[1], -1)
+            final_freq_ctx = torch.where(is_conditional_mask.view(-1, 1, 1), freq_contexts, null_freq_ctx)
+        else:
+            final_freq_ctx = None
+
         # The mask for the transformer (to ignore padding) is the same for both cases
         final_obs_mask = obs_mask
 
@@ -2108,7 +2183,8 @@ class ATF3DTrainer(Trainer):
         model_kwargs = {
             'context': final_tokens,
             'context_mask': final_obs_mask,
-            'pooled_context': final_pooled_context
+            'pooled_context': final_pooled_context,
+            'freq_contexts': final_freq_ctx
         }
 
         # The 3D U-Net's forward pass must accept `context` and `context_mask`
@@ -2164,7 +2240,7 @@ class ATF3DTrainer(Trainer):
         x1 = z_full  # Clean data
 
         obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
-        y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+        y_tokens, pooled_context, freq_contexts = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         # 1. Sample discrete timesteps for DDPM
         timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
@@ -2180,8 +2256,14 @@ class ATF3DTrainer(Trainer):
         null_context = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, -1)
         final_tokens = torch.where(is_conditional_mask.view(-1, 1, 1), y_tokens, null_tokens)
         final_pooled_context = torch.where(is_conditional_mask.view(-1, 1), pooled_context, null_context)
+        if freq_contexts is not None:
+            null_freq_ctx = self.set_encoder.y_null_token.squeeze(1).expand(batch_size, freq_contexts.shape[1], -1)
+            final_freq_ctx = torch.where(is_conditional_mask.view(-1, 1, 1), freq_contexts, null_freq_ctx)
+        else:
+            final_freq_ctx = None
 
-        model_kwargs = {'context': final_tokens, 'context_mask': obs_mask, 'pooled_context': final_pooled_context}
+        model_kwargs = {'context': final_tokens, 'context_mask': obs_mask, 'pooled_context': final_pooled_context,
+                        'freq_contexts': final_freq_ctx}
 
         # 4. Pass continuous-time equivalent to the model
         continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
@@ -2220,14 +2302,15 @@ class ATF3DTrainer(Trainer):
             sample_indices=abs_src_ids, 
             deterministic = self.perm_matrix is not None
         )
-        y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+        y_tokens, pooled_context, freq_contexts = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
         noise_target = torch.randn_like(x1)
         xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
         xt = xt.float()
 
-        model_kwargs = {'context': y_tokens, 'context_mask': obs_mask, 'pooled_context': pooled_context}
+        model_kwargs = {'context': y_tokens, 'context_mask': obs_mask, 'pooled_context': pooled_context,
+                        'freq_contexts': freq_contexts}
 
         continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
         continuous_time = continuous_time.view(-1, 1, 1, 1, 1)
@@ -2290,7 +2373,7 @@ class ATF3DTrainer(Trainer):
                 sample_indices=abs_src_ids,
                 deterministic=self.perm_matrix is not None
             )
-            y_tokens, pooled_context = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+            y_tokens, pooled_context, freq_contexts = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
             # ── 1. FM MSE (single forward pass) ─────────────────────────────
             torch.manual_seed(start)  # deterministic per batch, reproducible across runs
@@ -2299,7 +2382,8 @@ class ATF3DTrainer(Trainer):
             xt     = (1 - (1 - self.sigma) * t) * x0 + t * x1
             ut_ref =  x1 - (1 - self.sigma) * x0
 
-            model_kwargs = {'context': y_tokens, 'context_mask': obs_mask, 'pooled_context': pooled_context}
+            model_kwargs = {'context': y_tokens, 'context_mask': obs_mask, 'pooled_context': pooled_context,
+                            'freq_contexts': freq_contexts}
             ut_theta = self.model(xt, t, **model_kwargs)
             batch_mse = torch.mean(torch.square(ut_theta - ut_ref))
             all_mse.append(batch_mse)
@@ -2311,7 +2395,8 @@ class ATF3DTrainer(Trainer):
             # ts shape: [B, N_STEPS+1, 1, 1, 1, 1]
             ts = ts_1d.view(1, -1, 1, 1, 1, 1).expand(B, -1, -1, -1, -1, -1)
 
-            sim_kwargs = dict(y_tokens=y_tokens, obs_mask=obs_mask, pooled_context=pooled_context, silent=True)
+            sim_kwargs = dict(y_tokens=y_tokens, obs_mask=obs_mask, pooled_context=pooled_context,
+                              freq_contexts=freq_contexts, silent=True)
 
             x1_hat = simulator.simulate(x0_recon, ts, **sim_kwargs)  # [B, F, D, H, W]
 
@@ -2595,7 +2680,7 @@ class ConvBlock3D(nn.Module):
 # Second version with dynamic parametric channel unet
 class CrossAttentionUNet3D(nn.Module):
     def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11,
-                 freq_channel_bias=False, freq_film=False):
+                 freq_channel_bias=False, freq_film=False, freq_ctx=False):
         super().__init__()
         # Ensure channel dimensions are divisible by the number of attention heads
         assert all(c % nhead == 0 for c in channels), "Channel dimensions must be divisible by nhead"
@@ -2621,6 +2706,17 @@ class CrossAttentionUNet3D(nn.Module):
         else:
             self.film_scale = None
             self.film_shift = None
+
+        # freq_ctx FiLM: per-frequency context [B, F, d_model] → per-channel scale/shift.
+        # Linear(d_model, 1) applied independently per freq channel; zero-init → identity start.
+        if freq_ctx:
+            self.freq_ctx_film_scale = nn.Linear(d_model, 1)
+            self.freq_ctx_film_shift = nn.Linear(d_model, 1)
+            nn.init.zeros_(self.freq_ctx_film_scale.weight); nn.init.zeros_(self.freq_ctx_film_scale.bias)
+            nn.init.zeros_(self.freq_ctx_film_shift.weight); nn.init.zeros_(self.freq_ctx_film_shift.bias)
+        else:
+            self.freq_ctx_film_scale = None
+            self.freq_ctx_film_shift = None
 
         self.pad = nn.ConstantPad3d((0, 1, 0, 1, 0, 1), 0.0)
         self.time_embedder = FourierEncoder(d_model)
@@ -2672,7 +2768,7 @@ class CrossAttentionUNet3D(nn.Module):
         # --- Final Convolution ---
         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
 
-    def forward(self, x, t, context, context_mask, pooled_context=None):
+    def forward(self, x, t, context, context_mask, pooled_context=None, freq_contexts=None):
         # x: [B, C, 11, 11, 11]
         B = x.size(0)
         x = F.pad(x, self.padding_tuple, mode='reflect')
@@ -2686,6 +2782,12 @@ class CrossAttentionUNet3D(nn.Module):
             scale = self.film_scale(pooled_context).view(B, -1, 1, 1, 1)  # [B, F, 1, 1, 1]
             shift = self.film_shift(pooled_context).view(B, -1, 1, 1, 1)
             x = x * (1 + scale) + shift
+
+        # freq_ctx FiLM: per-frequency context [B, F, d_model] → per-channel scale/shift
+        if self.freq_ctx_film_scale is not None and freq_contexts is not None:
+            fc_scale = self.freq_ctx_film_scale(freq_contexts).squeeze(-1)  # [B, F]
+            fc_shift = self.freq_ctx_film_shift(freq_contexts).squeeze(-1)  # [B, F]
+            x = x * (1 + fc_scale[:, :, None, None, None]) + fc_shift[:, :, None, None, None]
 
         # Initial conv
         x = self.init_conv(x)
@@ -2722,7 +2824,7 @@ class CrossAttentionUNet3D(nn.Module):
 
 class CrossAttentionUNet3D_RED3d(nn.Module):
     def __init__(self, channels, d_model, nhead, in_channels=20, out_channels=20, input_size=11,
-                 freq_channel_bias=False, freq_film=False):
+                 freq_channel_bias=False, freq_film=False, freq_ctx=False):
         super().__init__()
 
         # Optional learnable per-frequency channel bias (see CrossAttentionUNet3D for rationale)
@@ -2740,6 +2842,16 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
         else:
             self.film_scale = None
             self.film_shift = None
+
+        # freq_ctx FiLM: per-frequency context [B, F, d_model] → per-channel scale/shift
+        if freq_ctx:
+            self.freq_ctx_film_scale = nn.Linear(d_model, 1)
+            self.freq_ctx_film_shift = nn.Linear(d_model, 1)
+            nn.init.zeros_(self.freq_ctx_film_scale.weight); nn.init.zeros_(self.freq_ctx_film_scale.bias)
+            nn.init.zeros_(self.freq_ctx_film_shift.weight); nn.init.zeros_(self.freq_ctx_film_shift.bias)
+        else:
+            self.freq_ctx_film_scale = None
+            self.freq_ctx_film_shift = None
 
         self.time_embedder = FourierEncoder(d_model)
 
@@ -2782,7 +2894,7 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
 
         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
 
-    def forward(self, x, t, context, context_mask, pooled_context=None):
+    def forward(self, x, t, context, context_mask, pooled_context=None, freq_contexts=None):
         B = x.size(0)
         x = F.pad(x, self.padding_tuple, mode='reflect')
 
@@ -2795,6 +2907,12 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
             scale = self.film_scale(pooled_context).view(B, -1, 1, 1, 1)
             shift = self.film_shift(pooled_context).view(B, -1, 1, 1, 1)
             x = x * (1 + scale) + shift
+
+        # freq_ctx FiLM: per-frequency context [B, F, d_model] → per-channel scale/shift
+        if self.freq_ctx_film_scale is not None and freq_contexts is not None:
+            fc_scale = self.freq_ctx_film_scale(freq_contexts).squeeze(-1)  # [B, F]
+            fc_shift = self.freq_ctx_film_shift(freq_contexts).squeeze(-1)  # [B, F]
+            x = x * (1 + fc_scale[:, :, None, None, None]) + fc_shift[:, :, None, None, None]
 
         t_emb = self.time_embedder(t.squeeze())
 
@@ -2884,7 +3002,7 @@ class CrossAttentionUNet3D_v3(nn.Module):
     """
 
     def __init__(self, in_channels=20, out_channels=20, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11,
-                 freq_channel_bias=False, freq_film=False):
+                 freq_channel_bias=False, freq_film=False, freq_ctx=False):
         super().__init__()
 
         # Optional learnable per-frequency channel bias (see CrossAttentionUNet3D for rationale)
@@ -2902,6 +3020,16 @@ class CrossAttentionUNet3D_v3(nn.Module):
         else:
             self.film_scale = None
             self.film_shift = None
+
+        # freq_ctx FiLM: per-frequency context [B, F, d_model] → per-channel scale/shift
+        if freq_ctx:
+            self.freq_ctx_film_scale = nn.Linear(d_model, 1)
+            self.freq_ctx_film_shift = nn.Linear(d_model, 1)
+            nn.init.zeros_(self.freq_ctx_film_scale.weight); nn.init.zeros_(self.freq_ctx_film_scale.bias)
+            nn.init.zeros_(self.freq_ctx_film_shift.weight); nn.init.zeros_(self.freq_ctx_film_shift.bias)
+        else:
+            self.freq_ctx_film_scale = None
+            self.freq_ctx_film_shift = None
 
         self.time_embedder = FourierEncoder(d_model)
 
@@ -2940,7 +3068,7 @@ class CrossAttentionUNet3D_v3(nn.Module):
 
         self.final_conv = nn.Conv3d(channels[0], out_channels, kernel_size=1)
 
-    def forward(self, x, t, context, context_mask, pooled_context=None):
+    def forward(self, x, t, context, context_mask, pooled_context=None, freq_contexts=None):
         B = x.size(0)
         x = F.pad(x, self.padding_tuple, mode='reflect')
         x = x.float()
@@ -2954,6 +3082,12 @@ class CrossAttentionUNet3D_v3(nn.Module):
             scale = self.film_scale(pooled_context).view(B, -1, 1, 1, 1)
             shift = self.film_shift(pooled_context).view(B, -1, 1, 1, 1)
             x = x * (1 + scale) + shift
+
+        # freq_ctx FiLM: per-frequency context [B, F, d_model] → per-channel scale/shift
+        if self.freq_ctx_film_scale is not None and freq_contexts is not None:
+            fc_scale = self.freq_ctx_film_scale(freq_contexts).squeeze(-1)  # [B, F]
+            fc_shift = self.freq_ctx_film_shift(freq_contexts).squeeze(-1)  # [B, F]
+            x = x * (1 + fc_scale[:, :, None, None, None]) + fc_shift[:, :, None, None, None]
 
         t_emb = self.time_embedder(t.squeeze())
 

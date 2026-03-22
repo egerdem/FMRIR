@@ -163,17 +163,18 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
             obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
             
             # Get conditioning tokens
-            y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
-            
+            y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
+
             # Generate prediction (same as inference_1d_atf.py)
             x0 = torch.randn_like(z_true)
             ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
             ts = ts.view(1, -1, 1, 1, 1, 1).expand(x0.shape[0], -1, -1, -1, -1, -1)
-            
+
             # Run inference for this guidance scale
             simulator.ode.guidance_scale = single_guidance
             x1_recon = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                        obs_mask=obs_mask, pooled_context=pooled_context,
+                                       freq_contexts=freq_contexts,
                                        paste_observations=True, obs_indices=obs_indices)
             
             # De-normalize (same as inference_1d_atf.py)

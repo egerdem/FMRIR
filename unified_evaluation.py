@@ -170,15 +170,16 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
 
                     # Inference
                     x0 = torch.randn_like(z_true)
-                    y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
-                    
+                    y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
+
                     ts = torch.linspace(0, 1, 11, device=device)
                     ts = ts.view(1, -1, 1, 1, 1, 1).expand(x0.shape[0], -1, -1, -1, -1, -1)
-                    
+
                     simulator.ode.guidance_scale = w
 
                     z_est = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                              obs_mask=obs_mask, pooled_context=pooled_context,
+                                             freq_contexts=freq_contexts,
                                              paste_observations=True, obs_indices=obs_indices)
 
                     # Calculate MSE and LSD in denormalized (dB) domain 
@@ -341,25 +342,27 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
             'mse_m_fund': mse_val_m_fund
         }
         
-        # Matched frequency range (first freq_up_to bins)
+        # Matched frequency range: cap at pred_freq_bins in case this reference model
+        # has fewer bins than freq_up_to (e.g. EEAE with 20 bins when freq_up_to=30).
         if freq_up_to is not None:
+            matched_bins = min(freq_up_to, pred_freq_bins)
             lsd_val_matched = calculate_lsd_unified(
-                atf_mag_est[:, :freq_up_to, src_idx], 
-                atf_mag_gt[:, :freq_up_to, src_idx], 
+                atf_mag_est[:, :matched_bins, src_idx],
+                atf_mag_gt[:, :matched_bins, src_idx],
                 freq_dim=1
             )
             lsd_per_sample_matched.append(lsd_val_matched.item())
-            
+
             # MSE for matched frequency range
-            mse_val_matched = torch.mean((atf_mag_est[:, :freq_up_to, src_idx] - atf_mag_gt[:, :freq_up_to, src_idx]) ** 2).item()
+            mse_val_matched = torch.mean((atf_mag_est[:, :matched_bins, src_idx] - atf_mag_gt[:, :matched_bins, src_idx]) ** 2).item()
             mse_per_sample_matched.append(mse_val_matched)
-            
+
             # NMSE for matched frequency range (in dB)
-            gt_var_matched = torch.var(atf_mag_gt[:, :freq_up_to, src_idx]).item()
+            gt_var_matched = torch.var(atf_mag_gt[:, :matched_bins, src_idx]).item()
             nmse_linear_matched = mse_val_matched / gt_var_matched if gt_var_matched > 0 else float('inf')
             nmse_val_matched = 10 * np.log10(nmse_linear_matched) if nmse_linear_matched > 0 and nmse_linear_matched != float('inf') else float('inf')
             nmse_per_sample_matched.append(nmse_val_matched)
-            
+
             # Add matched frequency metrics to per-source errors
             per_source_errors[src_idx].update({
                 'lsd_matched': lsd_val_matched.item(),
@@ -397,15 +400,16 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         result['nmse_std_matched_freq'] = np.std(nmse_per_sample_matched)
         result['mean_matched_freq'] = np.mean(lsd_per_sample_matched)  # For backward compatibility
         
-        print(f"Reference LSD (full 64 bins): {result['lsd_mean']:.4f} ± {result['lsd_std']:.4f} dB")
-        print(f"Reference MSE (full 64 bins): {result['mse_mean']:.4f} ± {result['mse_std']:.4f}")
-        print(f"Reference NMSE (full 64 bins): {result['nmse_mean']:.4f} ± {result['nmse_std']:.4f} dB")
-        print(f"Reference LSD (first {freq_up_to} bins): {result['lsd_mean_matched_freq']:.4f} ± {result['lsd_std_matched_freq']:.4f} dB")
-        print(f"Reference MSE (first {freq_up_to} bins): {result['mse_mean_matched_freq']:.4f} ± {result['mse_std_matched_freq']:.4f}")
-        print(f"Reference NMSE (first {freq_up_to} bins): {result['nmse_mean_matched_freq']:.4f} ± {result['nmse_std_matched_freq']:.4f} dB")
-        print(f"Reference LSD M_fund (first {freq_up_to} bins): {result['lsd_mean_m_fund']:.4f} ± {result['lsd_std_m_fund']:.4f} dB")
-        print(f"Reference MSE M_fund (first {freq_up_to} bins): {result['mse_mean_m_fund']:.4f} ± {result['mse_std_m_fund']:.4f}")
-        print(f"✅ FIXED: All reference metrics now use SAME {freq_up_to} frequency bins as your model!")
+        matched_bins_actual = min(freq_up_to, pred_freq_bins)
+        print(f"Reference LSD (full {pred_freq_bins} bins): {result['lsd_mean']:.4f} ± {result['lsd_std']:.4f} dB")
+        print(f"Reference MSE (full {pred_freq_bins} bins): {result['mse_mean']:.4f} ± {result['mse_std']:.4f}")
+        print(f"Reference NMSE (full {pred_freq_bins} bins): {result['nmse_mean']:.4f} ± {result['nmse_std']:.4f} dB")
+        print(f"Reference LSD (first {matched_bins_actual} bins): {result['lsd_mean_matched_freq']:.4f} ± {result['lsd_std_matched_freq']:.4f} dB")
+        print(f"Reference MSE (first {matched_bins_actual} bins): {result['mse_mean_matched_freq']:.4f} ± {result['mse_std_matched_freq']:.4f}")
+        print(f"Reference NMSE (first {matched_bins_actual} bins): {result['nmse_mean_matched_freq']:.4f} ± {result['nmse_std_matched_freq']:.4f} dB")
+        print(f"Reference LSD M_fund (first {matched_bins_actual} bins): {result['lsd_mean_m_fund']:.4f} ± {result['lsd_std_m_fund']:.4f} dB")
+        print(f"Reference MSE M_fund (first {matched_bins_actual} bins): {result['mse_mean_m_fund']:.4f} ± {result['mse_std_m_fund']:.4f}")
+        print(f"✅ Reference metrics evaluated on first {matched_bins_actual} bins (model freq_up_to={freq_up_to}, pred bins={pred_freq_bins})")
     
     return result
 
@@ -638,18 +642,19 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
             obs_mask = torch.ones(1, M, dtype=torch.bool, device=device)
             
             # Get conditioning tokens
-            y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
-            
+            y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
+
             # Generate prediction (same as inference_1d_atf.py)
             x0 = torch.randn_like(z_true)
             ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
             ts = ts.view(1, -1, 1, 1, 1, 1).expand(x0.shape[0], -1, -1, -1, -1, -1)
-            
+
             # Run inference for each guidance scale
             for w in guidance_scales:
                 simulator.ode.guidance_scale = w
                 x1_recon = simulator.simulate(x0, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                            obs_mask=obs_mask, pooled_context=pooled_context,
+                                           freq_contexts=freq_contexts,
                                            paste_observations=True, obs_indices=obs_indices)
                 
                 # De-normalize (same as inference_1d_atf.py)
@@ -690,7 +695,7 @@ random_M_sampling = False
 
 # Set to True to generate distribution and ATF comparison PDFs after the summary table.
 # Printing the table is always executed regardless of this flag.
-GENERATE_PLOTS = True
+GENERATE_PLOTS = False
 
 # Set to True  → coord normalisation applied (correct, matches training pipeline for new runs).
 # Set to False → no coord normalisation (legacy behaviour; needed to reproduce old Tokyo best 2.86 dB).
@@ -725,13 +730,14 @@ def load_coord_stats(dataset_version='r1'):
     return stats['mean'], stats['std']  # both are [3] tensors
 
 def get_model_name(model_path):
-    """Extract model name from path, including filename if multiple models in same directory"""
-    # Get directory name after artifacts/
-    dir_name = model_path.split("artifacts/")[1].split("/")[0]
-    
+    """Extract model name from path, including filename if multiple models in same directory.
+    Works for both local artifacts/ paths and external/SSD paths."""
+    # Use the parent directory name of the .pt file — works regardless of root path
+    dir_name = os.path.basename(os.path.dirname(model_path))
+
     # Get filename without extension
     filename = os.path.basename(model_path).replace('.pt', '')
-    
+
     # If filename is just "model", return directory name only (backward compatibility)
     if filename == "model":
         return dir_name

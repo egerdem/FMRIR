@@ -26,7 +26,7 @@ from inference import model_factory, load_model_and_config
 from fm_utils import ATF3DSampler, EulerSimulator
 
 # ── CONFIG ────────────────────────────────────────────────────────────────────
-MODEL_PATH   = "artifacts/KCL_RNG_Val102src10step_Mval5_r1_M5_10_20_50_100_200_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet4v1_setv3_300k_20260227-015304_iter300000/model_288299_lsd2.6896.pt"   # ← change this
+MODEL_PATH   = "artifacts/KCL_Val102_Mval5_r1_M5_10_20_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3_256to1024v1_setv3_400k_20260320-032649_iter400000/model.pt"   # ← change this
 DATA_DIR     = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
 MIC_SEL_PATH = "AUTOENCODER/ATF_interp/idx_mes_pos_s1024_m1331.npy"
 
@@ -126,12 +126,13 @@ def main():
             ts   = torch.linspace(0, 1, NUM_STEPS + 1, device=device)
             ts   = ts.view(1, -1, 1, 1, 1, 1).expand(x0.shape[0], -1, -1, -1, -1, -1)
 
-            y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
+            y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
 
             z_est = simulator.simulate(
                 x0, ts, x0=x0, z_true=z_true,
                 y_tokens=y_tokens, obs_mask=obs_mask,
                 pooled_context=pooled_context,
+                freq_contexts=freq_contexts,
                 paste_observations=True, obs_indices=obs_indices
             )
 

@@ -93,7 +93,8 @@ def main(args):
                   "coord_dim": 9 if args.geo_conditioning else 3,
                   "num_ff_coord": args.num_ff_coord,
                   "freq_channel_bias": args.freq_channel_bias,
-                  "freq_film": args.freq_film},
+                  "freq_film": args.freq_film,
+                  "freq_ctx": args.freq_ctx},
         "training": {"num_iterations": args.num_iterations, "batch_size": args.batch_size, "lr": args.lr,
                      "warmup_iterations": args.warmup_iterations, "decay_iterations": args.decay_iterations,
                      "min_lr": args.min_lr,
@@ -335,6 +336,11 @@ if __name__ == '__main__':
                         help='FiLM conditioning: project SetEncoder pooled_context to per-frequency '
                              'scale+shift applied to UNet input before first conv. '
                              'Observation-conditional frequency modulation. ~2*F*d_model extra params.')
+    parser.add_argument('--freq_ctx', action='store_true', default=False,
+                        help='Per-frequency context FiLM: for each (mic, freq) pair embed '
+                             '[coords, freq_idx/F, atf_val] via MLP, mean-pool over M mics → '
+                             '[B, F, d_model] contexts applied as per-frequency FiLM in UNet. '
+                             'True frequency-specific conditioning. ~2*d_model^2 extra params in encoder MLP.')
 
     # --- Training ---
     parser.add_argument('--num_iterations', type=int, default=200)

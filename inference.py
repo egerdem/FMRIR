@@ -241,6 +241,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
     num_freqs = model_cfg['freq_up_to'] - freq_from
 
     # --- 1. Instantiate SetEncoder ---
+    freq_ctx = model_cfg.get('freq_ctx', False)
     if setversion == "v3":
         print("--- Creating set encoder v3 ---")
         coord_dim = model_cfg.get('coord_dim', 3)
@@ -248,7 +249,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
         set_encoder = SetEncoder(
             num_freqs=num_freqs, d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers'],
-            coord_dim=coord_dim, num_ff_coord=num_ff_coord
+            coord_dim=coord_dim, num_ff_coord=num_ff_coord, use_freq_ctx=freq_ctx
         ).to(device)
     else: # Fallback to v12
         print("--- Creating set encoder v12 ---")
@@ -257,7 +258,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
         set_encoder = SetEncoder_v12(
             num_freqs=num_freqs, d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'], num_layers=model_cfg['num_encoder_layers'],
-            coord_dim=coord_dim, num_ff_coord=num_ff_coord
+            coord_dim=coord_dim, num_ff_coord=num_ff_coord, use_freq_ctx=freq_ctx
         ).to(device)
 
     # --- 2. Instantiate Main Model (U-Net/DiT) ---
@@ -270,7 +271,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
             in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'], input_size=11,
-            freq_channel_bias=freq_channel_bias, freq_film=freq_film
+            freq_channel_bias=freq_channel_bias, freq_film=freq_film, freq_ctx=freq_ctx
         ).to(device)
     elif architecture == "v2_residual_context":
         print("--- Creating (v2) architecture ---")
@@ -278,7 +279,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
             in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
-            freq_channel_bias=freq_channel_bias, freq_film=freq_film
+            freq_channel_bias=freq_channel_bias, freq_film=freq_film, freq_ctx=freq_ctx
         ).to(device)
     # Add other architectures like v1_legacy as needed...
     elif architecture == "v1_legacy" or architecture is None:
@@ -287,7 +288,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
             in_channels=num_freqs, out_channels=num_freqs,
             channels=model_cfg['channels'], d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
-            freq_channel_bias=freq_channel_bias, freq_film=freq_film
+            freq_channel_bias=freq_channel_bias, freq_film=freq_film, freq_ctx=freq_ctx
         ).to(device)
 
     elif architecture == "v4_DiT":
@@ -394,7 +395,7 @@ def run_single_inference(set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz
         xt = x0.clone()
 
         # Get conditioning tokens
-        y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
+        y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
         ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
@@ -405,6 +406,7 @@ def run_single_inference(set_encoder, unet_3d, ode_3d, z_true, src_xyz, grid_xyz
         # Run simulation - pass pooled_context for v2 models
         x1_recon = simulator.simulate(xt, ts, x0=x0, z_true=z_true, y_tokens=y_tokens,
                                       obs_mask=obs_mask, pooled_context=pooled_context,
+                                      freq_contexts=freq_contexts,
                                       paste_observations=True, obs_indices=obs_indices)
 
         # Calculate BOTH MSE and LSD for comprehensive comparison
@@ -752,7 +754,7 @@ if __name__ == '__main__':
                     x0 = torch.randn_like(z_true)
                     xt = x0.clone()  # The simulation starts from x0
                     # Get conditioning tokens
-                    y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
+                    y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
 
                     ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
                     ts = ts.view(1, -1, 1, 1, 1, 1).expand(xt.shape[0], -1, -1, -1, -1, -1)
@@ -766,7 +768,8 @@ if __name__ == '__main__':
                                                   obs_mask=obs_mask,
                                                   obs_coords_rel=obs_coords_rel,
                                                   obs_values=obs_values,
-                                                  pooled_context=pooled_context,  # <<< ADD THIS LINE
+                                                  pooled_context=pooled_context,
+                                                  freq_contexts=freq_contexts,
                                                   paste_observations=True,
                                                   obs_indices=obs_indices
                                                   )
@@ -794,7 +797,7 @@ if __name__ == '__main__':
                     # 2. Prepare initial noise and conditioning
                     xt = torch.randn_like(z_true)  # Start with pure noise (at timestep T)
                     xt = xt.float()
-                    y_tokens, pooled_context = set_encoder(obs_coords_rel, obs_values, obs_mask)
+                    y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
                     # model_kwargs = {
                     #     "context": y_tokens,
                     #     "context_mask": obs_mask,
