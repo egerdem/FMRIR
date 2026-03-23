@@ -1003,6 +1003,7 @@ class Trainer(ABC):
               early_stopping_patience: int = 1400,  # was 1000
               resume_checkpoint_path: Optional[str] = None,
               resume_checkpoint_state: Optional[dict] = None,
+              save_start_iter: int = 0,
               **kwargs):
 
         print("--- Model(s) Summary ---")
@@ -1142,8 +1143,6 @@ class Trainer(ABC):
         dataset_size = len(self.path.p_data)
         experiment_dir = os.path.dirname(save_path)
         _config_path = os.path.join(experiment_dir, 'config.json')
-        _save_thread = None  # background thread for async model saving
-
         for model in self.models.values():
             model.train()
 
@@ -1224,12 +1223,8 @@ class Trainer(ABC):
                         'is_best': True
                     }
 
-                    # Join previous save thread before starting new one
-                    if _save_thread is not None:
-                        _save_thread.join()
-                    _save_thread = threading.Thread(
-                        target=torch.save, args=(best_model_state, save_path), daemon=True)
-                    _save_thread.start()
+                    if iteration >= save_start_iter:
+                        torch.save(best_model_state, save_path)
                     best_iteration = iteration
 
                     # Update config.json with latest best metrics
@@ -1325,10 +1320,6 @@ class Trainer(ABC):
                 return f"{minutes}m {secs:.1f}s"
             else:
                 return f"{secs:.1f}s"
-
-        # Ensure any background save completes before renaming
-        if _save_thread is not None:
-            _save_thread.join()
 
         # Rename model.pt -> model_{iter}_lsd{lsd:.4f}.pt now that training is done
         if os.path.exists(save_path) and best_val_lsd < float("inf"):

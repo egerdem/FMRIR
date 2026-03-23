@@ -309,7 +309,8 @@ def main(args):
         validation_interval=training_cfg['validation_interval'],
         start_iteration=start_iteration,
         config=config,
-        resume_checkpoint_state=resume_checkpoint_state  #
+        resume_checkpoint_state=resume_checkpoint_state,
+        save_start_iter=args.save_start_iter
     )
 
 
@@ -362,6 +363,8 @@ if __name__ == '__main__':
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
     parser.add_argument('--M_val_fixed', type=int, default= None)
+    parser.add_argument('--save_start_iter', type=int, default=0,
+                        help='Skip saving model checkpoints until this iteration. Avoids frequent saves early in training.')
     parser.add_argument('--freq_up_to', type=int, default=20, help='Upper freq bin (exclusive upper bound of subband)')
     parser.add_argument('--freq_from', type=int, default=0, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
