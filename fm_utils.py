@@ -1142,11 +1142,11 @@ class Trainer(ABC):
         experiment_dir = os.path.dirname(save_path)
         _config_path = os.path.join(experiment_dir, 'config.json')
 
+        for model in self.models.values():
+            model.train()
+
         pbar = tqdm(range(start_iteration, num_iterations))
         for iteration in pbar:
-            for model in self.models.values():
-                model.train()
-            # self.model.train()
             opt.zero_grad()
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 loss = self.get_train_loss(iteration=iteration, **kwargs)
