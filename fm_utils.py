@@ -2043,10 +2043,8 @@ class ATF3DTrainer(Trainer):
                 M = torch.randint(self.M_range[0], M_max + 1, (B,), device=dev)  # [B]
 
             # ── 2. Random mic indices per sample (vectorised randperm) ──────
-            # torch.rand(B, N).argsort(dim=1) gives B independent random
-            # permutations of [0..N-1], equivalent to calling randperm(N) B times.
-            rand_perms = torch.rand(B, N, device=dev).argsort(dim=1)  # [B, N]
-            obs_idx = rand_perms[:, :M_max]                            # [B, M_max]
+            # topk on random keys picks M_max indices without sorting all N
+            obs_idx = torch.topk(torch.rand(B, N, device=dev), M_max, dim=1).indices  # [B, M_max]
 
             # ── 3. Mask: True for the first M[i] positions ──────────────────
             ar = torch.arange(M_max, device=dev).unsqueeze(0)  # [1, M_max]
