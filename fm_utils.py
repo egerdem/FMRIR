@@ -1883,7 +1883,8 @@ class ATF3DTrainer(Trainer):
         self.M_range = [int(x) for x in M_range]  # preserve full list (e.g. [5,10,20,50])
         self.M_val_fixed = M_val_fixed
         self.sigma = sigma
-        self.grid_xyz = grid_xyz.to(next(model.parameters()).device)  # (1331, 3)
+        self.dev = next(model.parameters()).device  # cached once — avoids repeated parameter walks
+        self.grid_xyz = grid_xyz.to(self.dev)  # (1331, 3)
         self.geo_conditioning = kwargs.get('geo_conditioning', False)
         self.room_dims = kwargs.get('room_dims', None)  # (Lx, Ly, Lz) in metres
 
@@ -1891,8 +1892,8 @@ class ATF3DTrainer(Trainer):
         self.setencoderversion = setencoderversion
 
         # ### <<< CHANGE 2: Store the coordinate statistics
-        self.coord_mean = coord_mean.to(next(model.parameters()).device)
-        self.coord_std = coord_std.to(next(model.parameters()).device)
+        self.coord_mean = coord_mean.to(self.dev)
+        self.coord_std = coord_std.to(self.dev)
 
         self.loss_type = loss_type
         self.freq_weight_max = kwargs.get('freq_weight_max', 3.0)
@@ -1903,9 +1904,8 @@ class ATF3DTrainer(Trainer):
         if self.FM_vs_Diff == 'score_matching':
             self.ddpm_scheduler = DDPMScheduler(num_timesteps=1000)
             # --- NEW: Store scheduler values needed for v-prediction ---
-            self.sqrt_alphas_cumprod = self.ddpm_scheduler.sqrt_alphas_cumprod.to(next(model.parameters()).device)
-            self.sqrt_one_minus_alphas_cumprod = self.ddpm_scheduler.sqrt_one_minus_alphas_cumprod.to(
-                next(model.parameters()).device)
+            self.sqrt_alphas_cumprod = self.ddpm_scheduler.sqrt_alphas_cumprod.to(self.dev)
+            self.sqrt_one_minus_alphas_cumprod = self.ddpm_scheduler.sqrt_one_minus_alphas_cumprod.to(self.dev)
 
         if self.loss_type == 'weighted':
             print("--- Using PERCEPTUALLY WEIGHTED training loss. ---")
@@ -2092,7 +2092,7 @@ class ATF3DTrainer(Trainer):
         # 1. Sample a batch of complete, clean 3D ATF cubes and their source coordinates
         if _do_time: torch.cuda.synchronize(); _t_data0 = time.time()
         z_full, src_xyz, _ = self.path.p_data.sample(batch_size)
-        dev = next(self.model.parameters()).device
+        dev = self.dev
         z_full = z_full.to(dev)
         src_xyz = src_xyz.to(dev)
         if _do_time: torch.cuda.synchronize(); print(f"  [iter {iteration}] data+transfer={time.time()-_t_data0:.3f}s")
@@ -2234,7 +2234,7 @@ class ATF3DTrainer(Trainer):
         batch_size = kwargs.get('batch_size')
         z_full, src_xyz, _ = self.path.p_data.sample(batch_size)
 
-        dev = next(self.model.parameters()).device
+        dev = self.dev
         z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
 
         x1 = z_full  # Clean data
@@ -2289,7 +2289,7 @@ class ATF3DTrainer(Trainer):
         batch_size = kwargs.get('batch_size')
         z_full, src_xyz, indices = valid_sampler.sample(batch_size)
 
-        dev = next(self.model.parameters()).device
+        dev = self.dev
         z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
 
         x1 = z_full
@@ -2339,7 +2339,7 @@ class ATF3DTrainer(Trainer):
         Returns (mean_fm_mse, mean_lsd) as scalar tensors.
         """
         batch_size = kwargs.get('batch_size')
-        dev = next(self.model.parameters()).device
+        dev = self.dev
         n_val = len(valid_sampler.cubes)
         mean_db = valid_sampler.mean.to(dev)
         std_db  = valid_sampler.std.to(dev)
