@@ -1519,7 +1519,7 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
 
     def sample(self, num_samples: int) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
 
-        indices = torch.randperm(len(self.cubes))[:num_samples]
+        indices = torch.randint(0, len(self.cubes), (num_samples,))
         z_full_batch = self.cubes[indices]
         src_xyz_batch = self.source_coords[indices]
         return z_full_batch.to(self.dummy.device), src_xyz_batch.to(self.dummy.device), indices
