@@ -1162,8 +1162,9 @@ class Trainer(ABC):
             current_epoch = (iteration + 1) * batch_size / dataset_size
             if iteration % 100 == 0:
                 loss_float = loss.item()  # single GPU sync every 100 iters
-                wandb.log({"train_loss": loss_float, "epoch": current_epoch, "iteration": iteration,
-                           "learning_rate": current_lr}, step=iteration)
+                if wandb.run is not None:
+                    wandb.log({"train_loss": loss_float, "epoch": current_epoch, "iteration": iteration,
+                               "learning_rate": current_lr}, step=iteration)
                 pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss_float:.5f}')
 
             # **NEW: Validation loop**
@@ -1182,8 +1183,9 @@ class Trainer(ABC):
                 torch.set_rng_state(_cpu_rng)
                 if _cuda_rng is not None:
                     torch.cuda.set_rng_state_all(_cuda_rng)
-                wandb.log({"val_loss": val_loss.item(), "val_lsd": val_lsd.item(),
-                           "epoch": current_epoch, "iteration": iteration}, step=iteration)
+                if wandb.run is not None:
+                    wandb.log({"val_loss": val_loss.item(), "val_lsd": val_lsd.item(),
+                               "epoch": current_epoch, "iteration": iteration}, step=iteration)
                 val_desc = (f'Epoch: {current_epoch:.4f}, Iter: {iteration}, '
                             f'Loss: {loss.item():.5f}, Val MSE: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
                 pbar.set_description(val_desc)
