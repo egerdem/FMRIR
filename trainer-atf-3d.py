@@ -212,6 +212,14 @@ def main(args):
     atf_valid_sampler.mean = atf_train_sampler.mean
     atf_valid_sampler.std = atf_train_sampler.std
 
+    # 5. Move data tensors to GPU — eliminates CPU→GPU copy every training step.
+    #    cubes/source_coords are plain tensors so must be moved manually.
+    #    .to(device) on the module moves the dummy Buffer so sample() returns GPU tensors.
+    for sampler in [atf_train_sampler, atf_valid_sampler]:
+        sampler.cubes = sampler.cubes.to(device)
+        sampler.source_coords = sampler.source_coords.to(device)
+        sampler.to(device)  # moves dummy Buffer so sample() returns GPU tensors
+
     # ### <<< NEW: Calculate (or load) coordinate statistics
     # The cache file will be created in the same directory you run the script from.
     coord_mean, coord_std = calculate_and_cache_coord_stats(atf_train_sampler, dataset_version)
