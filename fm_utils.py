@@ -2875,10 +2875,11 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
         # n_downs = len(channels) - 1  spatial downsampling steps (bottleneck peak is channels[-1])
         n_downs = len(channels) - 1
         divisor = 2 ** n_downs
-        # For n_downs=2, input_size=11: ceil(11/4)*4 = 12 → bottleneck 3³=27 voxels.
-        # This is preferred over the original hardcoded 16 (31% padding waste) since
-        # 12 gives only 8% padding overhead and a tighter, less-diluted bottleneck.
-        target_size = math.ceil(input_size / divisor) * divisor
+        # Minimum target_size=16 ensures bottleneck >= 4³=64 voxels for global spatial capacity.
+        # For n_downs=2: formula gives 12 (bottleneck 3³=27) but empirically 16 (bottleneck 4³=64)
+        # achieves 1.80 dB vs 2.19 dB — larger bottleneck better captures global room acoustics.
+        # For n_downs=3: formula gives 16, same result.
+        target_size = max(math.ceil(input_size / divisor) * divisor, 16)
         total_pad = target_size - input_size
         pad_front = total_pad // 2
         pad_back = total_pad - pad_front
