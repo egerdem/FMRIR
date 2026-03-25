@@ -16,6 +16,33 @@ from fm_utils import (ATF3DSampler, CFGVectorFieldODE_3D, EulerSimulator, EulerM
 from model_paths import MULTI_MODEL_PATHS, MODEL_LOAD_PATH
 
 
+def _remap_red3d_keys(state_dict):
+    """Remap pre-parametric RED3d checkpoint keys to ModuleList naming if needed.
+    Detects old-style keys (enc1_res, enc2_res, ...) and remaps them.
+    New checkpoints already have enc_res.0, enc_res.1, ... and are returned unchanged.
+    """
+    # Only remap if old-style keys are present
+    if not any(k.startswith('enc1_res.') for k in state_dict):
+        return state_dict
+    remap = {
+        'enc1_res.': 'enc_res.0.', 'enc2_res.': 'enc_res.1.',
+        'enc1_attn.': 'enc_attn.0.', 'enc2_attn.': 'enc_attn.1.',
+        'up1.': 'dec_up.0.', 'up2.': 'dec_up.1.',
+        'dec1_res.': 'dec_res.0.', 'dec2_res.': 'dec_res.1.',
+        'dec1_attn.': 'dec_attn.0.', 'dec2_attn.': 'dec_attn.1.',
+    }
+    new_sd = {}
+    remapped = 0
+    for k, v in state_dict.items():
+        for old, new in remap.items():
+            if k.startswith(old):
+                k = new + k[len(old):]
+                remapped += 1
+                break
+        new_sd[k] = v
+    print(f"  [compat] Remapped {remapped} RED3d keys to ModuleList naming")
+    return new_sd
+
 
 # class DDIMSampler:
 #     """
@@ -329,7 +356,7 @@ def model_factory(config, model_states_cfg, device, SIGMA_SDE=0.1):
     if architecture == "v4_DiT":
         main_model.load_state_dict(model_states_cfg['dit'])
     else:
-        main_model.load_state_dict(model_states_cfg['unet'])
+        main_model.load_state_dict(_remap_red3d_keys(model_states_cfg['unet']))
 
     set_encoder.eval()
     main_model.eval()
