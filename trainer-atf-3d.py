@@ -46,9 +46,13 @@ def calculate_and_cache_coord_stats(train_sampler, dataset_version="r1"):
     all_rel_coords = []
 
     # Iterate through all training sources to get all possible relative coordinates
+    # grid_xyz is a plain tensor attribute (not moved by sampler.to(device)), so we
+    # explicitly move it to match source_coords' device. This is a one-time cached op.
+    dev = train_sampler.source_coords.device
+    grid_xyz_dev = train_sampler.grid_xyz.to(dev)
     for i in tqdm(range(len(train_sampler.source_coords)), desc="Calculating Stats"):
         src_xyz = train_sampler.source_coords[i].unsqueeze(0)
-        rel_coords = train_sampler.grid_xyz - src_xyz  # Shape [1331, 3]
+        rel_coords = grid_xyz_dev - src_xyz  # Shape [1331, 3]
         all_rel_coords.append(rel_coords)
 
     # Concatenate all relative coordinates into a single large tensor
