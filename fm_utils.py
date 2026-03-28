@@ -1231,6 +1231,7 @@ class Trainer(ABC):
                     config['best_val_lsd']   = float(best_val_lsd)
                     config['best_val_loss']  = float(best_val_loss)
                     config['best_iteration'] = best_iteration
+                    os.makedirs(os.path.dirname(_config_path), exist_ok=True)  # guard against CephFS eviction
                     with open(_config_path, 'w') as _f:
                         json.dump(config, _f, indent=4)
 
@@ -1386,8 +1387,52 @@ class ATF3DSampler(torch.nn.Module, Sampleable):
                     print(f"⚠️  CONFIG MISMATCH DETECTED for {self.mode} data!")
                     print(f"   Config expects: {len(expected_source_ids)} sources")
                     print(f"   Preprocessed file contains: {len(actual_source_ids)} sources")
-                    print(f"   Recreating preprocessed file to match config...")
-                    recreate_file = True
+
+                    # Check if the loaded file is a SUPERSET of what we need.
+                    # If so, subset it in-memory and overwrite the cache — avoids
+                    # needing the raw .npz files (e.g. on a machine with only .pt files).
+                    expected_set = set(expected_source_ids)
+                    actual_set   = set(actual_source_ids)
+                    if expected_set.issubset(actual_set):
+                        print(f"   ✂️  Loaded file is a superset — subsetting in memory (no .npz needed)...")
+                        # Build index map: actual_source_id -> row index in loaded data
+                        actual_id_to_idx = {int(sid): i for i, sid in
+                                            enumerate(data['sample_info'].flatten().tolist())}
+                        keep_rows = torch.tensor(
+                            [actual_id_to_idx[sid] for sid in expected_source_ids],
+                            dtype=torch.long
+                        )
+                        self.cubes         = data['cubes'][keep_rows]
+                        self.source_coords = data['source_coords'][keep_rows]
+                        self.sample_info   = data['sample_info'][keep_rows]
+                        self.grid_xyz      = data['grid_xyz']
+                        nx, ny, nz         = data.get('nxnyz', (11, 11, 11))
+                        self.nx, self.ny, self.nz = nx, ny, nz
+                        if self.normalize:
+                            # Recompute stats on the subset (train only)
+                            if self.mode == 'train':
+                                self.mean = self.cubes.mean()
+                                self.std  = self.cubes.std()
+                                self.cubes = (self.cubes - self.mean) / (self.std + 1e-8)
+                            else:
+                                self.mean = data.get('mean')
+                                self.std  = data.get('std')
+                        # Overwrite cache so next run loads directly
+                        save_data = {
+                            'cubes': self.cubes, 'source_coords': self.source_coords,
+                            'sample_info': self.sample_info, 'grid_xyz': self.grid_xyz,
+                            'nxnyz': (self.nx, self.ny, self.nz),
+                        }
+                        if self.normalize:
+                            save_data.update({'mean': self.mean, 'std': self.std})
+                        torch.save(save_data, processed_file)
+                        print(f"   ✅ Subset saved to {processed_file} — future runs will load directly.")
+                        recreate_file = False
+                    else:
+                        missing = expected_set - actual_set
+                        print(f"   ⚠️  {len(missing)} expected sources missing from cache — need .npz files.")
+                        print(f"   Recreating preprocessed file to match config...")
+                        recreate_file = True
                 else:
                     # Data matches config, load it
                     self.cubes = data['cubes']
