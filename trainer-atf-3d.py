@@ -39,7 +39,7 @@ def calculate_and_cache_coord_stats(train_sampler, dataset_version="r1"):
 
     if os.path.exists(cache_path):
         print(f"Loading cached coordinate stats from {cache_path}")
-        stats = torch.load(cache_path)
+        stats = torch.load(cache_path, map_location='cpu')
         return stats['mean'], stats['std']
 
     print(f"Calculating coordinate stats for dataset version {dataset_version}... (this may take a moment)")
@@ -223,7 +223,7 @@ def main(args):
     # ### <<< NEW: Calculate (or load) coordinate statistics
     # The cache file will be created in the same directory you run the script from.
     coord_mean, coord_std = calculate_and_cache_coord_stats(atf_train_sampler, dataset_version)
-    print(f"Using Coordinate Stats -> Mean: {coord_mean.numpy()}, Std: {coord_std.numpy()}")
+    print(f"Using Coordinate Stats -> Mean: {coord_mean.cpu().numpy()}, Std: {coord_std.cpu().numpy()}")
 
     # --- Model and Trainer Initialization ---
 
