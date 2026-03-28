@@ -227,7 +227,7 @@ def main(args):
     # ### <<< NEW: Calculate (or load) coordinate statistics
     # The cache file will be created in the same directory you run the script from.
     coord_mean, coord_std = calculate_and_cache_coord_stats(atf_train_sampler, dataset_version)
-    print(f"Using Coordinate Stats -> Mean: {coord_mean.numpy()}, Std: {coord_std.numpy()}")
+    print(f"Using Coordinate Stats -> Mean: {coord_mean.cpu().numpy()}, Std: {coord_std.cpu().numpy()}")
 
     # --- Model and Trainer Initialization ---
 
