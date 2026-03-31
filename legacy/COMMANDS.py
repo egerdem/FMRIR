@@ -308,7 +308,7 @@ rsync -avz --progress \
   k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments/ \
   /Volumes/T7/SFlow/FMRIR_experiments/
 
-scp -r k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments/KCL_UnetV2res_freq20_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260322-181523_iter400000 /Volumes/T7/SFlow
+scp -r k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments/KCL_UnetV2res_freq64_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260331-005541_iter400000 "/Volumes/T7 Shield/SFlow"
 #clouddan lokale
 
 scp -r cloud-iov:~/EGE/FMRIR_experiments/KCL_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_600k_20260224-134534_iter600000 "/Volumes/T7 Shield/SFlow/FMRIR_Experiments"

@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import os
 import json
+import glob
 from tqdm import tqdm
 import matplotlib
 matplotlib.use('Qt5Agg', force=True)  # Same as eval_AUTOENCODER.py
@@ -30,7 +31,7 @@ SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 
-def load_reference_model(device, freq_up_to):
+def load_reference_model(device):
     """Load the reference AUTOENCODER model data and predictions."""
     # Use the exact same config as in eval_AUTOENCODER.py (no modifications!)
     config = config_FSMPAE_10026.copy()
@@ -55,14 +56,17 @@ def load_reference_model(device, freq_up_to):
     atf_mag_est = torch.load(pt_path, weights_only=False)
     atf_mag_gt = data['test']['atf_mag'][dataset_name]
 
+    fsmpae_model_freq_up_to = atf_mag_est.shape[1]
     print(f"Reference data loaded: {atf_mag_gt.shape} (Mic, Freq, Src)")
-    print(f"Full reference data: {atf_mag_gt.shape[1]} frequency bins")
-    print(f"Your model uses: {freq_up_to} frequency bins")
+    print(f"FSMPAE model_freq_up_to: {fsmpae_model_freq_up_to}")
 
     # Return FULL reference data (don't truncate here - let evaluation function handle it)
-    return atf_mag_est, atf_mag_gt, config, data
+    return atf_mag_est, atf_mag_gt, config, data, fsmpae_model_freq_up_to
 
-def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval=None, guidance_scales=None, random_M_sampling=False, model_name=None, normalize_coords=False, coord_mean=None, coord_std=None):
+def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval=None,
+                        guidance_scales=None, random_M_sampling=False, model_name=None,
+                        normalize_coords=False, coord_mean=None, coord_std=None,
+                        eval_freq_up_to=None):
     """
     Evaluate your 3D model.
     
@@ -72,8 +76,16 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
 
     data_dir = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
     src_split = config['data']['src_splits']
-    freq_up_to = config['model'].get('freq_up_to')
+    model_freq_up_to = config['model'].get('freq_up_to')
     freq_from  = config['model'].get('freq_from', 0)
+    if eval_freq_up_to is None:
+        eval_freq_up_to = model_freq_up_to
+    if eval_freq_up_to > model_freq_up_to:
+        raise ValueError(
+            f"eval_freq_up_to={eval_freq_up_to} cannot be greater than "
+            f"model_freq_up_to={model_freq_up_to} for model '{model_name}'."
+        )
+    print(f"  SFlow model_freq_up_to={model_freq_up_to}, eval_freq_up_to={eval_freq_up_to}")
 
     # Detect geo_conditioning from checkpoint config and parse room dims
     _geo = config.get('training', {}).get('geo_conditioning', False)
@@ -92,11 +104,11 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
     # Load data
     train_sampler = ATF3DSampler(
         data_path=data_dir, mode='train', src_splits=src_split,
-        normalize=True, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name
+        normalize=True, freq_up_to=model_freq_up_to, freq_from=freq_from, model_name=model_name
     )
     test_sampler = ATF3DSampler(
         data_path=data_dir, mode='test', src_splits=src_split,
-        normalize=False, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name
+        normalize=False, freq_up_to=model_freq_up_to, freq_from=freq_from, model_name=model_name
     )
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
     
@@ -185,10 +197,12 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                     # Calculate MSE and LSD in denormalized (dB) domain 
                     z_est_denorm = z_est * spec_std + train_sampler.mean.item()
                     z_true_denorm = z_true * spec_std + train_sampler.mean.item() 
-                    mse = torch.mean((z_est_denorm - z_true_denorm) ** 2).item()
+                    z_est_denorm_eval = z_est_denorm[:, :eval_freq_up_to]
+                    z_true_denorm_eval = z_true_denorm[:, :eval_freq_up_to]
+                    mse = torch.mean((z_est_denorm_eval - z_true_denorm_eval) ** 2).item()
                     
                     # Calculate NMSE (Normalized MSE) in dB
-                    z_true_var = torch.var(z_true_denorm).item()
+                    z_true_var = torch.var(z_true_denorm_eval).item()
                     nmse_linear = mse / z_true_var if z_true_var > 0 else float('inf')
                     nmse = 10 * np.log10(nmse_linear) if nmse_linear > 0 and nmse_linear != float('inf') else float('inf')
                     
@@ -197,14 +211,16 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                     # lsd_db = lsd_normalized.item() * spec_std
                     
                     # NEW (CORRECT): LSD directly on denormalized (dB domain) data
-                    lsd_db = calculate_lsd_unified(z_est_denorm.squeeze(0), z_true_denorm.squeeze(0), freq_dim=0).item()
+                    lsd_db = calculate_lsd_unified(
+                        z_est_denorm_eval.squeeze(0), z_true_denorm_eval.squeeze(0), freq_dim=0
+                    ).item()
                     
                     # M_fundamental evaluation (5 specific positions: [0, 272, 665, 937, 1330])
                     m_fundamental_indices = [0, 272, 665, 937, 1330]
                     
                     # Convert 3D cube to flat format [freq, 1331] for indexing
-                    z_est_flat = z_est_denorm.view(z_est_denorm.shape[1], -1)  # [freq, 1331]
-                    z_true_flat = z_true_denorm.view(z_true_denorm.shape[1], -1)  # [freq, 1331]
+                    z_est_flat = z_est_denorm_eval.view(z_est_denorm_eval.shape[1], -1)  # [eval_freq, 1331]
+                    z_true_flat = z_true_denorm_eval.view(z_true_denorm_eval.shape[1], -1)  # [eval_freq, 1331]
                     # z_est_norm_flat = z_est.squeeze(0).view(z_est.shape[1], -1)  # [freq, 1331] normalized
                     # z_true_norm_flat = z_true.squeeze(0).view(z_true.shape[1], -1)  # [freq, 1331] normalized
                     
@@ -256,18 +272,21 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                 'lsd_std_m_fund': np.std(lsd_m_fund_values),
                 'mse_mean_m_fund': np.mean(mse_m_fund_values),
                 'mse_std_m_fund': np.std(mse_m_fund_values),
-                'num_sources_eval': eval_sources
+                'num_sources_eval': eval_sources,
+                'model_freq_up_to': model_freq_up_to,
+                'eval_freq_up_to': eval_freq_up_to
             })
     
     return results, idx_mes_pos_mat, grid_xyz
 
 
-def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_eval=None, freq_up_to=None):
+def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_eval=None,
+                             eval_freq_up_to=None, reference_name="Reference"):
     """
     Evaluate the reference AUTOENCODER model using the loaded data.
     Returns both aggregate metrics and per-source errors.
     """
-    print("Evaluating reference AUTOENCODER model...")
+    print(f"Evaluating {reference_name} model...")
     
     # Get the M value used by reference model
     dataset_name = ref_config['dataset'][0]
@@ -302,6 +321,8 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
 
     # If predictions have fewer freq bins than GT (e.g. EEAE with 20 bins), truncate GT to match
     pred_freq_bins = atf_mag_est.shape[1]
+    eval_bins = min(eval_freq_up_to, pred_freq_bins) if eval_freq_up_to is not None else pred_freq_bins
+    print(f"{reference_name} model_freq_up_to: {pred_freq_bins}, eval_freq_up_to: {eval_bins}")
 
     for src_idx in tqdm(range(eval_sources), desc="Reference Model"):
         # Full frequency range (truncated to match prediction if necessary)
@@ -322,13 +343,16 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         nmse_val_full = 10 * np.log10(nmse_linear_full) if nmse_linear_full > 0 and nmse_linear_full != float('inf') else float('inf')
         nmse_per_sample_full.append(nmse_val_full)
 
-        # M_fundamental evaluation — use pred_freq_bins (handles both FSMPAE 64-bin and EEAE 20-bin)
+        # M_fundamental evaluation on the shared eval range
         lsd_val_m_fund = calculate_lsd_unified(
-            atf_mag_est[m_fundamental_indices, :pred_freq_bins, src_idx],
-            atf_mag_gt[m_fundamental_indices, :pred_freq_bins, src_idx],
+            atf_mag_est[m_fundamental_indices, :eval_bins, src_idx],
+            atf_mag_gt[m_fundamental_indices, :eval_bins, src_idx],
             freq_dim=1
         )
-        mse_val_m_fund = torch.mean((atf_mag_est[m_fundamental_indices, :pred_freq_bins, src_idx] - atf_mag_gt[m_fundamental_indices, :pred_freq_bins, src_idx]) ** 2).item()
+        mse_val_m_fund = torch.mean(
+            (atf_mag_est[m_fundamental_indices, :eval_bins, src_idx] -
+             atf_mag_gt[m_fundamental_indices, :eval_bins, src_idx]) ** 2
+        ).item()
         
         lsd_per_sample_m_fund.append(lsd_val_m_fund.item())
         mse_per_sample_m_fund.append(mse_val_m_fund)
@@ -343,9 +367,9 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         }
         
         # Matched frequency range: cap at pred_freq_bins in case this reference model
-        # has fewer bins than freq_up_to (e.g. EEAE with 20 bins when freq_up_to=30).
-        if freq_up_to is not None:
-            matched_bins = min(freq_up_to, pred_freq_bins)
+        # has fewer bins than eval_freq_up_to (e.g. EEAE with 20 bins when eval is 30).
+        if eval_freq_up_to is not None:
+            matched_bins = eval_bins
             lsd_val_matched = calculate_lsd_unified(
                 atf_mag_est[:, :matched_bins, src_idx],
                 atf_mag_gt[:, :matched_bins, src_idx],
@@ -391,7 +415,7 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
     }
     
     # Add matched frequency range results if available
-    if freq_up_to is not None and lsd_per_sample_matched:
+    if eval_freq_up_to is not None and lsd_per_sample_matched:
         result['lsd_mean_matched_freq'] = np.mean(lsd_per_sample_matched)
         result['lsd_std_matched_freq'] = np.std(lsd_per_sample_matched)
         result['mse_mean_matched_freq'] = np.mean(mse_per_sample_matched)
@@ -400,16 +424,19 @@ def evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_ev
         result['nmse_std_matched_freq'] = np.std(nmse_per_sample_matched)
         result['mean_matched_freq'] = np.mean(lsd_per_sample_matched)  # For backward compatibility
         
-        matched_bins_actual = min(freq_up_to, pred_freq_bins)
-        print(f"Reference LSD (full {pred_freq_bins} bins): {result['lsd_mean']:.4f} ± {result['lsd_std']:.4f} dB")
-        print(f"Reference MSE (full {pred_freq_bins} bins): {result['mse_mean']:.4f} ± {result['mse_std']:.4f}")
-        print(f"Reference NMSE (full {pred_freq_bins} bins): {result['nmse_mean']:.4f} ± {result['nmse_std']:.4f} dB")
-        print(f"Reference LSD (first {matched_bins_actual} bins): {result['lsd_mean_matched_freq']:.4f} ± {result['lsd_std_matched_freq']:.4f} dB")
-        print(f"Reference MSE (first {matched_bins_actual} bins): {result['mse_mean_matched_freq']:.4f} ± {result['mse_std_matched_freq']:.4f}")
-        print(f"Reference NMSE (first {matched_bins_actual} bins): {result['nmse_mean_matched_freq']:.4f} ± {result['nmse_std_matched_freq']:.4f} dB")
-        print(f"Reference LSD M_fund (first {matched_bins_actual} bins): {result['lsd_mean_m_fund']:.4f} ± {result['lsd_std_m_fund']:.4f} dB")
-        print(f"Reference MSE M_fund (first {matched_bins_actual} bins): {result['mse_mean_m_fund']:.4f} ± {result['mse_std_m_fund']:.4f}")
-        print(f"✅ Reference metrics evaluated on first {matched_bins_actual} bins (model freq_up_to={freq_up_to}, pred bins={pred_freq_bins})")
+        matched_bins_actual = eval_bins
+        print(f"{reference_name} LSD (full {pred_freq_bins} bins): {result['lsd_mean']:.4f} ± {result['lsd_std']:.4f} dB")
+        print(f"{reference_name} MSE (full {pred_freq_bins} bins): {result['mse_mean']:.4f} ± {result['mse_std']:.4f}")
+        print(f"{reference_name} NMSE (full {pred_freq_bins} bins): {result['nmse_mean']:.4f} ± {result['nmse_std']:.4f} dB")
+        print(f"{reference_name} LSD (first {matched_bins_actual} bins): {result['lsd_mean_matched_freq']:.4f} ± {result['lsd_std_matched_freq']:.4f} dB")
+        print(f"{reference_name} MSE (first {matched_bins_actual} bins): {result['mse_mean_matched_freq']:.4f} ± {result['mse_std_matched_freq']:.4f}")
+        print(f"{reference_name} NMSE (first {matched_bins_actual} bins): {result['nmse_mean_matched_freq']:.4f} ± {result['nmse_std_matched_freq']:.4f} dB")
+        print(f"{reference_name} LSD M_fund (first {matched_bins_actual} bins): {result['lsd_mean_m_fund']:.4f} ± {result['lsd_std_m_fund']:.4f} dB")
+        print(f"{reference_name} MSE M_fund (first {matched_bins_actual} bins): {result['mse_mean_m_fund']:.4f} ± {result['mse_std_m_fund']:.4f}")
+        print(
+            f"✅ {reference_name} metrics evaluated on first {matched_bins_actual} bins "
+            f"(requested eval_freq_up_to={eval_freq_up_to}, model_freq_up_to={pred_freq_bins})"
+        )
     
     return result
 
@@ -559,7 +586,10 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
         print("Your model predictions not available - skipping ATF plots")
 
 
-def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_gt, ref_config, freq_up_to, num_sources_eval, guidance_scales=None, single_guidance=None, random_M_sampling=False):
+def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_gt, ref_config,
+                                   model_freq_up_to, eval_freq_up_to, num_sources_eval,
+                                   guidance_scales=None, single_guidance=None,
+                                   random_M_sampling=False, model_name=None):
     """
     Extract ATF predictions from your model in the same format as reference model.
     Based on inference_1d_atf.py approach.
@@ -592,11 +622,11 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
     # Load normalized data
     train_sampler = ATF3DSampler(
         data_path=data_path, mode='train', src_splits=src_split,
-        normalize=True, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name
+        normalize=True, freq_up_to=model_freq_up_to, freq_from=freq_from, model_name=model_name
     )
     test_sampler = ATF3DSampler(
         data_path=data_path, mode='test', src_splits=src_split,
-        normalize=False, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name
+        normalize=False, freq_up_to=model_freq_up_to, freq_from=freq_from, model_name=model_name
     )
     test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
     
@@ -610,7 +640,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
     # Initialize output array matching reference format [Guidance, Mic, Freq, Source]
     total_mics = atf_mag_gt.shape[0]
     total_sources = min(num_sources_eval or atf_mag_gt.shape[2], len(test_sampler))
-    your_atf_predictions = {w: torch.zeros(total_mics, freq_up_to, total_sources) for w in guidance_scales}
+    your_atf_predictions = {w: torch.zeros(total_mics, eval_freq_up_to, total_sources) for w in guidance_scales}
     
     # Fixed M and parameters (from inference_1d_atf.py)
     M = ref_config['num_mes_test']  # Use same M as reference (5)
@@ -691,7 +721,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
                     
                     # Extract frequency response at this microphone position
                     if iz < gen_cube_denorm.shape[2] and iy < gen_cube_denorm.shape[3] and ix < gen_cube_denorm.shape[4]:
-                        your_atf_predictions[w][mic_idx, :, src_idx] = gen_cube_denorm[0, :, iz, iy, ix].cpu()
+                        your_atf_predictions[w][mic_idx, :, src_idx] = gen_cube_denorm[0, :eval_freq_up_to, iz, iy, ix].cpu()
     
     # print(f"Generated ATF predictions: {your_atf_predictions.shape} (Mic, Freq, Source)")
     return your_atf_predictions
@@ -709,7 +739,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-guidance_scales = [2]
+guidance_scales = [1]
 M_values = [5]
 num_sources_eval = 102  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
@@ -717,11 +747,19 @@ random_M_sampling = False
 
 # Set to True to generate distribution and ATF comparison PDFs after the summary table.
 # Printing the table is always executed regardless of this flag.
-GENERATE_PLOTS = False
+GENERATE_PLOTS = True
 
 # Set to True  → coord normalisation applied (correct, matches training pipeline for new runs).
 # Set to False → no coord normalisation (legacy behaviour; needed to reproduce old Tokyo best 2.86 dB).
 NORMALIZE_COORDS = True
+
+# If set (e.g. 20), evaluate only first N bins while still running each model at its own trained freq.
+# If None, defaults to the smallest model_freq_up_to across loaded SFlow + AE models.
+EVAL_FREQ_UP_TO = None
+
+# Add/remove EEAE runs to compare. Empty list disables EEAE evaluation.
+# Example: EEAE_COMPARISONS = [10001, 10002, 10003]
+EEAE_COMPARISONS = []
 
 
 def get_dataset_version_from_data_dir(data_dir: str) -> str:
@@ -767,6 +805,19 @@ def get_model_name(model_path):
         # Include both directory and filename for unique identification
         return f"{dir_name}_{filename}"
 
+
+def find_eeae_prediction_path(eeae_config_id: int) -> str:
+    """Find EEAE prediction .pt path for a given config id (e.g., 10001)."""
+    pattern = f"RESULTS/out_*_EEAE_{eeae_config_id}/atf_mag/atf_mag_test_*.pt"
+    matches = sorted(glob.glob(pattern))
+    if not matches:
+        raise FileNotFoundError(
+            f"No EEAE prediction file found for config {eeae_config_id} with pattern: {pattern}"
+        )
+    if len(matches) > 1:
+        print(f"WARNING: Multiple EEAE matches for {eeae_config_id}; using latest: {matches[-1]}")
+    return matches[-1]
+
 # Get model names
 MODEL_NAMES = [get_model_name(path) for path in MULTI_MODEL_PATHS]
 MULTI_MODEL_MODE = len(MULTI_MODEL_PATHS) > 1
@@ -777,12 +828,14 @@ for i, (path, name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)):
     print(f"  Model {i+1}: {name}")
 print()
 
-# Load and evaluate all your models
+# Load all your models first (we choose eval_freq_up_to after seeing all methods)
 print("\n1. Loading your 3D Flow Matching models...")
 all_your_results = {}
 all_your_predictions = {}  # Store predictions to avoid reloading best model
 all_model_info = {}  # Store model information
-freq_up_to = None
+all_model_configs = {}
+all_model_coord_stats = {}
+sflow_model_freq_up_to = {}
 
 for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)):
     print(f"Loading model {i+1}/{len(MULTI_MODEL_PATHS)}: {model_name}")
@@ -792,9 +845,9 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
     # Create and load models
     set_encoder, unet_3d, ode_3d, is_new_model = model_factory(config, model_states_cfg, device)
 
-    if freq_up_to is None:
-        freq_up_to = config['model'].get('freq_up_to')
-        print(f"Model frequency range: {freq_up_to}")
+    model_freq = config['model'].get('freq_up_to')
+    sflow_model_freq_up_to[model_name] = model_freq
+    print(f"  {model_name} model_freq_up_to: {model_freq}")
     
     # Get model information
     set_encoder_info = get_model_info(set_encoder, "SetEncoder")
@@ -834,6 +887,50 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
         print(f"  WARNING: {e}. Running without coord normalisation.")
         _coord_mean, _coord_std = None, None
 
+    # Store model components for later plotting (avoid reloading best model)
+    all_your_predictions[model_name] = (set_encoder, unet_3d, ode_3d, config)
+    all_model_configs[model_name] = config
+    all_model_coord_stats[model_name] = (_coord_mean, _coord_std)
+
+# Load reference methods and decide eval_freq_up_to
+print("\n2. Loading reference AUTOENCODER model...")
+atf_mag_est, atf_mag_gt, ref_config, ref_data, fsmpae_model_freq_up_to = load_reference_model(device)
+
+eeae_atf_est_by_id = {}
+eeae_model_freq_up_to_by_id = {}
+if EEAE_COMPARISONS:
+    print(f"\n2b. Loading EEAE comparisons: {EEAE_COMPARISONS}")
+    for eeae_id in EEAE_COMPARISONS:
+        eeae_pt_path = find_eeae_prediction_path(eeae_id)
+        print(f"  Loading EEAE {eeae_id} from {eeae_pt_path}...")
+        eeae_atf_est = torch.load(eeae_pt_path, weights_only=False)
+        eeae_atf_est_by_id[eeae_id] = eeae_atf_est
+        eeae_model_freq_up_to_by_id[eeae_id] = eeae_atf_est.shape[1]
+        print(f"  EEAE {eeae_id} results loaded: {eeae_atf_est.shape}")
+        print(f"  EEAE {eeae_id} model_freq_up_to: {eeae_model_freq_up_to_by_id[eeae_id]}")
+else:
+    print("\n2b. EEAE comparisons disabled (EEAE_COMPARISONS is empty).")
+
+all_freq_candidates = list(sflow_model_freq_up_to.values()) + [fsmpae_model_freq_up_to]
+all_freq_candidates.extend(list(eeae_model_freq_up_to_by_id.values()))
+if EVAL_FREQ_UP_TO is None:
+    eval_freq_up_to = min(all_freq_candidates)
+    print(f"\n[auto eval_freq_up_to] Using smallest available model_freq_up_to: {eval_freq_up_to}")
+else:
+    eval_freq_up_to = EVAL_FREQ_UP_TO
+    min_available = min(all_freq_candidates)
+    if eval_freq_up_to > min_available:
+        raise ValueError(
+            f"EVAL_FREQ_UP_TO={eval_freq_up_to} exceeds smallest available model_freq_up_to={min_available}. "
+            "Set EVAL_FREQ_UP_TO <= smallest available value."
+        )
+    print(f"\n[user eval_freq_up_to] Using EVAL_FREQ_UP_TO={eval_freq_up_to}")
+
+print("\n3. Evaluating SFlow models...")
+for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)):
+    print(f"Evaluating model {i+1}/{len(MULTI_MODEL_PATHS)}: {model_name}")
+    set_encoder, unet_3d, ode_3d, config = all_your_predictions[model_name]
+    _coord_mean, _coord_std = all_model_coord_stats[model_name]
     model_results, idx_mes_pos_mat, _grid_xyz = evaluate_your_model(
         set_encoder, ode_3d, config, M_values, device,
         num_sources_eval, guidance_scales,
@@ -842,37 +939,34 @@ for i, (model_path, model_name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)
         normalize_coords=NORMALIZE_COORDS,
         coord_mean=_coord_mean if NORMALIZE_COORDS else None,
         coord_std=_coord_std if NORMALIZE_COORDS else None,
+        eval_freq_up_to=eval_freq_up_to,
     )
     all_your_results[model_name] = model_results
-    all_model_grid_xyz = _grid_xyz  # grid_xyz is same for all models (fixed 11^3 room grid)
-    
-    # Store model components for later plotting (avoid reloading best model)
-    all_your_predictions[model_name] = (set_encoder, unet_3d, ode_3d, config)
+    all_model_grid_xyz = _grid_xyz  # fixed 11^3 room grid
 
-# Load and evaluate reference model
-print("\n2. Loading reference AUTOENCODER model...")
-atf_mag_est, atf_mag_gt, ref_config, ref_data = load_reference_model(device, freq_up_to)
-
-ref_results = evaluate_reference_model(atf_mag_est, atf_mag_gt, ref_config, num_sources_eval, freq_up_to)
-
-# Load and evaluate EEAE 10001 results
-eeae_pt_path = 'RESULTS/out_20250916_EEAE_10001/atf_mag/atf_mag_test_ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200_freq20.pt'
-print(f"\n2b. Loading EEAE 10001 results from {eeae_pt_path}...")
-eeae_atf_est = torch.load(eeae_pt_path, weights_only=False)
-print(f"EEAE results loaded: {eeae_atf_est.shape}")
-eeae_results = evaluate_reference_model(eeae_atf_est, atf_mag_gt, ref_config, num_sources_eval, freq_up_to)
+print("\n4. Evaluating reference methods...")
+ref_results = evaluate_reference_model(
+    atf_mag_est, atf_mag_gt, ref_config, num_sources_eval,
+    eval_freq_up_to=eval_freq_up_to, reference_name="FSMPAE 10026"
+)
+eeae_results_by_id = {}
+for eeae_id, eeae_atf_est in eeae_atf_est_by_id.items():
+    eeae_results_by_id[eeae_id] = evaluate_reference_model(
+        eeae_atf_est, atf_mag_gt, ref_config, num_sources_eval,
+        eval_freq_up_to=eval_freq_up_to, reference_name=f"EEAE {eeae_id}"
+    )
 
 # Print results
 print("\n" + "="*80)
 print("=== COMPARISON RESULTS ===")
 print("="*80)
-print(f"Your model freq range: 0-{freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz ({freq_up_to} bins)")
+print(f"Evaluation freq range: 0-{eval_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz ({eval_freq_up_to} bins)")
 print(f"Reference freq range: 0-{ref_config['fs']//2} Hz ({ref_config['num_freq']} bins)")
 print(f"Sources evaluated: {ref_results['num_sources_eval']} (out of 102 total)")
 print()
 print("M_fundamental = 5 specific evaluation positions [0, 272, 665, 937, 1330] for PDFs")
 print("Full cube = All 1331 spatial positions")
-print(f"FAIR COMPARISON: Both models evaluated on same {freq_up_to} frequency bins (0-{freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
+print(f"FAIR COMPARISON: All methods evaluated on first {eval_freq_up_to} bins (0-{eval_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
 print("-"*190)
 print(f"{'Method':<45} | {'w':<4} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'NMSE Full (dB)':<14} | {'Freq Range':<15}")
 print("-"*190)
@@ -885,14 +979,20 @@ ref_lsd_full_fair = ref_results.get('lsd_mean_matched_freq', ref_results['lsd_me
 ref_mse_full_fair = ref_results.get('mse_mean_matched_freq', ref_results['mse_mean'])
 ref_nmse_full_fair = ref_results.get('nmse_mean_matched_freq', ref_results['nmse_mean'])
 
-print(f"{'Reference FSMPAE 10026 (M=' + str(ref_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {freq_up_to} bins':<15}")
+print(f"{'Reference FSMPAE 10026 (M=' + str(ref_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {eval_freq_up_to} bins':<15}")
 
-eeae_lsd_m_fund = eeae_results['lsd_mean_m_fund']
-eeae_mse_m_fund = eeae_results['mse_mean_m_fund']
-eeae_lsd_full_fair = eeae_results.get('lsd_mean_matched_freq', eeae_results['lsd_mean'])
-eeae_mse_full_fair = eeae_results.get('mse_mean_matched_freq', eeae_results['mse_mean'])
-eeae_nmse_full_fair = eeae_results.get('nmse_mean_matched_freq', eeae_results['nmse_mean'])
-print(f"{'Reference EEAE 10001 (M=' + str(eeae_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {eeae_lsd_m_fund:.4f}     | {eeae_mse_m_fund:.4f}     | {eeae_lsd_full_fair:.4f}     | {eeae_mse_full_fair:.4f}     | {eeae_nmse_full_fair:.4f}       | {f'First {freq_up_to} bins':<15}")
+for eeae_id, eeae_results in eeae_results_by_id.items():
+    eeae_lsd_m_fund = eeae_results['lsd_mean_m_fund']
+    eeae_mse_m_fund = eeae_results['mse_mean_m_fund']
+    eeae_lsd_full_fair = eeae_results.get('lsd_mean_matched_freq', eeae_results['lsd_mean'])
+    eeae_mse_full_fair = eeae_results.get('mse_mean_matched_freq', eeae_results['mse_mean'])
+    eeae_nmse_full_fair = eeae_results.get('nmse_mean_matched_freq', eeae_results['nmse_mean'])
+    print(
+        f"{'Reference EEAE ' + str(eeae_id) + ' (M=' + str(eeae_results['num_mics']) + ' mics)':<45} | "
+        f"{'N/A':<4} | {eeae_lsd_m_fund:.4f}     | {eeae_mse_m_fund:.4f}     | "
+        f"{eeae_lsd_full_fair:.4f}     | {eeae_mse_full_fair:.4f}     | {eeae_nmse_full_fair:.4f}       | "
+        f"{f'First {eval_freq_up_to} bins':<15}"
+    )
 
 # All your models
 COL_W = 45  # Method column width
@@ -910,7 +1010,7 @@ for model_name, model_results in all_your_results.items():
             your_mse_full = model_results[M][w]['mse_mean']
             your_nmse_full = model_results[M][w]['nmse_mean']
 
-            print(f"{display:<{COL_W}} | {w:<4.1f} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {your_nmse_full:.4f}       | {f'First {freq_up_to} bins':<15}")
+            print(f"{display:<{COL_W}} | {w:<4.1f} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {your_nmse_full:.4f}       | {f'First {eval_freq_up_to} bins':<15}")
             print("-"*190)
 
 # Find best model and guidance scale combination
@@ -1025,16 +1125,24 @@ if GENERATE_PLOTS:
     parent_dir = os.path.dirname(os.path.dirname(MULTI_MODEL_PATHS[0]))  # Go up two levels
     os.makedirs(parent_dir, exist_ok=True)
 
-    # EEAE per-source LSD for combined plot
-    eeae_per_source = eeae_results['per_source_errors']
-    eeae_lsd = [eeae_per_source[i].get('lsd_matched', eeae_per_source[i]['lsd_full']) for i in range(len(eeae_per_source))]
-    eeae_mean_lsd = np.mean(eeae_lsd)
-
     # Combined LSD plot
     plt.figure(figsize=(14, 8))
     ref_mean = np.mean(ref_lsd)
     plt.plot(source_indices, ref_lsd, 'r-', label=f'FSMPAE (mean: {ref_mean:.4f} dB)', alpha=0.8, linewidth=2)
-    plt.plot(source_indices, eeae_lsd, 'g-', label=f'EEAE (mean: {eeae_mean_lsd:.4f} dB)', alpha=0.8, linewidth=2)
+    if eeae_results_by_id:
+        eeae_colors = plt.cm.Set2(np.linspace(0, 1, len(eeae_results_by_id)))
+        for cidx, (eeae_id, eeae_results) in enumerate(eeae_results_by_id.items()):
+            eeae_per_source = eeae_results['per_source_errors']
+            eeae_lsd = [
+                eeae_per_source[i].get('lsd_matched', eeae_per_source[i]['lsd_full'])
+                for i in range(len(eeae_per_source))
+            ]
+            eeae_mean_lsd = np.mean(eeae_lsd)
+            plt.plot(
+                source_indices, eeae_lsd, '-', color=eeae_colors[cidx],
+                label=f'EEAE {eeae_id} (mean: {eeae_mean_lsd:.4f} dB)',
+                alpha=0.8, linewidth=2
+            )
 
     for model_name, data in all_model_lsd.items():
         model_mean = np.mean(data['values'])
@@ -1088,9 +1196,10 @@ if GENERATE_PLOTS:
         _best_w    = best_results['guidance']
         _atf_M     = ref_config['num_mes_test']          # M used inside get_your_model_atf_predictions (5)
         _n_src     = num_sources_eval if num_sources_eval is not None else 102
+        _best_model_freq_up_to = sflow_model_freq_up_to[best_model]
         _cache_path = os.path.join(
             os.path.dirname(MULTI_MODEL_PATHS[-1]),
-            f"atf_pred_cache_w{_best_w}_M{_atf_M}_n{_n_src}.pt"
+            f"atf_pred_cache_w{_best_w}_M{_atf_M}_n{_n_src}_mf{_best_model_freq_up_to}_ef{eval_freq_up_to}.pt"
         )
 
         if os.path.exists(_cache_path):
@@ -1102,8 +1211,8 @@ if GENERATE_PLOTS:
             print(f"🔄 No cache found — running ATF inference for {_n_src} sources...")
             your_atf_predictions = get_your_model_atf_predictions(
                 set_encoder_best, ode_3d_best, config_best, device,
-                atf_mag_gt, ref_config, freq_up_to, num_sources_eval,
-                single_guidance=_best_w, random_M_sampling=random_M_sampling
+                atf_mag_gt, ref_config, _best_model_freq_up_to, eval_freq_up_to, num_sources_eval,
+                single_guidance=_best_w, random_M_sampling=random_M_sampling, model_name=best_model
             )
             # Save cache (move tensors to cpu first to keep it portable)
             _cache_to_save = {
@@ -1111,7 +1220,8 @@ if GENERATE_PLOTS:
                 'guidance': _best_w,
                 'M': _atf_M,
                 'num_sources_eval': _n_src,
-                'freq_up_to': freq_up_to,
+                'model_freq_up_to': _best_model_freq_up_to,
+                'eval_freq_up_to': eval_freq_up_to,
             }
             torch.save(_cache_to_save, _cache_path)
             print(f"✅ ATF predictions cached to {_cache_path}")
@@ -1122,11 +1232,17 @@ if GENERATE_PLOTS:
         _per_src_errors = all_your_results[best_model][_best_M][_best_w].get('per_source_errors', {})
         _per_source_lsd = [_per_src_errors[i]['lsd'] for i in sorted(_per_src_errors.keys())] if _per_src_errors else None
 
+        # For ATF PDFs, overlay the first configured EEAE (if any) to avoid clutter.
+        atf_mag_est_eeae_for_plot = None
+        if eeae_atf_est_by_id:
+            _first_eeae_id = next(iter(eeae_atf_est_by_id.keys()))
+            atf_mag_est_eeae_for_plot = eeae_atf_est_by_id[_first_eeae_id]
+
         # Use the already computed best guidance scale
         plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config,
-                            freq_up_to, num_sources_eval, best_guidance=best_results['guidance'],
+                            eval_freq_up_to, num_sources_eval, best_guidance=best_results['guidance'],
                             output_dir=os.path.dirname(MULTI_MODEL_PATHS[-1]),
-                            atf_mag_est_eeae=eeae_atf_est,
+                            atf_mag_est_eeae=atf_mag_est_eeae_for_plot,
                             grid_xyz=all_model_grid_xyz,
                             per_source_lsd=_per_source_lsd)
     else:
