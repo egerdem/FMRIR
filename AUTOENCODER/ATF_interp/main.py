@@ -671,6 +671,8 @@ if __name__ == "__main__":
     config['num_freq'] = config['freq_up_to'] - config['freq_from']
     if args.num_mes_test is not None:
         config['num_mes_test'] = args.num_mes_test
+    if getattr(args, "data_dir", "") != "":
+        config["data_dir"] = args.data_dir
 
     if config["model"] in ["FSMPAE", "EEAE"]:
         net = models.ATFApproxNetwork(config)

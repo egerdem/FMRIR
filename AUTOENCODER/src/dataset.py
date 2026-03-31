@@ -20,7 +20,11 @@ class ATFdataset:
         
         for dataset_name in self.config["dataset"]:
             for src_id in self.config['src_index'][dataset_name]['all']:
-                path = os.path.join(_DATA_DIR, dataset_name, f"data_s{src_id+1:04d}.npz")
+                base_dir = self.config.get("data_dir")
+                if not base_dir:
+                    base_dir = _DATA_DIR
+                base_dir = os.path.expanduser(base_dir)
+                path = os.path.join(base_dir, dataset_name, f"data_s{src_id+1:04d}.npz")
                 data_np = np.load(path)
                 if src_id == 0:
                     src_position = th.zeros(data_np['posMic'].shape[0], data_np['posSrc'].shape[0], len(self.config['src_index'][dataset_name]['all'])) # M x 3 x S
