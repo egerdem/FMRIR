@@ -695,7 +695,8 @@ if __name__ == "__main__":
     print("=====================")
 
     if args.artifacts_directory == "":
-        config["artifacts_dir"] = "outputs/out" + datestamp + "_" + config["model"]
+        model_with_cfg = f"{config['model']}{args.idx_config}"
+        config["artifacts_dir"] = "outputs/out" + datestamp + "_" + model_with_cfg
     else:
         config["artifacts_dir"] = args.artifacts_directory
     print("artifacts_dir: " + config["artifacts_dir"])

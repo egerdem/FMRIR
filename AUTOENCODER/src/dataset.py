@@ -186,7 +186,8 @@ class ATFdataset:
             # FM cubes are [S,F,Z,Y,X]. AE expects [M,F,S].
             atf_mag_mode = cubes.permute(2, 3, 4, 1, 0).contiguous().view(num_mics, num_freq, num_src_mode)
             mic_position_mode = grid_xyz.unsqueeze(-1).repeat(1, 1, num_src_mode)  # [M, 3, S]
-            src_position_mode = source_coords.unsqueeze(0).repeat(num_mics, 1, 1)   # [M, 3, S]
+            # source_coords is [S, 3] -> convert to [M, 3, S] to match AE layout.
+            src_position_mode = source_coords.transpose(0, 1).unsqueeze(0).repeat(num_mics, 1, 1)
 
             sample_info = payload.get('sample_info', None)
             if sample_info is not None:
