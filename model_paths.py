@@ -109,7 +109,11 @@ MULTI_MODEL_PATHS = [
     # "/Users/ege/Projects/FMRIR/artifacts/KCL_Val102src10step_Mval5_r1_M5_10_20_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3_128to512v1_setv3_700k_20260316-001828_iter700000/model_604499_lsd2.3253.pt", #!!
     # "/Users/ege/Projects/FMRIR/artifacts/KCL_Val102_Mval5_r1_M5_10_20_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3_256to1024v1_setv3_400k_20260320-032649_iter400000/model.pt" # 2.14dB !!!
     # "/Volumes/T7/SFlow/FMRIR_experiments/KCL_SWEEP_Val102_Mval5_r1_M5_10_20_50_freq30_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3_128to512v1_setv3_400k_20260318-000221_iter400000/model.pt",
-    "/Volumes/T7/SFlow/FMRIR_experiments/KCL_UnetV2res_freq20_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260322-181523_iter400000/model.pt" # 1.87 dB
+    # "/Volumes/T7 Shield/SFlow/FMRIR_experiments/KCL_UnetV2res_freq20_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260322-181523_iter400000/model_.pt" # 1.87 dB
+    "/Volumes/T7 Shield/SFlow/FMRIR_experiments/KCL_UnetV2res_freq20_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260322-181523_iter400000/model_310499_lsd1.7873.pt"
+    # "/Volumes/T7 Shield/SFlow/FMRIR_experiments/KCL_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_600k_20260224-134534_iter600000/model.pt",
+
+    # "/Volumes/T7 Shield/SFlow/FMRIR_experiments/KCL_fctx_UnetV2res_freq30_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260322-214521_iter400000/model_213799_lsd3.1595.pt"
     # "/Users/ege/Projects/FMRIR/artifacts/KCL_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_600k_20260224-134534_iter600000/model_293399_0.13596.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/KCL_RNG_Val102src10step_Mval5_r1_M5_10_20_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3v1_setv3_400k_20260302-215410_iter400000/model_390999_lsd2.8485.pt",
     # "/Users/ege/Projects/FMRIR/artifacts/KCL_RNG_Val102src10step_Mval5_r1_M5_10_20_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_unet3v1_setv3_400k_20260302-215410_iter400000/model_102199_lsd3.0961.pt",

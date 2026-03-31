@@ -709,7 +709,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-guidance_scales = [1.0]
+guidance_scales = [2]
 M_values = [5]
 num_sources_eval = 102  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
@@ -717,7 +717,7 @@ random_M_sampling = False
 
 # Set to True to generate distribution and ATF comparison PDFs after the summary table.
 # Printing the table is always executed regardless of this flag.
-GENERATE_PLOTS = True
+GENERATE_PLOTS = False
 
 # Set to True  → coord normalisation applied (correct, matches training pipeline for new runs).
 # Set to False → no coord normalisation (legacy behaviour; needed to reproduce old Tokyo best 2.86 dB).
@@ -1083,14 +1083,41 @@ if GENERATE_PLOTS:
         set_encoder_best, unet_3d_best, ode_3d_best, config_best = all_your_predictions[best_model]
 
         # Get your model's ATF predictions for plotting (only for best guidance scale)
-        your_atf_predictions = get_your_model_atf_predictions(
-            set_encoder_best, ode_3d_best, config_best, device,
-            atf_mag_gt, ref_config, freq_up_to, num_sources_eval,
-            single_guidance=best_results['guidance'], random_M_sampling=random_M_sampling  # Only compute for best guidance scale
+        # Cache the full [1331, F, N_src] tensor next to the model so re-running
+        # evaluation skips the ~7-minute inference step.
+        _best_w    = best_results['guidance']
+        _atf_M     = ref_config['num_mes_test']          # M used inside get_your_model_atf_predictions (5)
+        _n_src     = num_sources_eval if num_sources_eval is not None else 102
+        _cache_path = os.path.join(
+            os.path.dirname(MULTI_MODEL_PATHS[-1]),
+            f"atf_pred_cache_w{_best_w}_M{_atf_M}_n{_n_src}.pt"
         )
 
+        if os.path.exists(_cache_path):
+            print(f"⚡ Loading cached ATF predictions from {_cache_path}")
+            _cache = torch.load(_cache_path, map_location='cpu')
+            your_atf_predictions = _cache['atf_predictions']
+            print(f"   Loaded predictions shape: {list(your_atf_predictions[_best_w].shape)}")
+        else:
+            print(f"🔄 No cache found — running ATF inference for {_n_src} sources...")
+            your_atf_predictions = get_your_model_atf_predictions(
+                set_encoder_best, ode_3d_best, config_best, device,
+                atf_mag_gt, ref_config, freq_up_to, num_sources_eval,
+                single_guidance=_best_w, random_M_sampling=random_M_sampling
+            )
+            # Save cache (move tensors to cpu first to keep it portable)
+            _cache_to_save = {
+                'atf_predictions': {w: t.cpu() for w, t in your_atf_predictions.items()},
+                'guidance': _best_w,
+                'M': _atf_M,
+                'num_sources_eval': _n_src,
+                'freq_up_to': freq_up_to,
+            }
+            torch.save(_cache_to_save, _cache_path)
+            print(f"✅ ATF predictions cached to {_cache_path}")
+
         # Build per_source_lsd list for representative source selection in PDF plots
-        _best_w = best_results['guidance']
+        # _best_w already set above in cache block
         _best_M = min(all_your_results[best_model].keys())  # use smallest M for consistency
         _per_src_errors = all_your_results[best_model][_best_M][_best_w].get('per_source_errors', {})
         _per_source_lsd = [_per_src_errors[i]['lsd'] for i in sorted(_per_src_errors.keys())] if _per_src_errors else None
