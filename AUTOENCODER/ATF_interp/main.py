@@ -716,6 +716,16 @@ if __name__ == "__main__":
         print("Train")
     print("=====================")
 
+    print("Dataset setup:")
+    print(f"  datasets: {config.get('dataset')}")
+    print(f"  data_dir: {config.get('data_dir', '(auto)')}")
+    print(f"  freq range: [{config.get('freq_from')}, {config.get('freq_up_to')})")
+    if "dataset_version" in config:
+        print(f"  dataset_version override: {config['dataset_version']}")
+    else:
+        print("  dataset_version override: (none; infer from dataset name)")
+    print("=====================")
+
     idataset = dataset.ATFdataset(config)
 
     traindataset_all = idataset.trainitem()
