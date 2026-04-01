@@ -37,6 +37,8 @@ def arg_parser():
     parser.add_argument("--freq_from", type=int, default=0, help="Lower freq bin index (inclusive). Default 0.")
     parser.add_argument("--freq_up_to", type=int, default=None, help="Upper freq bin index (exclusive). Default None = use config num_freq (all bins).")
     parser.add_argument("--num_mes_test", type=int, default=None, help="Number of input microphones at test time. Overrides config num_mes_test. Output filename will include _M{N}.")
+    parser.add_argument("--dataset_version", type=str, default="r1", choices=["r1", "r2", "r3", "r4"],
+                        help="Processed-dataset version override for .pt loading (r1/r2/r3/r4).")
     args = parser.parse_args()
     return args
 
@@ -673,6 +675,8 @@ if __name__ == "__main__":
         config['num_mes_test'] = args.num_mes_test
     if getattr(args, "data_dir", "") != "":
         config["data_dir"] = args.data_dir
+    if args.dataset_version is not None:
+        config["dataset_version"] = args.dataset_version
 
     if config["model"] in ["FSMPAE", "EEAE"]:
         net = models.ATFApproxNetwork(config)

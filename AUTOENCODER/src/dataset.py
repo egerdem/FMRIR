@@ -111,6 +111,9 @@ class ATFdataset:
         return None, None
 
     def _infer_dataset_version_from_name(self, dataset_name):
+        explicit = self.config.get("dataset_version")
+        if explicit in {"r1", "r2", "r3", "r4"}:
+            return explicit
         m = re.search(r'_s(\d+)_', dataset_name)
         if not m:
             return None
