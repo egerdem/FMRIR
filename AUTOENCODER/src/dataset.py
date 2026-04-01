@@ -191,14 +191,11 @@ class ATFdataset:
             # source_coords is [S, 3] -> convert to [M, 3, S] to match AE layout.
             src_position_mode = source_coords.transpose(0, 1).unsqueeze(0).repeat(num_mics, 1, 1)
             if mode == 'train' and ('mean' in payload) and ('std' in payload):
-                # Train file may be already normalized; these are raw-data stats from FM preprocessing.
+                # FM train cache is often stored normalized; restore raw dB domain for AE pipeline.
                 train_raw_mean = float(payload['mean'])
                 train_raw_std = float(payload['std'])
-                print(f"[{dataset_name}] Train raw mean: {train_raw_mean:.4f}, std: {train_raw_std:.4f}")
-            elif (mode != 'train') and (train_raw_mean is not None) and (train_raw_std is not None):
-                # Normalize raw valid/test cubes onto the same train normalization.
-                atf_mag_mode = (atf_mag_mode - train_raw_mean) / (train_raw_std + 1e-8)
-                print(f"[{dataset_name}] Normalized {mode} cubes onto train stats: mean={train_raw_mean:.4f}, std={train_raw_std:.4f}")
+                atf_mag_mode = atf_mag_mode * train_raw_std + train_raw_mean
+                print(f"[{dataset_name}] De-normalized train cubes using mean={train_raw_mean:.4f}, std={train_raw_std:.4f}")
 
             sample_info = payload.get('sample_info', None)
             if sample_info is not None:
