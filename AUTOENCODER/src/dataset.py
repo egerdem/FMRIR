@@ -162,6 +162,8 @@ class ATFdataset:
         src_position_full = None
         mic_position_full = None
         file_freq_from_reference = 0
+        train_raw_mean = None
+        train_raw_std = None
 
         for mode in required_modes:
             payload = th.load(mode_files[mode], map_location='cpu')
@@ -188,6 +190,15 @@ class ATFdataset:
             mic_position_mode = grid_xyz.unsqueeze(-1).repeat(1, 1, num_src_mode)  # [M, 3, S]
             # source_coords is [S, 3] -> convert to [M, 3, S] to match AE layout.
             src_position_mode = source_coords.transpose(0, 1).unsqueeze(0).repeat(num_mics, 1, 1)
+            if mode == 'train' and ('mean' in payload) and ('std' in payload):
+                # Train file may be already normalized; these are raw-data stats from FM preprocessing.
+                train_raw_mean = float(payload['mean'])
+                train_raw_std = float(payload['std'])
+                print(f"[{dataset_name}] Train raw mean: {train_raw_mean:.4f}, std: {train_raw_std:.4f}")
+            elif (mode != 'train') and (train_raw_mean is not None) and (train_raw_std is not None):
+                # Normalize raw valid/test cubes onto the same train normalization.
+                atf_mag_mode = (atf_mag_mode - train_raw_mean) / (train_raw_std + 1e-8)
+                print(f"[{dataset_name}] Normalized {mode} cubes onto train stats: mean={train_raw_mean:.4f}, std={train_raw_std:.4f}")
 
             sample_info = payload.get('sample_info', None)
             if sample_info is not None:
@@ -209,6 +220,7 @@ class ATFdataset:
                 parsed_from, _ = self._parse_freq_tag(mode_files[mode])
                 file_freq_from_reference = parsed_from if parsed_from is not None else 0
 
+            matched_count = 0
             for local_idx, src_id in enumerate(src_ids_mode):
                 if src_id not in id_to_pos:
                     continue
@@ -216,11 +228,15 @@ class ATFdataset:
                 atf_mag_full[:, :, target_idx] = atf_mag_mode[:, :, local_idx]
                 src_position_full[:, :, target_idx] = src_position_mode[:, :, local_idx]
                 mic_position_full[:, :, target_idx] = mic_position_mode[:, :, local_idx]
+                matched_count += 1
+            if matched_count != len(src_ids_mode):
+                print(f"[{dataset_name}] Warning: matched {matched_count}/{len(src_ids_mode)} sources for mode={mode} by source ID.")
 
         if atf_mag_full is None:
             return False
 
         atf_mag_full = self._apply_frequency_slice(atf_mag_full, file_freq_from=file_freq_from_reference)
+
         self._assign_dataset_splits(dataset_name, atf_mag_full, src_position_full, mic_position_full)
         return True
 
