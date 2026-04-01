@@ -45,7 +45,15 @@ def arg_parser():
 def train(trainer, ptins=None):
     BEST_LOSS = 1e+16
     LAST_SAVED = -1
+    best_epoch = None
+    best_elapsed_seconds = None
+    total_epoch_seconds = 0.0
+    training_start_time = time.time()
+
+    def _format_duration(seconds):
+        return time.strftime('%H:%M:%S', time.gmtime(max(0, int(seconds))))
     for epoch in range(start_ep+1, start_ep+config["epochs"]+1):
+        epoch_start_time = time.time()
         trainer.net.cuda()
         trainer.net.train()
 
@@ -80,16 +88,30 @@ def train(trainer, ptins=None):
         if loss_valid["loss"] < BEST_LOSS:
             BEST_LOSS = loss_valid["loss"]
             LAST_SAVED = epoch
-            print("Best Loss. Saving model!")
+            best_epoch = epoch
+            best_elapsed_seconds = time.time() - training_start_time
+            print(f"Best Loss. Saving model! (elapsed: {_format_duration(best_elapsed_seconds)})")
             trainer.save(suffix="best")
         elif config["save_frequency"] > 0 and epoch % config["save_frequency"] == 0 and not epoch == config["epochs"]:
             print("Saving model!")
             trainer.save(suffix="log_"+f'{epoch:03}'+"ep")
         else:
             print("Not saving model! Last saved: {}".format(LAST_SAVED))
+        total_epoch_seconds += (time.time() - epoch_start_time)
         print("---------------------")
     # Save final model
     trainer.save(suffix="final_"+f'{epoch:03}'+"ep")
+
+    total_training_seconds = time.time() - training_start_time
+    num_epochs_done = max(0, config["epochs"])
+    avg_epoch_seconds = total_epoch_seconds / num_epochs_done if num_epochs_done > 0 else 0.0
+
+    print("\n=== TRAINING TIME SUMMARY ===")
+    print(f"Total training time: {_format_duration(total_training_seconds)}")
+    print(f"Average time per epoch: {_format_duration(avg_epoch_seconds)}")
+    if best_epoch is not None:
+        print(f"Time to best epoch ({best_epoch}): {_format_duration(best_elapsed_seconds)}")
+    print("=============================\n")
 
 def test(net, flg_save, best_loss, data, mode, use_coeff=False, coeff=None, use_cuda=True):
     device = 'cuda' if (use_cuda and th.cuda.is_available()) else 'cpu'

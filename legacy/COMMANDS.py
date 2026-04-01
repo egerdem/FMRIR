@@ -315,3 +315,8 @@ scp -r cloud-iov:~/EGE/FMRIR_experiments/KCL_Mval5_r1_M5_50_freq20_layer3_d512_e
 
 
 
+
+scp ~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_test_freqs30_r1.pt eerdem@136.187.33.229:~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200
+
+scp ~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_test_freqs30_r1.pt k24037994@hpc.create.kcl.ac.uk:~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200
+
