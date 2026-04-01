@@ -1,4 +1,3 @@
-import glob
 import os
 import re
 
@@ -111,42 +110,46 @@ class ATFdataset:
             return 0, int(tag)
         return None, None
 
-    def _select_processed_file(self, dataset_dir, mode):
-        pattern = os.path.join(dataset_dir, f'processed_atf3d_{mode}_freqs*.pt')
-        candidates = sorted(glob.glob(pattern))
-        if not candidates:
+    def _infer_dataset_version_from_name(self, dataset_name):
+        m = re.search(r'_s(\d+)_', dataset_name)
+        if not m:
             return None
+        nsrc = int(m.group(1))
+        mapping = {1024: 'r1', 2048: 'r2', 4096: 'r3', 8192: 'r4'}
+        return mapping.get(nsrc, None)
 
+    def _select_processed_file(self, dataset_name, dataset_dir, mode):
         req_from = int(self.config.get('freq_from', 0))
         req_up_to = self.config.get('freq_up_to', None)
-        req_up_to = int(req_up_to) if req_up_to is not None else None
+        if req_up_to is None:
+            raise ValueError(
+                "PT loader requires explicit freq_up_to in config to build deterministic processed filename."
+            )
 
-        def score(path):
-            f_from, f_to = self._parse_freq_tag(path)
-            exact = 0
-            covers = 0
-            span = 10**9
+        req_up_to = int(req_up_to)
+        freq_tag = f"{req_from}to{req_up_to}" if req_from != 0 else f"{req_up_to}"
+        dataset_version = self._infer_dataset_version_from_name(dataset_name)
 
-            if f_from is not None and f_to is not None:
-                span = f_to - f_from
-                if req_up_to is not None:
-                    if (f_from == req_from) and (f_to == req_up_to):
-                        exact = 1
-                    if (req_from >= f_from) and (req_up_to <= f_to):
-                        covers = 1
-                else:
-                    if f_from == req_from:
-                        covers = 1
-            return (exact, covers, -span)
+        # Strict deterministic lookup (no fallback).
+        candidates = []
+        if dataset_version is not None:
+            candidates.append(os.path.join(dataset_dir, f"processed_atf3d_{mode}_freqs{freq_tag}_{dataset_version}.pt"))
+        candidates.append(os.path.join(dataset_dir, f"processed_atf3d_{mode}_freqs{freq_tag}.pt"))
 
-        candidates = sorted(candidates, key=score, reverse=True)
-        return candidates[0]
+        for p in candidates:
+            if os.path.exists(p):
+                return p
+
+        raise FileNotFoundError(
+            f"Missing processed file for mode={mode}, freq_tag={freq_tag}. "
+            f"Tried: {candidates}"
+        )
 
     def _load_dataset_from_processed_pt(self, dataset_name, dataset_dir):
         required_modes = ['train', 'valid', 'test']
         mode_files = {}
         for mode in required_modes:
-            selected = self._select_processed_file(dataset_dir, mode)
+            selected = self._select_processed_file(dataset_name, dataset_dir, mode)
             if selected is None:
                 return False
             mode_files[mode] = selected
@@ -161,7 +164,6 @@ class ATFdataset:
         atf_mag_full = None
         src_position_full = None
         mic_position_full = None
-        file_freq_from_reference = 0
         train_raw_mean = None
         train_raw_std = None
 
@@ -190,6 +192,29 @@ class ATFdataset:
             mic_position_mode = grid_xyz.unsqueeze(-1).repeat(1, 1, num_src_mode)  # [M, 3, S]
             # source_coords is [S, 3] -> convert to [M, 3, S] to match AE layout.
             src_position_mode = source_coords.transpose(0, 1).unsqueeze(0).repeat(num_mics, 1, 1)
+
+            # Slice each file to requested [freq_from, freq_up_to) in absolute bin indices.
+            req_from = int(self.config.get('freq_from', 0))
+            req_up_to = self.config.get('freq_up_to', None)
+            file_from, file_to = self._parse_freq_tag(mode_files[mode])
+            if file_from is None or file_to is None:
+                file_from, file_to = 0, atf_mag_mode.shape[1]
+
+            if req_up_to is None:
+                local_from = max(0, req_from - file_from)
+                local_to = atf_mag_mode.shape[1]
+            else:
+                req_up_to = int(req_up_to)
+                if not (req_from >= file_from and req_up_to <= file_to):
+                    print(
+                        f"[{dataset_name}] Requested freq range [{req_from}, {req_up_to}) "
+                        f"is not covered by {mode_files[mode]} with range [{file_from}, {file_to})."
+                    )
+                    return False
+                local_from = req_from - file_from
+                local_to = req_up_to - file_from
+
+            atf_mag_mode = atf_mag_mode[:, local_from:local_to, :]
             if mode == 'train' and ('mean' in payload) and ('std' in payload):
                 # FM train cache is often stored normalized; restore raw dB domain for AE pipeline.
                 train_raw_mean = float(payload['mean'])
@@ -211,11 +236,16 @@ class ATFdataset:
 
             if atf_mag_full is None:
                 num_all = len(all_ids)
-                atf_mag_full = th.zeros((num_mics, num_freq, num_all), dtype=th.float32)
+                selected_freq_bins = atf_mag_mode.shape[1]
+                atf_mag_full = th.zeros((num_mics, selected_freq_bins, num_all), dtype=th.float32)
                 src_position_full = th.zeros((num_mics, 3, num_all), dtype=th.float32)
                 mic_position_full = th.zeros((num_mics, 3, num_all), dtype=th.float32)
-                parsed_from, _ = self._parse_freq_tag(mode_files[mode])
-                file_freq_from_reference = parsed_from if parsed_from is not None else 0
+            elif atf_mag_mode.shape[1] != atf_mag_full.shape[1]:
+                print(
+                    f"[{dataset_name}] Inconsistent freq bins across processed files: "
+                    f"expected {atf_mag_full.shape[1]}, got {atf_mag_mode.shape[1]} in {mode_files[mode]}."
+                )
+                return False
 
             matched_count = 0
             for local_idx, src_id in enumerate(src_ids_mode):
@@ -231,8 +261,6 @@ class ATFdataset:
 
         if atf_mag_full is None:
             return False
-
-        atf_mag_full = self._apply_frequency_slice(atf_mag_full, file_freq_from=file_freq_from_reference)
 
         self._assign_dataset_splits(dataset_name, atf_mag_full, src_position_full, mic_position_full)
         return True
