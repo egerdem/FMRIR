@@ -90,6 +90,7 @@ def main(args):
                   "num_encoder_layers": args.num_encoder_layers, "freq_up_to": args.freq_up_to, "freq_from": args.freq_from,
                   "architecture_version": args.version, "setencoder_version": args.setencoder_version,
                   "FM_vs_Diff": args.FM_vs_Diff,
+                  "init_kernel_size": args.init_kernel_size,
                   "coord_dim": 9 if args.geo_conditioning else 3,
                   "num_ff_coord": args.num_ff_coord,
                   "freq_channel_bias": args.freq_channel_bias,
@@ -321,18 +322,21 @@ if __name__ == '__main__':
     parser.add_argument('--resume_from_checkpoint', type=str, help='Path to a checkpoint to resume from.')
 
     # --- WandB ---
-    parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument('--wandb_key', type=str, default="ec2cf1718868be26a8055412b556d952681ee0b6")
 
     # --- Data ---
     parser.add_argument('--data_dir', type=str, default="ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
-    parser.add_argument('--model_name', default="BIG_8192R4_ZZZATF-3D-CrossAttn-UNet", type=str)
+    parser.add_argument('--model_name', default="forPT_f40", type=str)
     parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128])
     parser.add_argument('--d_model', type=int, default=512, help='Dimension for tokens and context.')
     parser.add_argument('--nhead', type=int, default=8, help='Number of attention heads.')
     parser.add_argument('--num_encoder_layers', type=int, default=3, help='Layers in the SetEncoder.')
+    parser.add_argument('--init_kernel_size', type=int, default=3,
+                        help='Initial input Conv3d kernel size for UNet (v1/v2/v3). '
+                             'Default 3 keeps current behavior exactly; set e.g. 6 to test larger receptive field.')
     parser.add_argument('--num_ff_coord', type=int, default=0,
                         help='Fourier Feature Mapping for coordinates. 0=disabled (raw coords, legacy). '
                              '>0: coords mapped to 2*num_ff_coord dims via sin/cos before positional MLP. '
@@ -365,7 +369,7 @@ if __name__ == '__main__':
     parser.add_argument('--M_val_fixed', type=int, default= None)
     parser.add_argument('--save_start_iter', type=int, default=0,
                         help='Skip saving model checkpoints until this iteration. Avoids frequent saves early in training.')
-    parser.add_argument('--freq_up_to', type=int, default=20, help='Upper freq bin (exclusive upper bound of subband)')
+    parser.add_argument('--freq_up_to', type=int, default=40, help='Upper freq bin (exclusive upper bound of subband)')
     parser.add_argument('--freq_from', type=int, default=0, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)

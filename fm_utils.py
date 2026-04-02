@@ -234,6 +234,7 @@ def model_factory(config, device):
 
     # --- Instantiate models based on version ---
     freq_ctx = model_cfg.get('freq_ctx', False)
+    init_kernel_size = model_cfg.get('init_kernel_size', 3)
 
     if setversion == "v3":
         print("--- Creating set encoder v3 ---")
@@ -272,6 +273,7 @@ def model_factory(config, device):
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
+            init_kernel_size=init_kernel_size,
             freq_channel_bias=freq_channel_bias,
             freq_film=freq_film,
             freq_ctx=freq_ctx
@@ -286,6 +288,7 @@ def model_factory(config, device):
             channels=model_cfg['channels'],
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
+            init_kernel_size=init_kernel_size,
             freq_channel_bias=freq_channel_bias,
             freq_film=freq_film,
             freq_ctx=freq_ctx
@@ -310,6 +313,7 @@ def model_factory(config, device):
             d_model=model_cfg['d_model'],
             nhead=model_cfg['nhead'],
             input_size=11,  # Assuming your cube dimension is 11
+            init_kernel_size=init_kernel_size,
             freq_channel_bias=freq_channel_bias,
             freq_film=freq_film,
             freq_ctx=freq_ctx
@@ -2683,10 +2687,11 @@ class ConvBlock3D(nn.Module):
 # Second version with dynamic parametric channel unet
 class CrossAttentionUNet3D(nn.Module):
     def __init__(self, in_channels=64, out_channels=64, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11,
-                 freq_channel_bias=False, freq_film=False, freq_ctx=False):
+                 init_kernel_size=3, freq_channel_bias=False, freq_film=False, freq_ctx=False):
         super().__init__()
         # Ensure channel dimensions are divisible by the number of attention heads
         assert all(c % nhead == 0 for c in channels), "Channel dimensions must be divisible by nhead"
+        assert init_kernel_size >= 1, "init_kernel_size must be >= 1"
 
         # Optional learnable per-frequency channel bias added before init_conv.
         # Acts like a positional encoding over the frequency axis, telling the network
@@ -2743,7 +2748,13 @@ class CrossAttentionUNet3D(nn.Module):
         # --- DYNAMICALLY BUILD THE U-NET ---
 
         # Initial convolution
-        self.init_conv = ConvBlock3D(in_channels, channels[0])
+        init_groups = 8 if channels[0] % 8 == 0 else (4 if channels[0] % 4 == 0 else (2 if channels[0] % 2 == 0 else 1))
+        init_padding = 1 if init_kernel_size == 3 else 'same'
+        self.init_conv = nn.Sequential(
+            nn.Conv3d(in_channels, channels[0], kernel_size=init_kernel_size, padding=init_padding),
+            nn.GroupNorm(num_groups=init_groups, num_channels=channels[0]),
+            nn.SiLU()
+        )
 
         # --- Encoder Path ---
         self.encoders = nn.ModuleList()
@@ -2840,9 +2851,10 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
       Decoder level k:  upsample + skip-concat → channels[idx-1]  (mirrors encoder)
     """
     def __init__(self, channels, d_model, nhead, in_channels=20, out_channels=20, input_size=11,
-                 freq_channel_bias=False, freq_film=False, freq_ctx=False):
+                 init_kernel_size=3, freq_channel_bias=False, freq_film=False, freq_ctx=False):
         super().__init__()
         assert len(channels) >= 3, "channels must have at least 3 values (2 encoder levels + bottleneck peak)"
+        assert init_kernel_size >= 1, "init_kernel_size must be >= 1"
 
         # Optional learnable per-frequency channel bias (see CrossAttentionUNet3D for rationale)
         if freq_channel_bias:
@@ -2890,7 +2902,8 @@ class CrossAttentionUNet3D_RED3d(nn.Module):
         self.n_downs = n_downs
 
         # --- Initial conv: in_channels → channels[0] ---
-        self.init_conv = nn.Conv3d(in_channels, channels[0], kernel_size=3, padding=1)
+        init_padding = 1 if init_kernel_size == 3 else 'same'
+        self.init_conv = nn.Conv3d(in_channels, channels[0], kernel_size=init_kernel_size, padding=init_padding)
 
         # --- Encoder: n_downs levels, each with ResBlock + CrossAttn + MaxPool ---
         # Level 0:  channels[0] → channels[0]  (no channel expansion at first level)
@@ -3033,8 +3046,9 @@ class CrossAttentionUNet3D_v3(nn.Module):
     """
 
     def __init__(self, in_channels=20, out_channels=20, channels=[32, 64, 128], d_model=256, nhead=4, input_size=11,
-                 freq_channel_bias=False, freq_film=False, freq_ctx=False):
+                 init_kernel_size=3, freq_channel_bias=False, freq_film=False, freq_ctx=False):
         super().__init__()
+        assert init_kernel_size >= 1, "init_kernel_size must be >= 1"
 
         # Optional learnable per-frequency channel bias (see CrossAttentionUNet3D for rationale)
         if freq_channel_bias:
@@ -3074,7 +3088,8 @@ class CrossAttentionUNet3D_v3(nn.Module):
         self.crop_end = pad_front + input_size
 
         # --- ENCODER PATH ---
-        self.init_conv = nn.Conv3d(in_channels, channels[0], kernel_size=3, padding=1)
+        init_padding = 1 if init_kernel_size == 3 else 'same'
+        self.init_conv = nn.Conv3d(in_channels, channels[0], kernel_size=init_kernel_size, padding=init_padding)
 
         self.enc1_res_attn = ResidualAttentionBlock3D(channels[0], channels[0], d_model, d_model, nhead)
         self.enc1_cross_attn = CrossAttentionBlock3D(channels[0], d_model, nhead)
