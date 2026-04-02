@@ -322,7 +322,7 @@ if __name__ == '__main__':
     parser.add_argument('--resume_from_checkpoint', type=str, help='Path to a checkpoint to resume from.')
 
     # --- WandB ---
-    parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument('--wandb', action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument('--wandb_key', type=str, default="ec2cf1718868be26a8055412b556d952681ee0b6")
 
     # --- Data ---
