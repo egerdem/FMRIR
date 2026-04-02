@@ -289,7 +289,7 @@ scp -r /Users/ege/Projects/FMRIR/idx_mes_pos_s8192_m1331.npy k24037994@hpc.creat
 
 
 # LOCALDEN CLOUD-iov'a
-scp -r /Users/ege/Projects/FMRIR/idx_mes_pos_s8192_m1331.npy cloud-iov:~/EGE/FMRIR
+scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_train_freqs40_r1.pt cloud-iov:~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200
 
 #ROSSINI'den locale
 #
@@ -297,6 +297,8 @@ scp -r /Users/ege/Projects/FMRIR/idx_mes_pos_s8192_m1331.npy cloud-iov:~/EGE/FMR
 
 scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/VV_r1_ICASSP_M5_50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv12_500k_20250917-060509_iter500000 /Users/ege/Projects/FMRIR/artifacts
 
+# rossini2ye cloud-iov üzerinden ulaşıp locale
+scp -J cloud-iov -r nii-rossini2:~/EGE/FMRIR_experiments/KCL_fctx_UnetV2res_freq20_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260331-090815_iter400000 "/Volumes/T7 Shield/SFlow"
 #BELLİNİ'den locale
 scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/VV_oldval_r1_ICASSP_M5_50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv12_500k_20250917-051138_iter500000 /Users/ege/Projects/FMRIR/artifacts
 
@@ -304,19 +306,17 @@ scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/VV_oldval_r1_ICASSP_M5_5
 
 scp -r k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments/KCL_fctx_UnetV2res_freq30_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260322-214521_iter400000 "/Volumes/T7 Shield/SFlow"
                                                                                                                                                                                                                # /Volumes/T7/SFlow)
-rsync -avz --progress \
-  k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments/ \
-  /Volumes/T7/SFlow/FMRIR_experiments/
+rsync -avz --progress k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR/outputs  "/Volumes/T7 Shield/SFlow/AE_OUTPUTS"
 
 scp -r k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments/KCL_UnetV2res_freq64_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260331-005541_iter400000 "/Volumes/T7 Shield/SFlow"
 #clouddan lokale
 
-scp -r cloud-iov:~/EGE/FMRIR_experiments/KCL_Mval5_r1_M5_50_freq20_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay300_unet4v1_setv3_600k_20260224-134534_iter600000 "/Volumes/T7 Shield/SFlow/FMRIR_Experiments"
+scp -r cloud-iov:~/EGE/FMRIR_experiments/KCL_fctx_UnetV2res_freq40_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260401-215722_iter400000 "/Volumes/T7 Shield/SFlow/FMRIR_Experiments"
 
 
 
 
 scp ~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_test_freqs30_r1.pt eerdem@136.187.33.229:~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200
 
-scp ~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_test_freqs30_r1.pt k24037994@hpc.create.kcl.ac.uk:~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200
+scp ~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_test_freqs64_r1.pt k24037994@hpc.create.kcl.ac.uk:~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200
 

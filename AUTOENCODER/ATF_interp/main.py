@@ -39,6 +39,10 @@ def arg_parser():
     parser.add_argument("--num_mes_test", type=int, default=None, help="Number of input microphones at test time. Overrides config num_mes_test. Output filename will include _M{N}.")
     parser.add_argument("--dataset_version", type=str, default="r1", choices=["r1", "r2", "r3", "r4"],
                         help="Processed-dataset version override for .pt loading (r1/r2/r3/r4).")
+    parser.add_argument("--use_npz", action="store_true",
+                        help="Force loading from per-source .npz files (disable processed .pt loading).")
+    parser.add_argument("--use_processed_pt", action="store_true",
+                        help="Force loading from processed .pt files (default behavior).")
     args = parser.parse_args()
     return args
 
@@ -90,7 +94,9 @@ def train(trainer, ptins=None):
             LAST_SAVED = epoch
             best_epoch = epoch
             best_elapsed_seconds = time.time() - training_start_time
-            print(f"Best Loss. Saving model! (elapsed: {_format_duration(best_elapsed_seconds)})")
+            print(
+                f"Best Loss. Saving model! Last saved: {LAST_SAVED} (elapsed: {_format_duration(best_elapsed_seconds)}) "
+            )
             trainer.save(suffix="best")
         elif config["save_frequency"] > 0 and epoch % config["save_frequency"] == 0 and not epoch == config["epochs"]:
             print("Saving model!")
@@ -699,6 +705,16 @@ if __name__ == "__main__":
         config["data_dir"] = args.data_dir
     if args.dataset_version is not None:
         config["dataset_version"] = args.dataset_version
+    # Data loader backend selection (dataset.py supports use_processed_pt already)
+    if args.use_npz and args.use_processed_pt:
+        raise ValueError("Use only one of --use_npz or --use_processed_pt.")
+    if args.use_npz:
+        config["use_processed_pt"] = False
+    elif args.use_processed_pt:
+        config["use_processed_pt"] = True
+    else:
+        # Default to existing behavior if not explicitly overridden.
+        config["use_processed_pt"] = config.get("use_processed_pt", True)
 
     if config["model"] in ["FSMPAE", "EEAE"]:
         net = models.ATFApproxNetwork(config)
@@ -742,6 +758,7 @@ if __name__ == "__main__":
     print(f"  datasets: {config.get('dataset')}")
     print(f"  data_dir: {config.get('data_dir', '(auto)')}")
     print(f"  freq range: [{config.get('freq_from')}, {config.get('freq_up_to')})")
+    print(f"  data source backend: {'processed .pt' if config.get('use_processed_pt', True) else 'per-source .npz'}")
     if "dataset_version" in config:
         print(f"  dataset_version override: {config['dataset_version']}")
     else:

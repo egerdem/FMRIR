@@ -27,7 +27,10 @@ class ATFdataset:
             base_dir = os.path.expanduser(base_dir)
             dataset_dir = os.path.join(base_dir, dataset_name)
 
-            loaded_from_pt = self._load_dataset_from_processed_pt(dataset_name, dataset_dir)
+            use_processed_pt = self.config.get("use_processed_pt", True)
+            loaded_from_pt = False
+            if use_processed_pt:
+                loaded_from_pt = self._load_dataset_from_processed_pt(dataset_name, dataset_dir)
             if not loaded_from_pt:
                 self._load_dataset_from_npz(dataset_name, dataset_dir)
 
@@ -125,8 +128,13 @@ class ATFdataset:
         req_from = int(self.config.get('freq_from', 0))
         req_up_to = self.config.get('freq_up_to', None)
         if req_up_to is None:
+            # Backward compatibility: older AE configs only define num_freq.
+            num_freq = self.config.get('num_freq', None)
+            if num_freq is not None:
+                req_up_to = req_from + int(num_freq)
+        if req_up_to is None:
             raise ValueError(
-                "PT loader requires explicit freq_up_to in config to build deterministic processed filename."
+                "PT loader requires freq_up_to (or num_freq) in config to build deterministic processed filename."
             )
 
         req_up_to = int(req_up_to)
