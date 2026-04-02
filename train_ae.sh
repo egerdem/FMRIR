@@ -5,6 +5,7 @@
 #SBATCH --mem=16G
 #SBATCH --time=0-10:00
 #SBATCH --gres=gpu:1
+#SBATCH --constraint=l40s|h100|a100_80g|a100
 #SBATCH --output=/scratch/users/%u/%j.out
 #SBATCH --error=/scratch/users/%u/%j.err
 
