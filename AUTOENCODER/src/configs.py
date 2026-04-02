@@ -3867,7 +3867,7 @@ config_EEAE_999 = {
         "M_mes_norm": 100,
         "model": 'EEAE',
         "learning_rate": 1e-3,
-        "epochs": 2,
+        "epochs": 3,
         "lr_update": 'step',
         "lr_milestones": [800, 1200],
         "lr_gamma": 0.1,
