@@ -13,12 +13,13 @@ source ~/fmvenv/bin/activate
 cd ~/FMRIR
 
 MODEL=EEAE
-CFG=10001
+CFG=10003
 RUN_DIR="outputs/out$(date +%Y%m%d)_${MODEL}${CFG}"
 mkdir -p "$RUN_DIR"
 
 python -u AUTOENCODER/ATF_interp/main.py \
     -m "$MODEL" \
     -c "$CFG" \
+    --use_npz \
     -a "$RUN_DIR" \
     > "$RUN_DIR/log_c${CFG}_j${SLURM_JOB_ID}.txt" 2>&1
