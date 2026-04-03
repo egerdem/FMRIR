@@ -22,6 +22,6 @@ python -u AUTOENCODER/ATF_interp/main.py \
     -c "$CFG" \
     --use_npz \
     --dataset_version r1 \
-    -d ~/EGE/DATA \
+    -d /scratch/users/k24037994/EGE/DATA \
     -a "$RUN_DIR" \
     > "$RUN_DIR/log_c${CFG}_j${SLURM_JOB_ID}.txt" 2>&1
