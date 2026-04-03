@@ -306,7 +306,7 @@ scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/VV_oldval_r1_ICASSP_M5_5
 
 scp -r k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments/KCL_fctx_UnetV2res_freq30_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260322-214521_iter400000 "/Volumes/T7 Shield/SFlow"
                                                                                                                                                                                                                # /Volumes/T7/SFlow)
-rsync -avz --progress k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR/outputs  "/Volumes/T7 Shield/SFlow/AE_OUTPUTS"
+rsync -avz --progress k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments "/Volumes/T7 Shield/SFlow/FMRIR_Experiments"
 
 scp -r k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR_experiments/KCL_UnetV2res_freq64_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260331-005541_iter400000 "/Volumes/T7 Shield/SFlow"
 #clouddan lokale
