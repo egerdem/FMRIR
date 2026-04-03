@@ -5,7 +5,7 @@
 #SBATCH --mem=16G
 #SBATCH --time=0-15:00
 #SBATCH --gres=gpu:1
-#SBATCH --constraint=l40s|h100|a100_80g|a100
+#SBATCH --constraint=l40s|h100|a100_80g
 #SBATCH --output=/scratch/users/%u/%j.out
 #SBATCH --error=/scratch/users/%u/%j.err
 
@@ -13,7 +13,7 @@ source ~/fmvenv/bin/activate
 cd ~/FMRIR
 
 MODEL=EEAE
-CFG=10002
+CFG=10005
 RUN_DIR="outputs/out$(date +%Y%m%d)_${MODEL}${CFG}"
 mkdir -p "$RUN_DIR"
 
