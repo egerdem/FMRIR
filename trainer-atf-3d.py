@@ -372,7 +372,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_start_iter', type=int, default=0,
                         help='Skip saving model checkpoints until this iteration. Avoids frequent saves early in training.')
     parser.add_argument('--freq_up_to', type=int, default=64, help='Upper freq bin (exclusive upper bound of subband)')
-    parser.add_argument('--freq_from', type=int, default=30, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
+    parser.add_argument('--freq_from', type=int, default=0, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard',
