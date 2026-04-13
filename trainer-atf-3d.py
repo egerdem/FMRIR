@@ -288,6 +288,8 @@ def main(args):
         geo_conditioning=args.geo_conditioning,
         room_dims=room_dims,
         sweep_M=args.sweep_M,
+        time_weight_towards_end=args.time_weight_towards_end,
+        time_weight_mean=args.time_weight_mean,
     )
 
     training_cfg['warmup_iterations'] = args.warmup_iterations
@@ -326,7 +328,7 @@ if __name__ == '__main__':
     parser.add_argument('--wandb_key', type=str, default="ec2cf1718868be26a8055412b556d952681ee0b6")
 
     # --- Data ---
-    parser.add_argument('--data_dir', type=str, default="ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/")
+    parser.add_argument('--data_dir', type=str, default="/Volumes/T7 Shield/SFlow/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/")
 
     # --- Model ---
     parser.add_argument('--model_name', default="forPT_f40", type=str)
@@ -369,8 +371,8 @@ if __name__ == '__main__':
     parser.add_argument('--M_val_fixed', type=int, default= None)
     parser.add_argument('--save_start_iter', type=int, default=0,
                         help='Skip saving model checkpoints until this iteration. Avoids frequent saves early in training.')
-    parser.add_argument('--freq_up_to', type=int, default=40, help='Upper freq bin (exclusive upper bound of subband)')
-    parser.add_argument('--freq_from', type=int, default=0, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
+    parser.add_argument('--freq_up_to', type=int, default=64, help='Upper freq bin (exclusive upper bound of subband)')
+    parser.add_argument('--freq_from', type=int, default=30, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
     parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard',
@@ -387,6 +389,10 @@ if __name__ == '__main__':
     parser.add_argument('--sweep_M', action='store_true', default=False,
                         help='If set, loop over all M values in M_range per step and average losses '
                              '(AE-style training). Default: one random M per step.')
+    parser.add_argument('--time_weight_towards_end', action='store_true', default=False,
+                        help='If set, sample timesteps from logit-normal distribution biased towards t=1 (data end).')
+    parser.add_argument('--time_weight_mean', type=float, default=1.2,
+                        help='Mean of the logit-normal distribution for timestep sampling (default=1.2, E[t]≈0.77).')
     parser.add_argument('--geo_conditioning', action='store_true', default=False,
                         help='If set, augment the set encoder coordinate input from 3D (relative only) '
                              'to 7D: [rel_pos(3), abs_src_pos(3), d_to_nearest_wall(1)]. '

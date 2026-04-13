@@ -1875,7 +1875,8 @@ class CFGTrainer(Trainer):
 class ATF3DTrainer(Trainer):
     def __init__(self, path, model, set_encoder, eta, M_range, M_val_fixed, sigma, grid_xyz, loss_type: str, FM_vs_Diff: str,
                  version: bool, setencoderversion: str,
-                 coord_mean: torch.Tensor, coord_std: torch.Tensor, idx_mes_pos_path=None, **kwargs):
+                 coord_mean: torch.Tensor, coord_std: torch.Tensor, idx_mes_pos_path=None,
+                 time_weight_towards_end: bool = False, time_weight_mean: float = 1.2, **kwargs):
         super().__init__(models={'unet': model, 'set_encoder': set_encoder})
 
         # Load deterministic mic permutation matrix for validation
@@ -1892,6 +1893,8 @@ class ATF3DTrainer(Trainer):
         self.M_range = [int(x) for x in M_range]  # preserve full list (e.g. [5,10,20,50])
         self.M_val_fixed = M_val_fixed
         self.sigma = sigma
+        self.time_weight_towards_end = time_weight_towards_end
+        self.time_weight_mean = time_weight_mean
         self.dev = next(model.parameters()).device  # cached once — avoids repeated parameter walks
         self.grid_xyz = grid_xyz.to(self.dev)  # (1331, 3)
         self.geo_conditioning = kwargs.get('geo_conditioning', False)
@@ -1930,6 +1933,13 @@ class ATF3DTrainer(Trainer):
 
         # A learnable embedding for the unconditional (null) case
         # d_model = set_encoder.d_model
+
+    def _sample_timesteps(self, batch_size, device):
+        if self.time_weight_towards_end:
+            alpha = torch.randn(batch_size, device=device) * 2.0 + self.time_weight_mean
+            return torch.sigmoid(alpha).view(-1, 1, 1, 1, 1)
+        else:
+            return torch.rand(batch_size, device=device).view(-1, 1, 1, 1, 1)
 
     def make_observation_set(self, z_full, src_xyz, sample_indices=None, deterministic=False):
         B, C, D, H, W = z_full.shape
@@ -2109,7 +2119,7 @@ class ATF3DTrainer(Trainer):
         # sweep_M: loop over every M in M_range, average losses (AE-style)
         # t/x0/xt/ut_ref are shared; only the observation set varies per M
         if self.sweep_M:
-            t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
+            t = self._sample_timesteps(batch_size, x1.device)
             x0 = torch.randn_like(x1)
             xt = (1 - (1 - self.sigma) * t) * x0 + t * x1
             ut_ref = x1 - (1 - self.sigma) * x0
@@ -2158,7 +2168,7 @@ class ATF3DTrainer(Trainer):
         if _do_time: torch.cuda.synchronize(); _t2 = time.time()
 
         # 4. Define the Flow Matching path from noise to data
-        t = torch.rand(batch_size, device=x1.device).view(-1, 1, 1, 1, 1)
+        t = self._sample_timesteps(batch_size, x1.device)
         x0 = torch.randn_like(x1)
 
         # xt = (1 - t) * x0 + t * x1

@@ -320,3 +320,4 @@ scp ~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_test_
 
 scp ~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/processed_atf3d_test_freqs64_r1.pt k24037994@hpc.create.kcl.ac.uk:~/EGE/DATA/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200
 
+rsync -avz --progress k24037994@hpc.create.kcl.ac.uk:~/EGE/FMRIR/outputs "/Volumes/T7 Shield/SFlow/AE_OUTPUTS/outputs"

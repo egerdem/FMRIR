@@ -35,7 +35,8 @@ np.random.seed(SEED)
 def load_reference_model(device):
     """Load FSMPAE predictions + PT ground truth with explicit mic-order alignment."""
     config = config_FSMPAE_10026.copy()
-    config["use_processed_pt"] = True
+    config["use_processed_pt"] = False
+    config["data_dir"] = "/Volumes/T7 Shield/SFlow"
 
     # Load model predictions
     pt_dir = 'AUTOENCODER/outputs/out_20250323_FSMPAE_10026'
@@ -845,14 +846,14 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 guidance_scales = [1]
-M_values = [10,20,50]
+M_values = [5]
 num_sources_eval = 102  # Set to None to evaluate all 102 sources, or e.g. 30 for faster testing
 
 random_M_sampling = False
 
 # Set to True to generate distribution and ATF comparison PDFs after the summary table.
 # Printing the table is always executed regardless of this flag.
-GENERATE_PLOTS = False
+GENERATE_PLOTS = True
 
 # Set to True  → coord normalisation applied (correct, matches training pipeline for new runs).
 # Set to False → no coord normalisation (legacy behaviour; needed to reproduce old Tokyo best 2.86 dB).
@@ -916,7 +917,8 @@ def get_model_name(model_path):
 
 def find_eeae_prediction_path(eeae_config_id: int) -> str:
     """Find EEAE prediction .pt path for a given config id (e.g., 10001)."""
-    pattern = f"RESULTS/out_*_EEAE_{eeae_config_id}/atf_mag/atf_mag_test_*.pt"
+    # pattern = f"RESULTS/out_*_EEAE_{eeae_config_id}/atf_mag/atf_mag_test_*.pt"
+    pattern = f"/Volumes/T7 Shield/SFlow/AE_OUTPUTS/outputs/out*_EEAE{eeae_config_id}/atf_mag/atf_mag_test_*.pt"
     matches = sorted(glob.glob(pattern))
     if not matches:
         raise FileNotFoundError(
