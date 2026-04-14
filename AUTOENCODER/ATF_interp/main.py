@@ -589,6 +589,7 @@ def testKRR(config, data, mode="test", flg_save=True, use_cuda=True):
 
     lsd_loss = utils.LSD()
     lsd_mean = 0
+    per_source_lsd = []
 
     num_src = sum([len(config['src_index'][dataset_name][mode]) for dataset_name in config['dataset']])
     src_list = np.arange(0, num_src)
@@ -650,6 +651,7 @@ def testKRR(config, data, mode="test", flg_save=True, use_cuda=True):
         lsd_loss_mean = lsd_loss(prediction['atf_mag'], th.squeeze(data_slice['atf_mag']), dim=1, data_type='atf_mag', mean=True) # M,F
         print(f'Src: {index+1}/{num_src}, LSD: {lsd_loss_mean.item():.8f}')
         lsd_mean += lsd_loss_mean.item()
+        per_source_lsd.append(lsd_loss_mean.item())
 
         for data_type in config["data_type_interp"]:
             if not data_type in prediction_all:
@@ -672,7 +674,27 @@ def testKRR(config, data, mode="test", flg_save=True, use_cuda=True):
                     th.save(prediction_all[data_type][dataset_name], f'{pt_dir}/{data_type}_{mode}_{dataset_name}.pt')
 
     lsd_mean /= num_src
+    lsd_std = float(np.std(np.array(per_source_lsd, dtype=np.float64))) if per_source_lsd else float('nan')
     print(f"LSD mean: {lsd_mean}")
+    print(f"LSD std: {lsd_std}")
+    print(f"LSD mean ± std: {lsd_mean:.4f} ± {lsd_std:.4f}")
+
+    # Save a compact metrics log so KRR runs have numeric outputs in artifacts_dir.
+    metrics_path = os.path.join(config["artifacts_dir"], f"krr_metrics_{mode}.txt")
+    with open(metrics_path, "w") as f:
+        f.write(f"mode: {mode}\n")
+        f.write(f"num_sources: {num_src}\n")
+        f.write(f"num_freq: {num_freq}\n")
+        f.write(f"freq_from: {config.get('freq_from', 0)}\n")
+        f.write(f"freq_up_to: {config.get('freq_up_to', config.get('num_freq'))}\n")
+        f.write(f"num_mes_test: {config.get('num_mes_test')}\n")
+        f.write(f"lsd_mean: {lsd_mean:.10f}\n")
+        f.write(f"lsd_std: {lsd_std:.10f}\n")
+        f.write(f"lsd_mean_pm_std: {lsd_mean:.6f} +- {lsd_std:.6f}\n")
+        f.write("per_source_lsd:\n")
+        for idx, val in enumerate(per_source_lsd, start=1):
+            f.write(f"{idx},{val:.10f}\n")
+    print(f"KRR metrics saved: {metrics_path}")
 
     return returns
 
