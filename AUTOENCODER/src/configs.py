@@ -3562,7 +3562,7 @@ config_KRR_10007 = {
         "init_delay": False,
         "dataset": ['ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200'],
         "src_index": {
-            'ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200': {
+            'ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200': {
                 'train': range(0, 820),
                 'valid': range(820, 922),
                 'test': range(922, 1024),
