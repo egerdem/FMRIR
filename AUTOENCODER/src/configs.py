@@ -3449,6 +3449,58 @@ config_KRR_10004 = {
         "timestamp": "",
     }
 
+config_KRR_1000499 = {
+        "fs": 2000,#16000,
+        "c": 343,
+        "num_freq": 64, #512, #1024, #256, #
+        "init_delay": False,
+        "dataset": ['ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200'],
+        "src_index": {
+            'ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200': {
+                'train': range(0, 820),
+                'valid': range(820, 922),
+                'test': range(922, 1024),
+                'all': range(0, 1024)
+            }
+        },
+        "idx_mes_pos_mat_path": 'idx_mes_pos_s1024_m1331.npy',
+        "num_mes_list": list(reversed([5])),
+        "num_mes_test": 5,
+        "model": 'KRR',
+        "learning_rate": 1e-3,
+        "epochs": 1000,#1400,
+        "lr_update": 'step',
+        "lr_milestones": [800, 1200],
+        "lr_gamma": 0.1,
+        "batch_size": 1, #16,
+        "loss_weights": {
+            "lsd": 1.0,
+            "mse": 1e2,
+            "helmholtz": 1e4
+        },
+        "save_frequency": 500,
+        "dim_data_pinn": {
+            'src_position': 3,
+            'mic_position': 3,
+            'frequency': 1
+        },
+        "data_type_interp": ['atf_mag'],
+        "data_type_pinn": ['src_position', 'mic_position', 'frequency'],
+        # Fourier feature mapping
+        "data_type_ffm": ['src_position', 'mic_position', 'frequency'],
+        "num_ff": {
+            'src_position': 16,
+            'mic_position': 16,
+            'frequency': 8
+        },
+        "ffm_trainable": True,
+        "droprate": 0.0,
+        "newbob_decay": 0.5,
+        "newbob_max_decay": 1e-06,
+        "num_gpus": 1,
+        "timestamp": "",
+    }
+
 config_KRR_10005 = {
         "fs": 2000,#16000,
         "c": 343,
