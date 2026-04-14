@@ -1101,7 +1101,7 @@ if __name__ == '__main__':
     model_path = MODEL_LOAD_PATH
     GENERATE_SF_PLOTS = False
     GENERATE_SF_PLOTS_V2 = True
-    GENERATE_ATF_PLOTS = False  # Set to True to generate ATF comparison plots
+    GENERATE_ATF_PLOTS = True  # Set to True to generate ATF comparison plots
 
 
     print("Starting paper figures generation...")
@@ -1109,7 +1109,7 @@ if __name__ == '__main__':
     # 1. Generate sound field figures
     if GENERATE_SF_PLOTS:
 
-        freq_idx_to_plot = [15,15,15]  # Frequency bin indices
+        freq_idx_to_plot = [15,20]  # Frequency bin indices
         z_slice_idx = 5  # Z-slice index
         guidance_scale = 1  # Guidance scale
         # Range for number of microphones
