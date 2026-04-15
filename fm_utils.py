@@ -1056,6 +1056,7 @@ class Trainer(ABC):
         # --- Timing Tracking ---
         training_start_time = time.time()
         best_val_loss_time = None
+        _total_val_time = 0.0  # accumulated validation wall-clock time (excluded from per-epoch estimate)
 
         # Unified resume logic: load from an explicit checkpoint path/state if provided
         # checkpoint = None
@@ -1147,6 +1148,19 @@ class Trainer(ABC):
         dataset_size = len(self.path.p_data)
         experiment_dir = os.path.dirname(save_path)
         _config_path = os.path.join(experiment_dir, 'config.json')
+        _log_path = os.path.join(experiment_dir, 'log.txt')
+
+        def format_time(seconds):
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            secs = seconds % 60
+            if hours > 0:
+                return f"{hours}h {minutes}m {secs:.1f}s"
+            elif minutes > 0:
+                return f"{minutes}m {secs:.1f}s"
+            else:
+                return f"{secs:.1f}s"
+
         for model in self.models.values():
             model.train()
 
@@ -1174,6 +1188,7 @@ class Trainer(ABC):
 
             # **NEW: Validation loop**
             if valid_sampler and (iteration + 1) % validation_interval == 0:
+                _val_start = time.time()
                 for model in self.models.values():
                     model.eval()
 
@@ -1195,7 +1210,9 @@ class Trainer(ABC):
                             f'Loss: {loss.item():.5f}, Val MSE: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
                 pbar.set_description(val_desc)
                 if (iteration + 1) % 1000 == 0:
-                    print(val_desc, flush=True)
+                    _elapsed = time.time() - training_start_time
+                    _its = (iteration + 1) / _elapsed if _elapsed > 0 else 0
+                    print(f"{val_desc} | elapsed: {format_time(_elapsed)}, avg: {_its:.2f} iter/s", flush=True)
 
                 # Always update FM-MSE tracker (reference only)
                 best_val_loss = min(best_val_loss, val_loss.item())
@@ -1204,8 +1221,13 @@ class Trainer(ABC):
                 if val_lsd < best_val_lsd:
                     best_val_lsd = val_lsd
                     best_val_loss_time = time.time()
-                    print(
-                        f"** [Iter {iteration}] New best LSD: {best_val_lsd:.4f} dB Saving model. **")
+                    _elapsed = best_val_loss_time - training_start_time
+                    _best_msg = (f"** [Iter {iteration} | Epoch {current_epoch:.1f}] "
+                                 f"New best LSD: {best_val_lsd:.4f} dB | "
+                                 f"Elapsed: {format_time(_elapsed)} **")
+                    print(_best_msg)
+                    with open(_log_path, 'a') as _lf:
+                        _lf.write(_best_msg + '\n')
                         # f"(FM-MSE: {val_loss.item():.5f}, train loss: {loss.item():.5f}). ")
 
                     y_null_to_save = None
@@ -1242,6 +1264,7 @@ class Trainer(ABC):
                 # Re-enable training mode after validation
                 for model in self.models.values():
                     model.train()
+                _total_val_time += time.time() - _val_start
 
                 # Early stopping tracks LSD
                 if early_stopper.step(val_lsd):
@@ -1310,21 +1333,10 @@ class Trainer(ABC):
         else:
             time_to_best_val_loss = total_training_time
 
-        # Calculate time per epoch
+        # Calculate time per epoch — subtract validation time so we measure pure training speed
         total_epochs = (iteration + 1) * batch_size / dataset_size
-        time_per_epoch = total_training_time / total_epochs if total_epochs > 0 else 0
-
-        # Convert seconds to hours, minutes, seconds for better readability
-        def format_time(seconds):
-            hours = int(seconds // 3600)
-            minutes = int((seconds % 3600) // 60)
-            secs = seconds % 60
-            if hours > 0:
-                return f"{hours}h {minutes}m {secs:.1f}s"
-            elif minutes > 0:
-                return f"{minutes}m {secs:.1f}s"
-            else:
-                return f"{secs:.1f}s"
+        pure_train_time = total_training_time - _total_val_time
+        time_per_epoch = pure_train_time / total_epochs if total_epochs > 0 else 0
 
         # Rename model.pt -> model_{iter}_lsd{lsd:.4f}.pt now that training is done
         if os.path.exists(save_path) and best_val_lsd < float("inf"):
@@ -1335,12 +1347,21 @@ class Trainer(ABC):
                 json.dump(config, _f, indent=4)
             print(f"Best model saved as: {os.path.basename(named_path)}")
 
-        print(f"--- Training finished. Best LSD: {best_val_lsd:.4f} dB | Best FM-MSE: {best_val_loss:.5f} | at iteration {best_iteration}. ---")
-        print(f"--- TIMING SUMMARY ---")
-        print(f"Total training time: {format_time(total_training_time)}")
-        print(f"Time to reach best LSD: {format_time(time_to_best_val_loss)}")
-        print(f"Time per epoch: {format_time(time_per_epoch)}")
-        print(f"Total epochs completed: {total_epochs:.2f}")
+        summary_lines = [
+            f"--- Training finished. Best LSD: {best_val_lsd:.4f} dB | Best FM-MSE: {best_val_loss:.5f} | at iteration {best_iteration}. ---",
+            f"--- TIMING SUMMARY ---",
+            f"Total wall-clock time:       {format_time(total_training_time)}",
+            f"  of which validation:       {format_time(_total_val_time)}",
+            f"  pure training time:        {format_time(pure_train_time)}",
+            f"Time to reach best LSD:      {format_time(time_to_best_val_loss)}",
+            f"Avg time per epoch (train):  {format_time(time_per_epoch)}",
+            f"Total epochs completed:      {total_epochs:.2f}",
+            f"--- END TIMING SUMMARY ---",
+        ]
+        for line in summary_lines:
+            print(line)
+        with open(_log_path, 'a') as _lf:
+            _lf.write('\n'.join(summary_lines) + '\n')
         print("--- END TIMING SUMMARY ---")
 
         return best_val_lsd
