@@ -16,6 +16,52 @@ import json
 from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR, ConstantLR, _LRScheduler
 
 
+class DDPMScheduler:
+    """Cosine-schedule DDPM scheduler (Nichol & Dhariwal, 2021)."""
+    def __init__(self, num_timesteps=1000):
+        self.num_timesteps = num_timesteps
+        steps = num_timesteps + 1
+        x = torch.linspace(0, num_timesteps, steps, dtype=torch.float32)
+        s = 0.008
+        alphas_cumprod = torch.cos(((x / num_timesteps) + s) / (1 + s) * math.pi * 0.5) ** 2
+        alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
+        betas = torch.clip(1 - (alphas_cumprod[1:] / alphas_cumprod[:-1]), 0, 0.999)
+        alphas = 1.0 - betas
+        self.alphas_cumprod = torch.cumprod(alphas, dim=0)
+        self.sqrt_alphas_cumprod = torch.sqrt(self.alphas_cumprod)
+        self.sqrt_one_minus_alphas_cumprod = torch.sqrt(1.0 - self.alphas_cumprod)
+
+    def add_noise(self, original_samples, noise, timesteps):
+        sqrt_alpha_t = self.sqrt_alphas_cumprod.to(original_samples.device)[timesteps].view(-1, 1, 1, 1, 1)
+        sqrt_one_minus_alpha_t = self.sqrt_one_minus_alphas_cumprod.to(original_samples.device)[timesteps].view(-1, 1, 1, 1, 1)
+        return sqrt_alpha_t * original_samples + sqrt_one_minus_alpha_t * noise
+
+    def ddim_sample(self, model_fn, x_T, n_steps=20, **model_kwargs):
+        """Deterministic DDIM reverse process from x_T → x_0.
+        model_fn: callable(xt, t_continuous, **model_kwargs) → predicted noise
+        n_steps: number of DDIM steps (20 is enough for monitoring)
+        """
+        dev = x_T.device
+        # Evenly-spaced timestep indices from T-1 down to 0
+        step_indices = torch.linspace(self.num_timesteps - 1, 0, n_steps, dtype=torch.long)
+        xt = x_T
+        for i, t_idx in enumerate(step_indices):
+            t_idx = t_idx.item()
+            t_next_idx = step_indices[i + 1].item() if i + 1 < n_steps else -1
+
+            alpha_bar_t = self.alphas_cumprod[int(t_idx)].to(dev)
+            alpha_bar_prev = self.alphas_cumprod[int(t_next_idx)].to(dev) if t_next_idx >= 0 else torch.tensor(1.0, device=dev)
+
+            B = xt.shape[0]
+            t_cont = torch.full((B,), t_idx / self.num_timesteps, device=dev).view(-1, 1, 1, 1, 1)
+            eps_theta = model_fn(xt, t_cont, **model_kwargs)
+
+            # DDIM update: x_{t-1} = sqrt(alpha_prev) * pred_x0 + sqrt(1-alpha_prev) * eps_theta
+            pred_x0 = (xt - (1 - alpha_bar_t).sqrt() * eps_theta) / alpha_bar_t.sqrt()
+            xt = alpha_bar_prev.sqrt() * pred_x0 + (1 - alpha_bar_prev).sqrt() * eps_theta
+        return xt  # x_0 prediction
+
+
 class FourierFeatureMapping(nn.Module):
     """
     Random Fourier Feature Mapping for coordinates.
@@ -2256,7 +2302,7 @@ class ATF3DTrainer(Trainer):
 
         x1 = z_full  # Clean data
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(z_full, src_xyz)
+        obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(z_full, src_xyz)
         y_tokens, pooled_context, freq_contexts = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
         # 1. Sample discrete timesteps for DDPM
@@ -2301,51 +2347,58 @@ class ATF3DTrainer(Trainer):
             return self.get_train_loss_flow_matching(**kwargs)
 
     @torch.no_grad()
-    @torch.no_grad()
     def get_val_loss_ddpm(self, valid_sampler: Sampleable, **kwargs) -> torch.Tensor:
         batch_size = kwargs.get('batch_size')
-        z_full, src_xyz, indices = valid_sampler.sample(batch_size)
-
         dev = self.dev
-        z_full, src_xyz = z_full.to(dev), src_xyz.to(dev)
+        n_val = len(valid_sampler.cubes)
+        mean_db = valid_sampler.mean.to(dev)
+        std_db  = valid_sampler.std.to(dev)
 
-        x1 = z_full
+        all_mse, all_lsd = [], []
 
-        # Get absolute source IDs for deterministic mic selection
-        abs_src_ids = valid_sampler.sample_info[indices].flatten()
+        for start in range(0, n_val, batch_size):
+            end = min(start + batch_size, n_val)
+            idx = torch.arange(start, end)
+            B = idx.shape[0]
 
-        obs_coords_rel, obs_values, obs_mask = self.make_observation_set(
-            z_full, src_xyz, 
-            sample_indices=abs_src_ids, 
-            deterministic = self.perm_matrix is not None
-        )
-        y_tokens, pooled_context, freq_contexts = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
+            z_full   = valid_sampler.cubes[idx].to(dev)
+            src_xyz  = valid_sampler.source_coords[idx].to(dev)
+            abs_src_ids = valid_sampler.sample_info[idx].flatten()
+            x1 = z_full
 
-        timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (batch_size,), device=dev).long()
-        noise_target = torch.randn_like(x1)
-        xt = self.ddpm_scheduler.add_noise(original_samples=x1, noise=noise_target, timesteps=timesteps)
-        xt = xt.float()
+            obs_coords_rel, obs_values, obs_mask = self.make_observation_set_fast(
+                z_full, src_xyz,
+                sample_indices=abs_src_ids,
+                deterministic=self.perm_matrix is not None
+            )
+            y_tokens, pooled_context, freq_contexts = self.set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-        model_kwargs = {'context': y_tokens, 'context_mask': obs_mask, 'pooled_context': pooled_context,
-                        'freq_contexts': freq_contexts}
+            model_kwargs = {'context': y_tokens, 'context_mask': obs_mask,
+                            'pooled_context': pooled_context, 'freq_contexts': freq_contexts}
 
-        continuous_time = timesteps.float() / self.ddpm_scheduler.num_timesteps
-        continuous_time = continuous_time.view(-1, 1, 1, 1, 1)
+            # ── 1. DDPM MSE (single forward pass at random t) ────────────────
+            torch.manual_seed(start)
+            timesteps = torch.randint(0, self.ddpm_scheduler.num_timesteps, (B,), device=dev).long()
+            noise_target = torch.randn_like(x1)
+            xt = self.ddpm_scheduler.add_noise(x1, noise_target, timesteps).float()
+            t_cont = (timesteps.float() / self.ddpm_scheduler.num_timesteps).view(-1, 1, 1, 1, 1)
+            predicted_noise = self.model(xt, t_cont, **model_kwargs)
+            batch_mse = torch.mean(torch.square(predicted_noise - noise_target))
+            all_mse.append(batch_mse)
 
-        predicted_noise = self.model(xt, continuous_time, **model_kwargs)
+            # ── 2. Full DDIM rollout → LSD ───────────────────────────────────
+            torch.manual_seed(start)
+            x_T = torch.randn_like(x1)
+            x0_hat = self.ddpm_scheduler.ddim_sample(self.model, x_T, n_steps=20, **model_kwargs)
 
-        loss = torch.mean(torch.square(predicted_noise - noise_target))
+            x0_hat_db = x0_hat * std_db + mean_db
+            x1_db     = x1     * std_db + mean_db
+            lsd = torch.sqrt(torch.mean((x0_hat_db - x1_db) ** 2, dim=1)).mean()
+            all_lsd.append(lsd)
 
-        # LSD monitor: denormalize x1 vs a rough x0-prediction, freq_dim=1 ([B,F,D,H,W])
-        mean, std = valid_sampler.mean.to(dev), valid_sampler.std.to(dev)
-        x1_db = x1 * std + mean
-        # Predict x0 from noise prediction at a representative alpha_bar (midpoint t=0.5)
-        alpha_bar = self.ddpm_scheduler.alphas_cumprod[499].to(dev)
-        pred_x0 = (xt - (1 - alpha_bar).sqrt() * predicted_noise) / alpha_bar.sqrt()
-        pred_x0_db = pred_x0 * std + mean
-        lsd = torch.sqrt(torch.mean((pred_x0_db - x1_db) ** 2, dim=1)).mean()
-
-        return loss, lsd
+        mean_mse = torch.stack(all_mse).mean()
+        mean_lsd = torch.stack(all_lsd).mean()
+        return mean_mse, mean_lsd
 
     @torch.no_grad()
     def get_val_loss_flow_matching(self, valid_sampler: Sampleable, **kwargs) -> Tuple[torch.Tensor, torch.Tensor]:

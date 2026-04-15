@@ -368,12 +368,12 @@ if __name__ == '__main__':
     parser.add_argument('--min_lr', type=float, default=1e-7,
                         help="The minimum learning rate at the end of the cosine decay.")
     parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
-    parser.add_argument('--M_val_fixed', type=int, default= None)
+    parser.add_argument('--M_val_fixed', type=int, default= 5)
     parser.add_argument('--save_start_iter', type=int, default=0,
                         help='Skip saving model checkpoints until this iteration. Avoids frequent saves early in training.')
-    parser.add_argument('--freq_up_to', type=int, default=64, help='Upper freq bin (exclusive upper bound of subband)')
+    parser.add_argument('--freq_up_to', type=int, default=20, help='Upper freq bin (exclusive upper bound of subband)')
     parser.add_argument('--freq_from', type=int, default=0, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
-    parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
+    parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard',
                         choices=['standard', 'weighted', 'freq_weighted'],
@@ -381,10 +381,10 @@ if __name__ == '__main__':
     parser.add_argument('--freq_weight_max', type=float, default=3.0,
                         help='For --loss_type freq_weighted: weight applied to the highest freq bin '
                              '(bin 0 always has weight 1.0). Default 3.0.')
-    parser.add_argument('--idx_mes_pos_path', type=str, default= None,
+    parser.add_argument('--idx_mes_pos_path', type=str, default= "idx_mes_pos_s8192_m1331.npy",
                         help='Path to the deterministic mic permutation matrix for validation.')
 
-    parser.add_argument('--FM_vs_Diff', type=str, default='flow_matching', choices=['flow_matching', 'score_matching'])
+    parser.add_argument('--FM_vs_Diff', type=str, default='score_matching', choices=['flow_matching', 'score_matching'])
     parser.add_argument('--checkpoint_interval', type=int, default=3)
     parser.add_argument('--sweep_M', action='store_true', default=False,
                         help='If set, loop over all M values in M_range per step and average losses '
@@ -393,13 +393,13 @@ if __name__ == '__main__':
                         help='If set, sample timesteps from logit-normal distribution biased towards t=1 (data end).')
     parser.add_argument('--time_weight_mean', type=float, default=1.2,
                         help='Mean of the logit-normal distribution for timestep sampling (default=1.2, E[t]≈0.77).')
-    parser.add_argument('--geo_conditioning', action='store_true', default=False,
+    parser.add_argument('--geo_conditioning', action='store_true', default=True,
                         help='If set, augment the set encoder coordinate input from 3D (relative only) '
                              'to 7D: [rel_pos(3), abs_src_pos(3), d_to_nearest_wall(1)]. '
                              'Requires room dims to be encoded in --data_dir path.')
     parser.add_argument('--validation_interval', type=int, default=20)
-    parser.add_argument('--version', type=str, default="v3_attention",
-                        help='Model architecture version, options: v1_legacy, v2_residual_context')
+    parser.add_argument('--version', type=str, default="v2_residual_context",
+                        help='Model architecture version, options: v1_legacy, v2_residual_context, v3_attention')
     parser.add_argument('--setencoder_version', type=str, default="v3",
                         help='setencoder architecture version, e.g. v12:merged feature, v3:pos embed')
 
