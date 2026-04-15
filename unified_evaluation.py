@@ -8,6 +8,8 @@ from tqdm import tqdm
 import argparse as _ap
 _parser = _ap.ArgumentParser(add_help=False)
 _parser.add_argument('--model_path', type=str, default=None)
+_parser.add_argument('--no_fsmpae', action='store_true', default=False)
+_parser.add_argument('--eeae', type=int, nargs='*', default=None)
 _cli_args, _ = _parser.parse_known_args()
 
 import os
@@ -884,6 +886,11 @@ EVAL_FREQ_UP_TO = None
 # Example: EEAE_COMPARISONS = [10001, 10002, 10003]
 EEAE_COMPARISONS = []
 
+# CLI overrides (applied after constant defaults above)
+if _cli_args.eeae is not None:
+    EEAE_COMPARISONS = _cli_args.eeae
+RUN_FSMPAE = not _cli_args.no_fsmpae
+RUN_FSMPAE = False
 
 def get_dataset_version_from_data_dir(data_dir: str) -> str:
     """Parse dataset version from the data_dir path stored in config.
@@ -1121,8 +1128,12 @@ if not REFERENCE_ONLY:
         all_model_paths[model_name] = model_path
 
 # Load reference methods and decide eval_freq_up_to
-print("\n2. Loading reference AUTOENCODER model...")
-atf_mag_est, atf_mag_gt, ref_config, ref_data, fsmpae_model_freq_up_to, ref_inv_perm_pt_to_ae = load_reference_model(device)
+if RUN_FSMPAE:
+    print("\n2. Loading reference AUTOENCODER model...")
+    atf_mag_est, atf_mag_gt, ref_config, ref_data, fsmpae_model_freq_up_to, ref_inv_perm_pt_to_ae = load_reference_model(device)
+else:
+    print("\n2. Skipping FSMPAE reference model (--no_fsmpae).")
+    atf_mag_est = atf_mag_gt = ref_config = ref_data = fsmpae_model_freq_up_to = ref_inv_perm_pt_to_ae = None
 
 eeae_atf_est_by_id = {}
 eeae_model_freq_up_to_by_id = {}
@@ -1141,7 +1152,9 @@ if EEAE_COMPARISONS:
 else:
     print("\n2b. EEAE comparisons disabled (EEAE_COMPARISONS is empty).")
 
-all_freq_candidates = list(sflow_model_freq_up_to.values()) + [fsmpae_model_freq_up_to]
+all_freq_candidates = list(sflow_model_freq_up_to.values())
+if RUN_FSMPAE and fsmpae_model_freq_up_to is not None:
+    all_freq_candidates.append(fsmpae_model_freq_up_to)
 all_freq_candidates.extend(list(eeae_model_freq_up_to_by_id.values()))
 if EVAL_FREQ_UP_TO is None:
     eval_freq_up_to = min(all_freq_candidates)
@@ -1179,10 +1192,14 @@ else:
         all_model_grid_xyz = _grid_xyz  # fixed 11^3 room grid
 
 print("\n4. Evaluating reference methods...")
-ref_results = evaluate_reference_model(
-    atf_mag_est, atf_mag_gt, ref_config, num_sources_eval,
-    eval_freq_up_to=eval_freq_up_to, reference_name="FSMPAE 10026"
-)
+ref_results = None
+if RUN_FSMPAE:
+    ref_results = evaluate_reference_model(
+        atf_mag_est, atf_mag_gt, ref_config, num_sources_eval,
+        eval_freq_up_to=eval_freq_up_to, reference_name="FSMPAE 10026"
+    )
+else:
+    print("  Skipping FSMPAE evaluation (--no_fsmpae).")
 eeae_results_by_id = {}
 for eeae_id, eeae_atf_est in eeae_atf_est_by_id.items():
     eeae_results_by_id[eeae_id] = evaluate_reference_model(
@@ -1194,26 +1211,31 @@ for eeae_id, eeae_atf_est in eeae_atf_est_by_id.items():
 print("\n" + "="*80)
 print("=== COMPARISON RESULTS ===")
 print("="*80)
-print(f"Evaluation freq range: 0-{eval_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz ({eval_freq_up_to} bins)")
-print(f"Reference freq range: 0-{ref_config['fs']//2} Hz ({ref_config['num_freq']} bins)")
-print(f"Sources evaluated: {ref_results['num_sources_eval']} (out of 102 total)")
+if ref_config is not None:
+    print(f"Evaluation freq range: 0-{eval_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz ({eval_freq_up_to} bins)")
+    print(f"Reference freq range: 0-{ref_config['fs']//2} Hz ({ref_config['num_freq']} bins)")
+else:
+    print(f"Evaluation: {eval_freq_up_to} bins")
+if ref_results is not None:
+    print(f"Sources evaluated: {ref_results['num_sources_eval']} (out of 102 total)")
 print()
 print("M_fundamental = 5 specific evaluation positions [0, 272, 665, 937, 1330] for PDFs")
 print("Full cube = All 1331 spatial positions")
-print(f"FAIR COMPARISON: All methods evaluated on first {eval_freq_up_to} bins (0-{eval_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
+if ref_config is not None:
+    print(f"FAIR COMPARISON: All methods evaluated on first {eval_freq_up_to} bins (0-{eval_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
 print("-"*190)
 print(f"{'Method':<45} | {'w':<4} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'NMSE Full (dB)':<14} | {'Freq Range':<15}")
 print("-"*190)
 
 # Reference model - USE MATCHED FREQUENCY RANGE for fair comparison
-ref_lsd_m_fund = ref_results['lsd_mean_m_fund']  # Now uses matched freq range
-ref_mse_m_fund = ref_results['mse_mean_m_fund']  # Now uses matched freq range
-# Use matched frequency range (first 20 bins) for fair comparison
-ref_lsd_full_fair = ref_results.get('lsd_mean_matched_freq', ref_results['lsd_mean'])
-ref_mse_full_fair = ref_results.get('mse_mean_matched_freq', ref_results['mse_mean'])
-ref_nmse_full_fair = ref_results.get('nmse_mean_matched_freq', ref_results['nmse_mean'])
-
-print(f"{'Reference FSMPAE 10026 (M=' + str(ref_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {eval_freq_up_to} bins':<15}")
+ref_lsd_full_fair = ref_mse_m_fund = ref_lsd_m_fund = ref_mse_full_fair = ref_nmse_full_fair = None
+if RUN_FSMPAE and ref_results is not None:
+    ref_lsd_m_fund = ref_results['lsd_mean_m_fund']
+    ref_mse_m_fund = ref_results['mse_mean_m_fund']
+    ref_lsd_full_fair = ref_results.get('lsd_mean_matched_freq', ref_results['lsd_mean'])
+    ref_mse_full_fair = ref_results.get('mse_mean_matched_freq', ref_results['mse_mean'])
+    ref_nmse_full_fair = ref_results.get('nmse_mean_matched_freq', ref_results['nmse_mean'])
+    print(f"{'Reference FSMPAE 10026 (M=' + str(ref_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {eval_freq_up_to} bins':<15}")
 
 for eeae_id, eeae_results in eeae_results_by_id.items():
     eeae_lsd_m_fund = eeae_results['lsd_mean_m_fund']
@@ -1279,10 +1301,11 @@ if all_your_results:
         print(f"   UNet3D: {best_model_info['unet']['total_params_str']} params")
     # print(f"   Improvement over Reference: {ref_results['mean'] - best_lsd:+.4f} dB")
     print("="*80)
-    print(f"Note: Ref models use M={ref_results['num_mics']} observation microphones")
-    print(f"      Reference uses source-specific microphone selection")
-    print(f"      Your models use SAME source-specific microphone selection")
-    print(f"      (Different M=5 microphones for each source, as per reference)")
+    if RUN_FSMPAE and ref_results is not None:
+        print(f"Note: Ref models use M={ref_results['num_mics']} observation microphones")
+        print(f"      Reference uses source-specific microphone selection")
+        print(f"      Your models use SAME source-specific microphone selection")
+        print(f"      (Different M=5 microphones for each source, as per reference)")
     print("="*80)
 
 # Build/load cache for best SFlow model ATF predictions regardless of plotting.
@@ -1291,10 +1314,10 @@ if all_your_results and best_model and best_model in all_your_predictions:
     print("\n5. Preparing cached ATF predictions for best SFlow model...")
     set_encoder_best, unet_3d_best, ode_3d_best, config_best = all_your_predictions[best_model]
     _best_w    = best_results['guidance']
-    _atf_M     = ref_config['num_mes_test']          # M used inside get_your_model_atf_predictions (5)
+    _atf_M     = ref_config['num_mes_test'] if ref_config is not None else 5
     _best_model_path = all_model_paths[best_model]
     _best_model_dir = os.path.dirname(_best_model_path)
-    _n_src     = num_sources_eval if num_sources_eval is not None else atf_mag_gt.shape[2]
+    _n_src     = num_sources_eval if num_sources_eval is not None else (atf_mag_gt.shape[2] if atf_mag_gt is not None else 102)
     _best_model_freq_up_to = sflow_model_freq_up_to[best_model]
     _cache_meta = _build_atf_cache_meta(
         model_path=_best_model_path,
@@ -1314,21 +1337,26 @@ if all_your_results and best_model and best_model in all_your_predictions:
         if _best_w in best_model_atf_predictions:
             print(f"   Loaded predictions shape: {list(best_model_atf_predictions[_best_w].shape)}")
     else:
-        print(f"🔄 No cache found — running ATF inference for {_n_src} sources...")
-        best_model_atf_predictions = get_your_model_atf_predictions(
-            set_encoder_best, ode_3d_best, config_best, device,
-            atf_mag_gt, ref_config, _best_model_freq_up_to, eval_freq_up_to, num_sources_eval,
-            single_guidance=_best_w, random_M_sampling=random_M_sampling, model_name=best_model
-        )
-        _save_atf_cache(_best_cache_path, _cache_meta, best_model_atf_predictions)
-        print(f"✅ ATF predictions cached to {_best_cache_path}")
+        if atf_mag_gt is not None and ref_config is not None:
+            print(f"🔄 No cache found — running ATF inference for {_n_src} sources...")
+            best_model_atf_predictions = get_your_model_atf_predictions(
+                set_encoder_best, ode_3d_best, config_best, device,
+                atf_mag_gt, ref_config, _best_model_freq_up_to, eval_freq_up_to, num_sources_eval,
+                single_guidance=_best_w, random_M_sampling=random_M_sampling, model_name=best_model
+            )
+            _save_atf_cache(_best_cache_path, _cache_meta, best_model_atf_predictions)
+            print(f"✅ ATF predictions cached to {_best_cache_path}")
+        else:
+            print("  Skipping ATF prediction cache (FSMPAE disabled, no reference GT).")
 
 if GENERATE_PLOTS and all_your_results:
     # Plot distributions for each model individually and create combined plot
-    ref_per_source = ref_results['per_source_errors']
-    source_indices = list(range(len(ref_per_source)))
-    ref_lsd = [ref_per_source[i]['lsd_matched'] for i in range(len(ref_per_source))]
-    ref_mse = [ref_per_source[i]['mse_matched'] for i in range(len(ref_per_source))]
+    ref_lsd = ref_mse = source_indices = None
+    if RUN_FSMPAE and ref_results is not None:
+        ref_per_source = ref_results['per_source_errors']
+        source_indices = list(range(len(ref_per_source)))
+        ref_lsd = [ref_per_source[i]['lsd_matched'] for i in range(len(ref_per_source))]
+        ref_mse = [ref_per_source[i]['mse_matched'] for i in range(len(ref_per_source))]
 
     # Prepare data for combined plot
     all_model_lsd = {}
@@ -1349,6 +1377,7 @@ if GENERATE_PLOTS and all_your_results:
             model_per_source = all_your_results[model_name][M_values[0]][model_best_guidance]['per_source_errors']
             model_lsd = [model_per_source[j]['lsd'] for j in range(len(model_per_source))]
             model_mse = [model_per_source[j]['mse'] for j in range(len(model_per_source))]
+            _src_indices = source_indices if source_indices is not None else list(range(len(model_lsd)))
 
             # Store for combined plot
             all_model_lsd[model_name] = {'values': model_lsd, 'guidance': model_best_guidance, 'color': colors[i]}
@@ -1366,10 +1395,11 @@ if GENERATE_PLOTS and all_your_results:
 
             # Individual LSD plot
             plt.figure(figsize=(12, 6))
-            ref_mean = np.mean(ref_lsd)
             model_mean = np.mean(model_lsd)
-            plt.plot(source_indices, ref_lsd, 'r-', label=f'Reference (mean: {ref_mean:.4f} dB)', alpha=0.7)
-            plt.plot(source_indices, model_lsd, 'b-', label=f'{model_name} w={model_best_guidance} (mean: {model_mean:.4f} dB)', alpha=0.7)
+            if ref_lsd is not None:
+                ref_mean = np.mean(ref_lsd)
+                plt.plot(_src_indices, ref_lsd, 'r-', label=f'Reference (mean: {ref_mean:.4f} dB)', alpha=0.7)
+            plt.plot(_src_indices, model_lsd, 'b-', label=f'{model_name} w={model_best_guidance} (mean: {model_mean:.4f} dB)', alpha=0.7)
             plt.xlabel('Source Index')
             plt.ylabel('LSD Error (dB)')
             plt.title(f'LSD Distribution - {model_name}')
@@ -1380,10 +1410,11 @@ if GENERATE_PLOTS and all_your_results:
 
             # Individual MSE plot
             plt.figure(figsize=(12, 6))
-            ref_mean_mse = np.mean(ref_mse)
             model_mean_mse = np.mean(model_mse)
-            plt.plot(source_indices, ref_mse, 'r-', label=f'Reference (mean: {ref_mean_mse:.4f})', alpha=0.7)
-            plt.plot(source_indices, model_mse, 'b-', label=f'{model_name} w={model_best_guidance} (mean: {model_mean_mse:.4f})', alpha=0.7)
+            if ref_mse is not None:
+                ref_mean_mse = np.mean(ref_mse)
+                plt.plot(_src_indices, ref_mse, 'r-', label=f'Reference (mean: {ref_mean_mse:.4f})', alpha=0.7)
+            plt.plot(_src_indices, model_mse, 'b-', label=f'{model_name} w={model_best_guidance} (mean: {model_mean_mse:.4f})', alpha=0.7)
             plt.xlabel('Source Index')
             plt.ylabel('MSE Error')
             plt.title(f'MSE Distribution - {model_name}')
@@ -1399,9 +1430,11 @@ if GENERATE_PLOTS and all_your_results:
     os.makedirs(parent_dir, exist_ok=True)
 
     # Combined LSD plot
+    _comb_src_indices = source_indices if source_indices is not None else list(range(len(next(iter(all_model_lsd.values()))['values'])))
     plt.figure(figsize=(14, 8))
-    ref_mean = np.mean(ref_lsd)
-    plt.plot(source_indices, ref_lsd, 'r-', label=f'FSMPAE (mean: {ref_mean:.4f} dB)', alpha=0.8, linewidth=2)
+    if ref_lsd is not None:
+        ref_mean = np.mean(ref_lsd)
+        plt.plot(_comb_src_indices, ref_lsd, 'r-', label=f'FSMPAE (mean: {ref_mean:.4f} dB)', alpha=0.8, linewidth=2)
     if eeae_results_by_id:
         eeae_colors = plt.cm.Set2(np.linspace(0, 1, len(eeae_results_by_id)))
         for cidx, (eeae_id, eeae_results) in enumerate(eeae_results_by_id.items()):
@@ -1421,7 +1454,7 @@ if GENERATE_PLOTS and all_your_results:
         model_mean = np.mean(data['values'])
         # Wrap long names: insert newline before parenthetical info
         wrapped = model_name.replace('_', '\n', 1) if len(model_name) > 30 else model_name
-        plt.plot(source_indices, data['values'], '-', color=data['color'],
+        plt.plot(_comb_src_indices, data['values'], '-', color=data['color'],
                 label=f'{wrapped}\nw={data["guidance"]} mean={model_mean:.4f} dB', alpha=0.7)
 
     plt.xlabel('Source Index')
@@ -1435,12 +1468,13 @@ if GENERATE_PLOTS and all_your_results:
 
     # Combined MSE plot
     plt.figure(figsize=(14, 8))
-    ref_mean_mse = np.mean(ref_mse)
-    plt.plot(source_indices, ref_mse, 'r-', label=f'Reference (mean: {ref_mean_mse:.4f})', alpha=0.8, linewidth=2)
+    if ref_mse is not None:
+        ref_mean_mse = np.mean(ref_mse)
+        plt.plot(_comb_src_indices, ref_mse, 'r-', label=f'Reference (mean: {ref_mean_mse:.4f})', alpha=0.8, linewidth=2)
 
     for model_name, data in all_model_mse.items():
         model_mean = np.mean(data['values'])
-        plt.plot(source_indices, data['values'], '-', color=data['color'],
+        plt.plot(_comb_src_indices, data['values'], '-', color=data['color'],
                 label=f'{model_name} w={data["guidance"]} (mean: {model_mean:.4f})', alpha=0.7)
 
     plt.xlabel('Source Index')
@@ -1477,12 +1511,15 @@ if GENERATE_PLOTS and all_your_results:
             atf_mag_est_eeae_for_plot = eeae_atf_est_by_id[_first_eeae_id]
 
         # Use the already computed best guidance scale
-        plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config,
-                            eval_freq_up_to, num_sources_eval, best_guidance=best_results['guidance'],
-                            output_dir=_best_model_dir,
-                            atf_mag_est_eeae=atf_mag_est_eeae_for_plot,
-                            grid_xyz=all_model_grid_xyz,
-                            per_source_lsd=_per_source_lsd)
+        if atf_mag_gt is not None and ref_config is not None:
+            plot_atf_comparisons(atf_mag_est, your_atf_predictions, atf_mag_gt, ref_config,
+                                eval_freq_up_to, num_sources_eval, best_guidance=best_results['guidance'],
+                                output_dir=_best_model_dir,
+                                atf_mag_est_eeae=atf_mag_est_eeae_for_plot,
+                                grid_xyz=all_model_grid_xyz,
+                                per_source_lsd=_per_source_lsd)
+        else:
+            print("  Skipping ATF comparison plots (FSMPAE disabled, no reference GT).")
     else:
         print("Could not find best model for plotting")
 
