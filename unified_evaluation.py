@@ -10,6 +10,7 @@ _parser = _ap.ArgumentParser(add_help=False)
 _parser.add_argument('--model_path', type=str, default=None)
 _parser.add_argument('--no_fsmpae', action='store_true', default=False)
 _parser.add_argument('--eeae', type=int, nargs='*', default=None)
+_parser.add_argument('--data_dir', type=str, default=None)
 _cli_args, _ = _parser.parse_known_args()
 
 import os
@@ -126,15 +127,16 @@ def load_reference_model(device):
 def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval=None,
                         guidance_scales=None, random_M_sampling=False, model_name=None,
                         normalize_coords=False, coord_mean=None, coord_std=None,
-                        eval_freq_up_to=None, model_path=None):
+                        eval_freq_up_to=None, model_path=None, data_dir=None):
     """
     Evaluate your 3D model.
-    
+
     Args:
         guidance_scales: List of guidance scale values to evaluate. If None, defaults to [1.0, 2.0].
     """
 
-    data_dir = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
+    if data_dir is None:
+        data_dir = "ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
     src_split = config['data']['src_splits']
     model_freq_up_to = config['model'].get('freq_up_to')
     freq_from  = config['model'].get('freq_from', 0)
@@ -1187,6 +1189,7 @@ else:
             coord_std=_coord_std if NORMALIZE_COORDS else None,
             eval_freq_up_to=eval_freq_up_to,
             model_path=model_path,
+            data_dir=_cli_args.data_dir,
         )
         all_your_results[model_name] = model_results
         all_model_grid_xyz = _grid_xyz  # fixed 11^3 room grid
