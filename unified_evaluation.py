@@ -5,11 +5,21 @@ import json
 import glob
 import hashlib
 from tqdm import tqdm
+import argparse as _ap
+_parser = _ap.ArgumentParser(add_help=False)
+_parser.add_argument('--model_path', type=str, default=None)
+_cli_args, _ = _parser.parse_known_args()
+
 import matplotlib
-matplotlib.use('Qt5Agg', force=True)  # Same as eval_AUTOENCODER.py
+if _cli_args.model_path is not None:
+    matplotlib.use('Agg')  # headless: no display needed, writes PDFs directly
+else:
+    matplotlib.use('Qt5Agg', force=True)
 from matplotlib import pyplot as plt
 from inference import model_factory, load_model_and_config
 from model_paths import MULTI_MODEL_PATHS
+if _cli_args.model_path is not None:
+    MULTI_MODEL_PATHS = [_cli_args.model_path]
 
 # Your model imports
 from fm_utils import (

@@ -298,7 +298,7 @@ scp -r /Users/ege/Projects/FMRIR/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/pro
 scp -r eerdem@rossini1.ap.nii.ac.jp:~/FMRIR_experiments/VV_r1_ICASSP_M5_50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv12_500k_20250917-060509_iter500000 /Users/ege/Projects/FMRIR/artifacts
 
 # rossini2ye cloud-iov üzerinden ulaşıp locale
-scp -J cloud-iov -r nii-rossini2:~/EGE/FMRIR_experiments/KCL_fctx_UnetV2res_freq20_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260331-090815_iter400000 "/Volumes/T7 Shield/SFlow"
+scp -J cloud-iov -r nii-rossini2:~/EGE/FMRIR_experiments/KCL_ros10002val200_fctx_UnetV2res_freq20_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260415-110458_iter400000 "/Volumes/T7 Shield/SFlow/FMRIR_Experiments"
 #BELLİNİ'den locale
 scp -r eerdem@bellini1.ap.nii.ac.jp:~/FMRIR_experiments/VV_oldval_r1_ICASSP_M5_50_freq20_layer3_d512_eta0_head8_sigma1e3_lrWARM5k_e4_toe5_decay300_unet4v1_setv12_500k_20250917-051138_iter500000 /Users/ege/Projects/FMRIR/artifacts
 
