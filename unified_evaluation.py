@@ -10,9 +10,13 @@ _parser = _ap.ArgumentParser(add_help=False)
 _parser.add_argument('--model_path', type=str, default=None)
 _cli_args, _ = _parser.parse_known_args()
 
+import os
+if _cli_args.model_path is not None:
+    os.environ['MPLBACKEND_HEADLESS'] = '1'
+
 import matplotlib
 if _cli_args.model_path is not None:
-    matplotlib.use('Agg')  # headless: no display needed, writes PDFs directly
+    matplotlib.use('Agg')
 else:
     matplotlib.use('Qt5Agg', force=True)
 from matplotlib import pyplot as plt

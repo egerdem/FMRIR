@@ -1,5 +1,9 @@
 import matplotlib
-matplotlib.use('Qt5Agg', force=True)  # or 'TkAgg'
+import os as _os
+if _os.environ.get('MPLBACKEND_HEADLESS') == '1':
+    matplotlib.use('Agg')
+else:
+    matplotlib.use('Qt5Agg', force=True)  # or 'TkAgg'
 from matplotlib import pyplot as plt
 import torch
 import os
