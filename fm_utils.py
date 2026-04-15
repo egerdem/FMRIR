@@ -1364,6 +1364,31 @@ class Trainer(ABC):
             _lf.write('\n'.join(summary_lines) + '\n')
         print("--- END TIMING SUMMARY ---")
 
+        # Run unified_evaluation.py on the best model and append output to log.txt
+        _best_model_path = config.get('best_model_path') if config else None
+        if _best_model_path and os.path.exists(_best_model_path):
+            _data_dir = (config.get('data', {}).get('data_dir', '') if config else '').rstrip('/')
+            _eval_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'unified_evaluation.py')
+            import subprocess, sys
+            _eval_cmd = [sys.executable, _eval_script,
+                         '--model_path', _best_model_path,
+                         '--no_fsmpae',
+                         '--data_dir', _data_dir]
+            print(f"\n--- Running unified_evaluation on best model ---")
+            print(f"CMD: {' '.join(_eval_cmd)}\n")
+            with open(_log_path, 'a') as _lf:
+                _lf.write(f"\n--- unified_evaluation on best model ---\n")
+                _lf.write(f"CMD: {' '.join(_eval_cmd)}\n")
+            with subprocess.Popen(_eval_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                  text=True, bufsize=1) as _proc:
+                with open(_log_path, 'a') as _lf:
+                    for _line in _proc.stdout:
+                        print(_line, end='', flush=True)
+                        _lf.write(_line)
+            print(f"--- unified_evaluation finished ---")
+        else:
+            print("Skipping post-training evaluation (no best model path found).")
+
         return best_val_lsd
 
 
