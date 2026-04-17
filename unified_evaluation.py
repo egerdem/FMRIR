@@ -124,6 +124,36 @@ def load_reference_model(device):
     # Return FULL reference data (don't truncate here - let evaluation function handle it)
     return atf_mag_est, atf_mag_gt, config, data, fsmpae_model_freq_up_to, inv_perm_pt_to_ae
 
+def load_gt_from_sflow_sampler(model_config, num_sources_eval=None, data_dir=None):
+    """Build atf_mag_gt [1331, F, Src] from the SFlow test sampler — no FSMPAE needed."""
+    freq_up_to = model_config['model'].get('freq_up_to')
+    freq_from  = model_config['model'].get('freq_from', 0)
+    src_splits = model_config['data']['src_splits']
+    _data_dir  = data_dir or model_config['data'].get('data_dir', 'ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/')
+    model_name = model_config['model'].get('name')
+
+    train_sampler = ATF3DSampler(data_path=_data_dir, mode='train', src_splits=src_splits,
+                                 normalize=True, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name)
+    test_sampler  = ATF3DSampler(data_path=_data_dir, mode='test',  src_splits=src_splits,
+                                 normalize=False, freq_up_to=freq_up_to, freq_from=freq_from, model_name=model_name)
+    test_sampler.cubes = (test_sampler.cubes - train_sampler.mean) / (train_sampler.std + 1e-8)
+
+    n_src   = len(test_sampler)
+    if num_sources_eval is not None:
+        n_src = min(num_sources_eval, n_src)
+    mean_db = train_sampler.mean.item()
+    std_db  = train_sampler.std.item()
+    n_freq  = freq_up_to - freq_from  # bins in each cube
+
+    gt_list = []
+    for i in range(n_src):
+        cube_db = test_sampler.cubes[i] * std_db + mean_db  # [n_freq, D, H, W], denormalized
+        flat    = cube_db.view(n_freq, -1).T.contiguous()   # [1331, n_freq]
+        gt_list.append(flat)
+    atf_mag_gt_sflow = torch.stack(gt_list, dim=2)  # [1331, n_freq, n_src]
+    print(f"GT loaded from SFlow sampler: {atf_mag_gt_sflow.shape} (Mic, Freq, Src)")
+    return atf_mag_gt_sflow
+
 def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval=None,
                         guidance_scales=None, random_M_sampling=False, model_name=None,
                         normalize_coords=False, coord_mean=None, coord_std=None,
@@ -678,7 +708,8 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
                 ax = axes[i]
 
                 ax.plot(freq_axis, atf_mag_gt[mic_idx, :freq_up_to, src_idx], 'k--', label="True", linewidth=1.0)
-                ax.plot(freq_axis, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="FSMPAE", linewidth=0.9)
+                if atf_mag_est_ref is not None:
+                    ax.plot(freq_axis, atf_mag_est_ref[mic_idx, :freq_up_to, src_idx], 'r-', label="FSMPAE", linewidth=0.9)
                 if atf_mag_est_eeae is not None:
                     eeae_bins = atf_mag_est_eeae.shape[1]
                     ax.plot(freq_axis[:eeae_bins], atf_mag_est_eeae[mic_idx, :, src_idx], 'g-', label="EEAE", linewidth=0.9)
@@ -762,8 +793,8 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
     simulator = EulerSimulator(ode=ode_3d)
     
     # Initialize output array matching reference format [Guidance, Mic, Freq, Source]
-    total_mics = atf_mag_gt.shape[0]
-    total_sources = min(num_sources_eval or atf_mag_gt.shape[2], len(test_sampler))
+    total_mics = atf_mag_gt.shape[0] if atf_mag_gt is not None else 1331
+    total_sources = min(num_sources_eval, len(test_sampler)) if num_sources_eval is not None else len(test_sampler)
     your_atf_predictions = {w: torch.zeros(total_mics, eval_freq_up_to, total_sources) for w in guidance_scales}
     
     # Fixed M and parameters (from inference_1d_atf.py)
@@ -892,7 +923,6 @@ EEAE_COMPARISONS = []
 if _cli_args.eeae is not None:
     EEAE_COMPARISONS = _cli_args.eeae
 RUN_FSMPAE = not _cli_args.no_fsmpae
-RUN_FSMPAE = False
 
 def get_dataset_version_from_data_dir(data_dir: str) -> str:
     """Parse dataset version from the data_dir path stored in config.
@@ -1310,6 +1340,20 @@ if all_your_results:
         print(f"      Your models use SAME source-specific microphone selection")
         print(f"      (Different M=5 microphones for each source, as per reference)")
     print("="*80)
+
+# If FSMPAE is disabled but SFlow models ran, load GT from SFlow sampler so ATF plots can be generated.
+if not RUN_FSMPAE and atf_mag_gt is None and all_your_results and best_model and best_model in all_model_configs:
+    _best_config_for_gt = all_model_configs[best_model]
+    print("\n5a. Loading GT from SFlow sampler (no FSMPAE, GT needed for ATF plots)...")
+    atf_mag_gt = load_gt_from_sflow_sampler(
+        _best_config_for_gt, num_sources_eval=num_sources_eval, data_dir=_cli_args.data_dir
+    )
+    ref_config = {
+        'num_freq': _best_config_for_gt['model'].get('freq_up_to'),
+        'fs': 2000,
+        'num_mes_test': 5,
+    }
+    print(f"  Minimal ref_config for plots: {ref_config}")
 
 # Build/load cache for best SFlow model ATF predictions regardless of plotting.
 best_model_atf_predictions = None
