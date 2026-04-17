@@ -180,6 +180,7 @@ def get_src_splits_for_version(dataset_version: str) -> dict:
     """
     dataset_configs = {
         'r1': {"train": [0, 820], "valid": [820, 922], "test": [922, 1024]},
+        'r1val52': {"train": [0, 820], "valid": [820, 872], "test": [922, 1024]},  # 52 val sources (multiple of batch_size=4) for faster val LSD
         'r2': {"train": [[0, 820], [1024, 4096]], "valid": [820, 922], "test": [922, 1024]},
         'r3': {"train": [[0, 820], [1024, 8192]], "valid": [820, 922], "test": [922, 1024]},
         'r4': {"train": [[0, 820], [1324, 8192]], "valid": [[820, 922], [1024, 1324]], "test": [922, 1024]}
