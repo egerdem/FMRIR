@@ -103,7 +103,6 @@ def main(args):
                      "loss_type": args.loss_type, "freq_weight_max": args.freq_weight_max,
                      "validation_interval": args.validation_interval,
                      "lsd_validation_interval": args.lsd_validation_interval or args.validation_interval,
-                     "num_val_sources": args.num_val_sources,
                      "idx_mes_pos_path": args.idx_mes_pos_path,
                      "geo_conditioning": args.geo_conditioning},
         "experiments_dir": args.experiments_dir
@@ -313,7 +312,6 @@ def main(args):
         checkpoint_interval=args.checkpoint_interval,
         validation_interval=training_cfg['validation_interval'],
         lsd_validation_interval=training_cfg['lsd_validation_interval'],
-        num_val_sources=training_cfg['num_val_sources'],
         start_iteration=start_iteration,
         config=config,
         resume_checkpoint_state=resume_checkpoint_state,
@@ -404,8 +402,6 @@ if __name__ == '__main__':
     parser.add_argument('--validation_interval', type=int, default=20)
     parser.add_argument('--lsd_validation_interval', type=int, default=None,
                         help='How often to compute full LSD rollout. Defaults to validation_interval.')
-    parser.add_argument('--num_val_sources', type=int, default=None,
-                        help='Number of validation sources for LSD. Defaults to all.')
     parser.add_argument('--version', type=str, default="v3_attention",
                         help='Model architecture version, options: v1_legacy, v2_residual_context')
     parser.add_argument('--setencoder_version', type=str, default="v3",
