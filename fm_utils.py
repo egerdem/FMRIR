@@ -1001,6 +1001,7 @@ class Trainer(ABC):
               save_path: str = "model.pt",
               checkpoint_path: str = "checkpoints",
               validation_interval: Optional[int] = None,
+              lsd_validation_interval: Optional[int] = None,
               checkpoint_interval: Optional[int] = None,
               start_iteration: int = 0,
               config: dict = None,
@@ -1143,6 +1144,8 @@ class Trainer(ABC):
 
 
         # --- TRAINING LOOP ---
+        if lsd_validation_interval is None:
+            lsd_validation_interval = validation_interval
         batch_size = kwargs.get('batch_size')
         # dataset_size = len(self.path.p_data.spectrograms)
         dataset_size = len(self.path.p_data)
@@ -1187,7 +1190,9 @@ class Trainer(ABC):
                 pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}, Loss: {loss_float:.5f}')
 
             # **NEW: Validation loop**
-            if valid_sampler and (iteration + 1) % validation_interval == 0:
+            _do_val = valid_sampler and (iteration + 1) % validation_interval == 0
+            _do_lsd = valid_sampler and (iteration + 1) % lsd_validation_interval == 0
+            if _do_val or _do_lsd:
                 _val_start = time.time()
                 for model in self.models.values():
                     model.eval()
@@ -1197,17 +1202,22 @@ class Trainer(ABC):
                 _cpu_rng = torch.get_rng_state()
                 _cuda_rng = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
 
-                val_loss, val_lsd = self.get_valid_loss(valid_sampler=valid_sampler, **kwargs)
+                val_loss, val_lsd = self.get_valid_loss(valid_sampler=valid_sampler,
+                                                        compute_lsd=_do_lsd, **kwargs)
 
                 # Restore training RNG state
                 torch.set_rng_state(_cpu_rng)
                 if _cuda_rng is not None:
                     torch.cuda.set_rng_state_all(_cuda_rng)
+
+                _lsd_str = f'{val_lsd.item():.4f} dB' if val_lsd is not None else '(skipped)'
                 if wandb.run is not None:
-                    wandb.log({"val_loss": val_loss.item(), "val_lsd": val_lsd.item(),
-                               "epoch": current_epoch, "iteration": iteration}, step=iteration)
+                    log_dict = {"val_loss": val_loss.item(), "epoch": current_epoch, "iteration": iteration}
+                    if val_lsd is not None:
+                        log_dict["val_lsd"] = val_lsd.item()
+                    wandb.log(log_dict, step=iteration)
                 val_desc = (f'Epoch: {current_epoch:.4f}, Iter: {iteration}, '
-                            f'Loss: {loss.item():.5f}, Val MSE: {val_loss.item():.5f}, Val LSD: {val_lsd.item():.4f} dB')
+                            f'Loss: {loss.item():.5f}, Val MSE: {val_loss.item():.5f}, Val LSD: {_lsd_str}')
                 pbar.set_description(val_desc)
                 if (iteration + 1) % 1000 == 0:
                     _elapsed = time.time() - training_start_time
@@ -1218,7 +1228,7 @@ class Trainer(ABC):
                 best_val_loss = min(best_val_loss, val_loss.item())
 
                 # ── Primary criterion: save on best LSD ─────────────────────
-                if val_lsd < best_val_lsd:
+                if val_lsd is not None and val_lsd < best_val_lsd:
                     best_val_lsd = val_lsd
                     best_val_loss_time = time.time()
                     _elapsed = best_val_loss_time - training_start_time
@@ -1266,8 +1276,8 @@ class Trainer(ABC):
                     model.train()
                 _total_val_time += time.time() - _val_start
 
-                # Early stopping tracks LSD
-                if early_stopper.step(val_lsd):
+                # Early stopping tracks LSD (only when LSD was computed)
+                if val_lsd is not None and early_stopper.step(val_lsd):
                     print(f"--- Early stopping triggered at iteration {iteration} with val LSD: {val_lsd:.4f} dB ---")
                     flag_save = True
                     break
@@ -2402,8 +2412,12 @@ class ATF3DTrainer(Trainer):
         Returns (mean_fm_mse, mean_lsd) as scalar tensors.
         """
         batch_size = kwargs.get('batch_size')
+        num_val_sources = kwargs.get('num_val_sources', None)
+        compute_lsd = kwargs.get('compute_lsd', True)
         dev = self.dev
         n_val = len(valid_sampler.cubes)
+        if num_val_sources is not None:
+            n_val = min(num_val_sources, n_val)
         mean_db = valid_sampler.mean.to(dev)
         std_db  = valid_sampler.std.to(dev)
 
@@ -2451,28 +2465,29 @@ class ATF3DTrainer(Trainer):
             batch_mse = torch.mean(torch.square(ut_theta - ut_ref))
             all_mse.append(batch_mse)
 
-            # ── 2. Full ODE reconstruction → LSD ────────────────────────────
-            torch.manual_seed(start)  # same seed → same x0 for reproducibility
-            x0_recon = torch.randn_like(x1)
+            if compute_lsd:
+                # ── 2. Full ODE reconstruction → LSD ────────────────────────────
+                torch.manual_seed(start)  # same seed → same x0 for reproducibility
+                x0_recon = torch.randn_like(x1)
 
-            # ts shape: [B, N_STEPS+1, 1, 1, 1, 1]
-            ts = ts_1d.view(1, -1, 1, 1, 1, 1).expand(B, -1, -1, -1, -1, -1)
+                # ts shape: [B, N_STEPS+1, 1, 1, 1, 1]
+                ts = ts_1d.view(1, -1, 1, 1, 1, 1).expand(B, -1, -1, -1, -1, -1)
 
-            sim_kwargs = dict(y_tokens=y_tokens, obs_mask=obs_mask, pooled_context=pooled_context,
-                              freq_contexts=freq_contexts, silent=True)
+                sim_kwargs = dict(y_tokens=y_tokens, obs_mask=obs_mask, pooled_context=pooled_context,
+                                  freq_contexts=freq_contexts, silent=True)
 
-            x1_hat = simulator.simulate(x0_recon, ts, **sim_kwargs)  # [B, F, D, H, W]
+                x1_hat = simulator.simulate(x0_recon, ts, **sim_kwargs)  # [B, F, D, H, W]
 
-            # Denormalize both prediction and ground truth
-            x1_hat_db = x1_hat * std_db + mean_db
-            x1_db     = x1     * std_db + mean_db
+                # Denormalize both prediction and ground truth
+                x1_hat_db = x1_hat * std_db + mean_db
+                x1_db     = x1     * std_db + mean_db
 
-            # LSD: sqrt(mean_over_freq((pred-gt)^2)), then mean over all positions & batch
-            lsd = torch.sqrt(torch.mean((x1_hat_db - x1_db) ** 2, dim=1)).mean()
-            all_lsd.append(lsd)
+                # LSD: sqrt(mean_over_freq((pred-gt)^2)), then mean over all positions & batch
+                lsd = torch.sqrt(torch.mean((x1_hat_db - x1_db) ** 2, dim=1)).mean()
+                all_lsd.append(lsd)
 
         mean_fm_mse = torch.stack(all_mse).mean()
-        mean_lsd    = torch.stack(all_lsd).mean()
+        mean_lsd    = torch.stack(all_lsd).mean() if all_lsd else None
         return mean_fm_mse, mean_lsd
 
     def get_valid_loss(self, **kwargs):
