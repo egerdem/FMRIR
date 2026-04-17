@@ -80,7 +80,7 @@ def main(args):
     # This creates a baseline config that can be used immediately
     # Determine dataset version and src_splits from model name
     from fm_utils import get_dataset_version_from_model_name, get_src_splits_for_version
-    dataset_version = get_dataset_version_from_model_name(args.model_name)
+    dataset_version = args.dataset_version if args.dataset_version else get_dataset_version_from_model_name(args.model_name)
     src_splits_config = get_src_splits_for_version(dataset_version)
 
     config = {
@@ -334,6 +334,8 @@ if __name__ == '__main__':
 
     # --- Model ---
     parser.add_argument('--model_name', default="forPT_f40", type=str)
+    parser.add_argument('--dataset_version', type=str, default=None,
+                        help='Override dataset split version (e.g. r1val52). Defaults to inferring from model name.')
     parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128])
     parser.add_argument('--d_model', type=int, default=512, help='Dimension for tokens and context.')
     parser.add_argument('--nhead', type=int, default=8, help='Number of attention heads.')
