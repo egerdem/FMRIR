@@ -2415,9 +2415,8 @@ class ATF3DTrainer(Trainer):
         num_val_sources = kwargs.get('num_val_sources', None)
         compute_lsd = kwargs.get('compute_lsd', True)
         dev = self.dev
-        n_val = len(valid_sampler.cubes)
-        if num_val_sources is not None:
-            n_val = min(num_val_sources, n_val)
+        n_val_full = len(valid_sampler.cubes)
+        n_val_lsd = min(num_val_sources, n_val_full) if num_val_sources is not None else n_val_full
         mean_db = valid_sampler.mean.to(dev)
         std_db  = valid_sampler.std.to(dev)
 
@@ -2432,9 +2431,9 @@ class ATF3DTrainer(Trainer):
 
         all_mse, all_lsd = [], []
 
-        # Iterate over the full validation set in fixed-size batches
-        for start in range(0, n_val, batch_size):
-            end = min(start + batch_size, n_val)
+        # Iterate: FM MSE over all sources, LSD only over first n_val_lsd
+        for start in range(0, n_val_full, batch_size):
+            end = min(start + batch_size, n_val_full)
             idx = torch.arange(start, end)
             B = idx.shape[0]
 
@@ -2465,22 +2464,28 @@ class ATF3DTrainer(Trainer):
             batch_mse = torch.mean(torch.square(ut_theta - ut_ref))
             all_mse.append(batch_mse)
 
-            if compute_lsd:
+            if compute_lsd and start < n_val_lsd:
                 # ── 2. Full ODE reconstruction → LSD ────────────────────────────
+                # Cap batch to n_val_lsd boundary (last batch may be partial)
+                lsd_end = min(end, n_val_lsd)
+                x1_lsd = x1[:lsd_end - start]
                 torch.manual_seed(start)  # same seed → same x0 for reproducibility
-                x0_recon = torch.randn_like(x1)
+                x0_recon = torch.randn_like(x1_lsd)
 
-                # ts shape: [B, N_STEPS+1, 1, 1, 1, 1]
-                ts = ts_1d.view(1, -1, 1, 1, 1, 1).expand(B, -1, -1, -1, -1, -1)
+                B_lsd = x1_lsd.shape[0]
+                # ts shape: [B_lsd, N_STEPS+1, 1, 1, 1, 1]
+                ts = ts_1d.view(1, -1, 1, 1, 1, 1).expand(B_lsd, -1, -1, -1, -1, -1)
 
-                sim_kwargs = dict(y_tokens=y_tokens, obs_mask=obs_mask, pooled_context=pooled_context,
-                                  freq_contexts=freq_contexts, silent=True)
+                sim_kwargs = dict(y_tokens=y_tokens[:B_lsd], obs_mask=obs_mask[:B_lsd],
+                                  pooled_context=pooled_context[:B_lsd],
+                                  freq_contexts=freq_contexts[:B_lsd] if freq_contexts is not None else None,
+                                  silent=True)
 
-                x1_hat = simulator.simulate(x0_recon, ts, **sim_kwargs)  # [B, F, D, H, W]
+                x1_hat = simulator.simulate(x0_recon, ts, **sim_kwargs)  # [B_lsd, F, D, H, W]
 
                 # Denormalize both prediction and ground truth
-                x1_hat_db = x1_hat * std_db + mean_db
-                x1_db     = x1     * std_db + mean_db
+                x1_hat_db = x1_hat  * std_db + mean_db
+                x1_db     = x1_lsd  * std_db + mean_db
 
                 # LSD: sqrt(mean_over_freq((pred-gt)^2)), then mean over all positions & batch
                 lsd = torch.sqrt(torch.mean((x1_hat_db - x1_db) ** 2, dim=1)).mean()
