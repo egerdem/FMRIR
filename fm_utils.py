@@ -1348,6 +1348,8 @@ class Trainer(ABC):
         total_epochs = (iteration + 1) * batch_size / dataset_size
         pure_train_time = total_training_time - _total_val_time
         time_per_epoch = pure_train_time / total_epochs if total_epochs > 0 else 0
+        # Real wall-clock epoch time (train + validation + overhead)
+        time_per_epoch_real = total_training_time / total_epochs if total_epochs > 0 else 0
 
         # Rename model.pt -> model_{iter}_lsd{lsd:.4f}.pt now that training is done
         if os.path.exists(save_path) and best_val_lsd < float("inf"):
@@ -1359,13 +1361,15 @@ class Trainer(ABC):
             print(f"Best model saved as: {os.path.basename(named_path)}")
 
         summary_lines = [
-            f"--- Training finished. Best LSD: {best_val_lsd:.4f} dB | Best FM-MSE: {best_val_loss:.5f} | at iteration {best_iteration}. ---",
+            f"--- Training finished. Best LSD: {best_val_lsd:.4f} dB | Best FM-MSE: {best_val_loss:.5f} | at iteration {best_iteration} | at epoch {current_epoch} |. ---",
             f"--- TIMING SUMMARY ---",
             f"Total wall-clock time:       {format_time(total_training_time)}",
             f"  of which validation:       {format_time(_total_val_time)}",
             f"  pure training time:        {format_time(pure_train_time)}",
             f"Time to reach best LSD:      {format_time(time_to_best_val_loss)}",
             f"Avg time per epoch (train):  {format_time(time_per_epoch)}",
+            f"Avg time per epoch (TOTAL real): {time_per_epoch_real:.2f} sec",
+
             f"Total epochs completed:      {total_epochs:.2f}",
             f"--- END TIMING SUMMARY ---",
         ]
