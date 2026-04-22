@@ -1226,15 +1226,21 @@ class Trainer(ABC):
                     print(f"{val_desc} | elapsed: {format_time(_elapsed)}, avg: {_its:.2f} iter/s", flush=True)
 
                 # Always update FM-MSE tracker (reference only)
+                _new_best_fm = val_loss.item() < best_val_loss
                 best_val_loss = min(best_val_loss, val_loss.item())
 
-                # ── Primary criterion: save on best LSD ─────────────────────
-                if val_lsd is not None and val_lsd < best_val_lsd:
-                    best_val_lsd = val_lsd
+                # ── Primary criterion: LSD when available, FM-MSE as fallback ──
+                _lsd_improved = val_lsd is not None and val_lsd < best_val_lsd
+                _fm_fallback  = val_lsd is None and _new_best_fm
+                if _lsd_improved or _fm_fallback:
+                    if _lsd_improved:
+                        best_val_lsd = val_lsd
                     best_val_loss_time = time.time()
                     _elapsed = best_val_loss_time - training_start_time
+                    _metric_str = (f"New best LSD: {best_val_lsd:.4f} dB" if _lsd_improved
+                                   else f"New best FM-Loss: {best_val_loss:.5f} (LSD skipped)")
                     _best_msg = (f"** [Iter {iteration} | Epoch {current_epoch:.1f}] "
-                                 f"New best LSD: {best_val_lsd:.4f} dB | "
+                                 f"{_metric_str} | "
                                  f"Elapsed: {format_time(_elapsed)} **")
                     print(_best_msg)
                     with open(_log_path, 'a') as _lf:
