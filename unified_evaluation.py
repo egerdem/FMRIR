@@ -699,6 +699,8 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
         # source count, so we never need to reconstruct an ATF3DSampler just for this.
         if grid_xyz is None:
             raise ValueError("grid_xyz must be passed to plot_atf_comparisons to avoid cache invalidation")
+        # VM runs often keep grid_xyz on CUDA; convert once for NumPy-based plot titles.
+        grid_xyz_cpu = grid_xyz.detach().cpu() if isinstance(grid_xyz, torch.Tensor) else grid_xyz
         
         for src_idx in source_indices:
             fig, axes = plt.subplots(5, 1, figsize=(10, 4*5))
@@ -721,7 +723,7 @@ def plot_atf_comparisons(atf_mag_est_ref, atf_mag_est_yours, atf_mag_gt, ref_con
                 ax.set_xlabel("Frequency (Hz)", fontsize=8)
                 ax.set_ylabel("Magnitude (dB)", fontsize=8)
 
-                mic_coord = grid_xyz[mic_idx].numpy()
+                mic_coord = grid_xyz_cpu[mic_idx].numpy()
                 ax.set_title(f"ATF ({mic_coord[0]:.2f} m, {mic_coord[1]:.2f} m, {mic_coord[2]:.2f} m)", fontsize=9)
                 ax.legend(fontsize=7, loc='upper right', ncol=2)
                 print(f"Plotting Source {src_idx+922}, Mic {mic_idx} (index {i+1}/5)")
