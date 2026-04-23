@@ -337,7 +337,7 @@ if __name__ == '__main__':
     parser.add_argument('--model_name', default="_BIGDATA_", type=str)
     parser.add_argument('--dataset_version', type=str, default=None,
                         help='Override dataset split version (e.g. r1val52). Defaults to inferring from model name.')
-    parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[32, 64, 128])
+    parser.add_argument('--channels', type=lambda s: [int(item) for item in s.split(',')], default=[256,512,1024])
     parser.add_argument('--d_model', type=int, default=512, help='Dimension for tokens and context.')
     parser.add_argument('--nhead', type=int, default=8, help='Number of attention heads.')
     parser.add_argument('--num_encoder_layers', type=int, default=3, help='Layers in the SetEncoder.')
@@ -370,17 +370,17 @@ if __name__ == '__main__':
                         help="Number of iterations for linear LR warm-up.")
     parser.add_argument('--decay_iterations', type=int, default=100000,
                         help="Number of iterations for the cosine decay phase. The rest will be constant min_lr.")
-    parser.add_argument('--min_lr', type=float, default=1e-7,
+    parser.add_argument('--min_lr', type=float, default=1e-5,
                         help="The minimum learning rate at the end of the cosine decay.")
-    parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5, 50])
-    parser.add_argument('--M_val_fixed', type=int, default= None)
+    parser.add_argument('--M_range', type=lambda s: [int(item) for item in s.split(',')], default=[5,10,20,50])
+    parser.add_argument('--M_val_fixed', type=int, default= 5)
     parser.add_argument('--save_start_iter', type=int, default=0,
                         help='Skip saving model checkpoints until this iteration. Avoids frequent saves early in training.')
 
     parser.add_argument('--freq_up_to', type=int, default=64, help='Upper freq bin (exclusive upper bound of subband)')
 
     parser.add_argument('--freq_from', type=int, default=0, help='Lower freq bin (inclusive). Default 0 = full range from DC. Set e.g. 20 to train on bins 20..freq_up_to only.')
-    parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.1)
+    parser.add_argument('--eta', type=float, help='Probability for CFG dropout.', default=0.)
     parser.add_argument('--sigma', type=float, help='Sigma for noise in the path.', default=0)
     parser.add_argument('--loss_type', type=str, default='standard',
                         choices=['standard', 'weighted', 'freq_weighted'],
@@ -388,7 +388,7 @@ if __name__ == '__main__':
     parser.add_argument('--freq_weight_max', type=float, default=3.0,
                         help='For --loss_type freq_weighted: weight applied to the highest freq bin '
                              '(bin 0 always has weight 1.0). Default 3.0.')
-    parser.add_argument('--idx_mes_pos_path', type=str, default= None,
+    parser.add_argument('--idx_mes_pos_path', type=str, default= "idx_mes_pos_s8192_m1331.npy",
                         help='Path to the deterministic mic permutation matrix for validation.')
 
     parser.add_argument('--FM_vs_Diff', type=str, default='flow_matching', choices=['flow_matching', 'score_matching'])
@@ -407,8 +407,8 @@ if __name__ == '__main__':
     parser.add_argument('--validation_interval', type=int, default=20)
     parser.add_argument('--lsd_validation_interval', type=int, default=None,
                         help='How often to compute full LSD rollout. Defaults to validation_interval.')
-    parser.add_argument('--version', type=str, default="v3_attention",
-                        help='Model architecture version, options: v1_legacy, v2_residual_context')
+    parser.add_argument('--version', type=str, default="v2_residual_context",
+                        help='Model architecture version, options: v1_legacy, v2_residual_context, v3_attention')
     parser.add_argument('--setencoder_version', type=str, default="v3",
                         help='setencoder architecture version, e.g. v12:merged feature, v3:pos embed')
 
