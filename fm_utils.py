@@ -1293,26 +1293,26 @@ class Trainer(ABC):
                 pbar.set_description(f'Epoch: {current_epoch:.2f}, Iter: {iteration}')
 
             # --- Periodic Checkpointing Logic ---
-            # if (iteration + 1) % checkpoint_interval == 0:
-            #     print(f"\n--- Saving checkpoint at iteration {iteration + 1} ---")
-            #     ckpt_save_path = os.path.join(checkpoint_path, f"ckpt_{iteration + 1}.pt")
-            #
-            #     y_null_to_save = getattr(self.models.get('set_encoder'), 'y_null_token', getattr(self, 'y_null', None))
-            #
-            #     # Save checkpoint for resuming training (latest state)
-            #     checkpoint_state = {
-            #         'iteration': iteration + 1,
-            #         'model_states': {key: model.state_dict() for key, model in self.models.items()},
-            #         # 'model_state_dict': self.model.state_dict(),
-            #         'optimizer_state_dict': opt.state_dict(),
-            #         'best_val_loss': best_val_loss,
-            #         'best_iteration': best_iteration,
-            #         'config': config,
-            #         'wandb_run_id': config.get('wandb_run_id'),
-            #         'is_best': False,  # Flag to indicate this is latest checkpoint
-            #         'y_null_token': y_null_to_save,
-            #     }
-            #     torch.save(checkpoint_state, ckpt_save_path)
+            if (iteration + 1) % checkpoint_interval == 0:
+                print(f"\n--- Saving checkpoint at iteration {iteration + 1} ---")
+                ckpt_save_path = os.path.join(checkpoint_path, f"ckpt_{iteration + 1}.pt")
+
+                y_null_to_save = getattr(self.models.get('set_encoder'), 'y_null_token', getattr(self, 'y_null', None))
+
+                # Save checkpoint for resuming training (latest state)
+                checkpoint_state = {
+                    'iteration': iteration + 1,
+                    'model_states': {key: model.state_dict() for key, model in self.models.items()},
+                    # 'model_state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': opt.state_dict(),
+                    'best_val_loss': best_val_loss,
+                    'best_iteration': best_iteration,
+                    'config': config,
+                    'wandb_run_id': config.get('wandb_run_id'),
+                    'is_best': False,  # Flag to indicate this is latest checkpoint
+                    'y_null_token': y_null_to_save,
+                }
+                torch.save(checkpoint_state, ckpt_save_path)
 
         # --- Save final checkpoint ---
         final_iteration = iteration + 1
