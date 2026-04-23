@@ -11,6 +11,7 @@ _parser.add_argument('--model_path', type=str, default=None)
 _parser.add_argument('--no_fsmpae', action='store_true', default=False)
 _parser.add_argument('--eeae', type=int, nargs='*', default=None)
 _parser.add_argument('--data_dir', type=str, default=None)
+_parser.add_argument('--M', type=int, nargs='+', default=None)
 _cli_args, _ = _parser.parse_known_args()
 
 import os
@@ -222,7 +223,7 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
     idx_mes_pos_path = "AUTOENCODER/ATF_interp/idx_mes_pos_s1024_m1331.npy"
     idx_mes_pos_mat = np.load(idx_mes_pos_path)
     print(f"Loaded reference microphone selection matrix: {idx_mes_pos_mat.shape}")
-    print("Using source-specific microphone selection (different M=5 mics per source)")
+    print("Using source-specific microphone selection (different mic subsets per source)")
     model_dir_for_cache = os.path.dirname(os.path.abspath(model_path)) if model_path else None
 
     # Precompute denormalized GT in [Mic, Freq, Src] for fast cached-metric evaluation.
@@ -308,7 +309,7 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                         # or choose randomly
                         if random_M_sampling:
                             source_specific_indices = torch.randperm(grid_xyz.shape[0])[:M]
-                        else: # Use source-specific microphones (different M=5 for each source)
+                        else: # Use source-specific microphones (different subsets for each source)
                             source_specific_indices = idx_mes_pos_mat[:M, i]  # First M mics for this source
 
                         obs_indices = torch.tensor(source_specific_indices, dtype=torch.long, device=device)
@@ -824,7 +825,7 @@ def get_your_model_atf_predictions(set_encoder, ode_3d, config, device, atf_mag_
                 print("odtü", obs_indices)
 
             else:
-                # Use source-specific microphones (different M=5 for each source)
+                # Use source-specific microphones (different subsets for each source)
                 source_specific_indices = idx_mes_pos_mat[:M, src_idx]  # First M mics for this source
                 obs_indices = torch.tensor(source_specific_indices, dtype=torch.long, device=device)
                 print("odtü", obs_indices)
@@ -924,6 +925,10 @@ EEAE_COMPARISONS = []
 # CLI overrides (applied after constant defaults above)
 if _cli_args.eeae is not None:
     EEAE_COMPARISONS = _cli_args.eeae
+if _cli_args.M is not None:
+    if any(m <= 0 for m in _cli_args.M):
+        raise ValueError(f"--M values must be positive integers, got: {_cli_args.M}")
+    M_values = _cli_args.M
 RUN_FSMPAE = not _cli_args.no_fsmpae
 
 def get_dataset_version_from_data_dir(data_dir: str) -> str:
@@ -1086,6 +1091,7 @@ mode_title = '=== REFERENCE-ONLY EVALUATION ===' if REFERENCE_ONLY else (
 )
 print(mode_title)
 print(f"Device: {device}")
+print(f"M values: {M_values}")
 if not REFERENCE_ONLY:
     for i, (path, name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)):
         print(f"  Model {i+1}: {name}")
@@ -1258,30 +1264,35 @@ print("M_fundamental = 5 specific evaluation positions [0, 272, 665, 937, 1330] 
 print("Full cube = All 1331 spatial positions")
 if ref_config is not None:
     print(f"FAIR COMPARISON: All methods evaluated on first {eval_freq_up_to} bins (0-{eval_freq_up_to*ref_config['fs']//2//ref_config['num_freq']:.0f} Hz)")
-print("-"*190)
-print(f"{'Method':<45} | {'w':<4} | {'LSD M_fund':<12} | {'MSE M_fund':<12} | {'LSD Full':<12} | {'MSE Full':<12} | {'NMSE Full (dB)':<14} | {'Freq Range':<15}")
-print("-"*190)
+print("-"*220)
+print(f"{'Method':<45} | {'w':<4} | {'LSD M_fund (mean±std)':<23} | {'MSE M_fund':<12} | {'LSD Full (mean±std)':<21} | {'MSE Full':<12} | {'NMSE Full (dB)':<14} | {'Freq Range':<15}")
+print("-"*220)
 
 # Reference model - USE MATCHED FREQUENCY RANGE for fair comparison
 ref_lsd_full_fair = ref_mse_m_fund = ref_lsd_m_fund = ref_mse_full_fair = ref_nmse_full_fair = None
+ref_lsd_std_m_fund = ref_lsd_std_full_fair = None
 if RUN_FSMPAE and ref_results is not None:
     ref_lsd_m_fund = ref_results['lsd_mean_m_fund']
+    ref_lsd_std_m_fund = ref_results['lsd_std_m_fund']
     ref_mse_m_fund = ref_results['mse_mean_m_fund']
     ref_lsd_full_fair = ref_results.get('lsd_mean_matched_freq', ref_results['lsd_mean'])
+    ref_lsd_std_full_fair = ref_results.get('lsd_std_matched_freq', ref_results['lsd_std'])
     ref_mse_full_fair = ref_results.get('mse_mean_matched_freq', ref_results['mse_mean'])
     ref_nmse_full_fair = ref_results.get('nmse_mean_matched_freq', ref_results['nmse_mean'])
-    print(f"{'Reference FSMPAE 10026 (M=' + str(ref_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {ref_lsd_m_fund:.4f}     | {ref_mse_m_fund:.4f}     | {ref_lsd_full_fair:.4f}     | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {eval_freq_up_to} bins':<15}")
+    print(f"{'Reference FSMPAE 10026 (M=' + str(ref_results['num_mics']) + ' mics)':<45} | {'N/A':<4} | {f'{ref_lsd_m_fund:.4f}±{ref_lsd_std_m_fund:.4f}':<23} | {ref_mse_m_fund:.4f}     | {f'{ref_lsd_full_fair:.4f}±{ref_lsd_std_full_fair:.4f}':<21} | {ref_mse_full_fair:.4f}     | {ref_nmse_full_fair:.4f}       | {f'First {eval_freq_up_to} bins':<15}")
 
 for eeae_id, eeae_results in eeae_results_by_id.items():
     eeae_lsd_m_fund = eeae_results['lsd_mean_m_fund']
+    eeae_lsd_std_m_fund = eeae_results['lsd_std_m_fund']
     eeae_mse_m_fund = eeae_results['mse_mean_m_fund']
     eeae_lsd_full_fair = eeae_results.get('lsd_mean_matched_freq', eeae_results['lsd_mean'])
+    eeae_lsd_std_full_fair = eeae_results.get('lsd_std_matched_freq', eeae_results['lsd_std'])
     eeae_mse_full_fair = eeae_results.get('mse_mean_matched_freq', eeae_results['mse_mean'])
     eeae_nmse_full_fair = eeae_results.get('nmse_mean_matched_freq', eeae_results['nmse_mean'])
     print(
         f"{'Reference EEAE ' + str(eeae_id) + ' (M=' + str(eeae_results['num_mics']) + ' mics)':<45} | "
-        f"{'N/A':<4} | {eeae_lsd_m_fund:.4f}     | {eeae_mse_m_fund:.4f}     | "
-        f"{eeae_lsd_full_fair:.4f}     | {eeae_mse_full_fair:.4f}     | {eeae_nmse_full_fair:.4f}       | "
+        f"{'N/A':<4} | {f'{eeae_lsd_m_fund:.4f}±{eeae_lsd_std_m_fund:.4f}':<23} | {eeae_mse_m_fund:.4f}     | "
+        f"{f'{eeae_lsd_full_fair:.4f}±{eeae_lsd_std_full_fair:.4f}':<21} | {eeae_mse_full_fair:.4f}     | {eeae_nmse_full_fair:.4f}       | "
         f"{f'First {eval_freq_up_to} bins':<15}"
     )
 
@@ -1296,19 +1307,22 @@ for model_name, model_results in all_your_results.items():
         # Print results for each guidance scale
         for w in guidance_scales:
             your_lsd_m_fund = model_results[M][w]['lsd_mean_m_fund']
+            your_lsd_std_m_fund = model_results[M][w]['lsd_std_m_fund']
             your_mse_m_fund = model_results[M][w]['mse_mean_m_fund']
             your_lsd_full = model_results[M][w]['lsd_mean']
+            your_lsd_std_full = model_results[M][w]['lsd_std']
             your_mse_full = model_results[M][w]['mse_mean']
             your_nmse_full = model_results[M][w]['nmse_mean']
 
-            print(f"{display:<{COL_W}} | {w:<4.1f} | {your_lsd_m_fund:.4f}     | {your_mse_m_fund:.4f}     | {your_lsd_full:.4f}     | {your_mse_full:.4f}     | {your_nmse_full:.4f}       | {f'First {eval_freq_up_to} bins':<15}")
-            print("-"*190)
+            print(f"{display:<{COL_W}} | {w:<4.1f} | {f'{your_lsd_m_fund:.4f}±{your_lsd_std_m_fund:.4f}':<23} | {your_mse_m_fund:.4f}     | {f'{your_lsd_full:.4f}±{your_lsd_std_full:.4f}':<21} | {your_mse_full:.4f}     | {your_nmse_full:.4f}       | {f'First {eval_freq_up_to} bins':<15}")
+            print("-"*220)
 
 # Find best model and guidance scale combination
 if all_your_results:
     best_model = None
     best_guidance = None
     best_lsd = float('inf')
+    best_lsd_std = None
     best_results = {}  # Store best results for reuse
 
     for model_name, model_results in all_your_results.items():
@@ -1316,18 +1330,23 @@ if all_your_results:
             for w in guidance_scales:
                 if model_results[M][w]['lsd_mean'] < best_lsd:
                     best_lsd = model_results[M][w]['lsd_mean']
+                    best_lsd_std = model_results[M][w]['lsd_std']
                     best_model = model_name
                     best_guidance = w
                     best_results = {
                         'model': best_model,
                         'guidance': best_guidance,
-                        'lsd': best_lsd
+                        'lsd': best_lsd,
+                        'lsd_std': best_lsd_std
                     }
 
     print("="*80)
     print(f"🏆 BEST MODEL: {best_model}")
     print(f"   Best Guidance Scale: {best_guidance}")
-    print(f"   Best LSD: {best_lsd:.4f} dB")
+    if best_lsd_std is not None:
+        print(f"   Best LSD: {best_lsd:.4f} ± {best_lsd_std:.4f} dB")
+    else:
+        print(f"   Best LSD: {best_lsd:.4f} dB")
     if best_model in all_model_info:
         best_model_info = all_model_info[best_model]
         print(f"   Model Parameters: {best_model_info['total_params_str']}")
@@ -1340,7 +1359,7 @@ if all_your_results:
         print(f"Note: Ref models use M={ref_results['num_mics']} observation microphones")
         print(f"      Reference uses source-specific microphone selection")
         print(f"      Your models use SAME source-specific microphone selection")
-        print(f"      (Different M=5 microphones for each source, as per reference)")
+        print("      (Different source-specific microphone subsets per source)")
     print("="*80)
 
 # If FSMPAE is disabled but SFlow models ran, load GT from SFlow sampler so ATF plots can be generated.
