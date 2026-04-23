@@ -43,6 +43,8 @@ def arg_parser():
                         help="Force loading from per-source .npz files (disable processed .pt loading).")
     parser.add_argument("--use_processed_pt", action="store_true",
                         help="Force loading from processed .pt files (default behavior).")
+    parser.add_argument("--metrics_only", action="store_true",
+                        help="Test mode only: compute and print metrics without plotting PDFs or saving prediction tensors.")
     args = parser.parse_args()
     return args
 
@@ -183,12 +185,12 @@ def test(net, flg_save, best_loss, data, mode, use_coeff=False, coeff=None, use_
                         prediction_all[data_type][dataset_name] = th.zeros_like(data['atf_mag'][dataset_name][:,:,0,:])
             prediction_all[data_type][dataset_name][..., src_id:src_id+1] = prediction[data_type].permute(th.arange(prediction[data_type].dim())[1:].tolist() + [0])
         
-        if flg_save or src_id == config['src_index'][dataset_name][mode_str][0] - config['src_index'][dataset_name][mode_str][0]:
+        if (not config.get("metrics_only", False)) and (flg_save or src_id == config['src_index'][dataset_name][mode_str][0] - config['src_index'][dataset_name][mode_str][0]):
             if 'atf_mag' in config["data_type_interp"]:
                 #=== plot atf_mag ====
                 utils.plotatfmag(micpos=data_slice['mic_position'][0,:,:].cpu(), sig_gt=data_slice['atf_mag'][0,:,:], sig_pred=prediction['atf_mag'][0,:,:], config=config, idx_plot_list=np.linspace(0, data_slice['atf_mag'].shape[1]-1, 5, dtype=int),  figdir=f"{config['artifacts_dir']}/figure/atf/", fname=f"{config['artifacts_dir']}/figure/atf/ATF_Mag_{data_slice['dataset'][0]}-src-{data_slice['src_index'][0]+1}_{mode}", data_type = 'atf_mag')
                 
-        if flg_save and src_id == config['src_index'][dataset_name][mode_str][-1] - config['src_index'][dataset_name][mode_str][0]:
+        if (not config.get("metrics_only", False)) and flg_save and src_id == config['src_index'][dataset_name][mode_str][-1] - config['src_index'][dataset_name][mode_str][0]:
             for data_type in prediction_all:
                 pt_dir = f'{config["artifacts_dir"]}/{data_type}'
                 os.makedirs(pt_dir, exist_ok=True)
@@ -766,10 +768,14 @@ if __name__ == "__main__":
     print("artifacts_dir: " + config["artifacts_dir"])
     os.makedirs(config["artifacts_dir"], exist_ok=True)
 
+    config["metrics_only"] = bool(getattr(args, "metrics_only", False))
+
     if args.test:
         flg_train = False
-        flg_save = True
+        flg_save = not config["metrics_only"]
         print("Test")
+        if config["metrics_only"]:
+            print("Metrics-only mode: plotting and artifact tensor saves are disabled.")
     else:
         flg_train = True
         flg_save = False
@@ -820,7 +826,7 @@ if __name__ == "__main__":
         net.load_from_file(config["artifacts_dir"]+'/network.best.net')
         print(net)
         print("=====================")
-        loss = test(net, True, -1, testdataset, f'test{config["timestamp"]}')
+        loss = test(net, flg_save, -1, testdataset, f'test{config["timestamp"]}')
     
     elif config["model"] in ["NF"]:        
         traindataset = idataset
@@ -841,7 +847,7 @@ if __name__ == "__main__":
         net.load_from_file(config["artifacts_dir"]+'/network.best.net')
         print(net)
         print("=====================")
-        testNF(config, net, testdataset, -1, mode="test")
+        testNF(config, net, testdataset, -1, mode="test", flg_save=flg_save)
 
     elif config["model"] in ["KRR"]:
         testKRR(config, testdataset)
