@@ -1357,14 +1357,21 @@ class Trainer(ABC):
         # Real wall-clock epoch time (train + validation + overhead)
         time_per_epoch_real = total_training_time / total_epochs if total_epochs > 0 else 0
 
-        # Rename model.pt -> model_{iter}_lsd{lsd:.4f}.pt now that training is done
-        if os.path.exists(save_path) and best_val_lsd < float("inf"):
-            named_path = os.path.join(experiment_dir, f"model_{best_iteration}_lsd{float(best_val_lsd):.4f}.pt")
-            os.rename(save_path, named_path)
-            config['best_model_path'] = named_path
-            with open(_config_path, 'w') as _f:
-                json.dump(config, _f, indent=4)
-            print(f"Best model saved as: {os.path.basename(named_path)}")
+        # Rename model.pt -> model_{iter}_{metric}_{val}.pt now that training is done
+        if os.path.exists(save_path):
+            if best_val_lsd < float("inf"):
+                named_path = os.path.join(experiment_dir, f"model_{best_iteration}_lsd{float(best_val_lsd):.4f}.pt")
+            elif best_val_loss < float("inf"):
+                named_path = os.path.join(experiment_dir, f"model_{best_iteration}_fmMSE{float(best_val_loss):.5f}.pt")
+            else:
+                named_path = None
+
+            if named_path:
+                os.rename(save_path, named_path)
+                config['best_model_path'] = named_path
+                with open(_config_path, 'w') as _f:
+                    json.dump(config, _f, indent=4)
+                print(f"Best model saved as: {os.path.basename(named_path)}")
 
         summary_lines = [
             f"--- Training finished. Best LSD: {best_val_lsd:.4f} dB | Best FM-MSE: {best_val_loss:.5f} | at iteration {best_iteration} | at epoch {current_epoch} |. ---",
