@@ -1116,6 +1116,14 @@ if not REFERENCE_ONLY:
 
         checkpoint, config, model_states_cfg = load_model_and_config(model_path, device)
 
+        # Print model metadata
+        _ckpt_iter = checkpoint.get('iteration', 'Unknown')
+        _ckpt_fm = checkpoint.get('best_val_loss', 'Unknown')
+        _ckpt_lsd = checkpoint.get('best_val_lsd', 'Unknown')
+        print(f"  [Checkpoint Metadata] Iteration: {_ckpt_iter}")
+        if _ckpt_fm != 'Unknown': print(f"  [Checkpoint Metadata] Best Val FM-MSE: {_ckpt_fm:.5f}")
+        if _ckpt_lsd != 'Unknown': print(f"  [Checkpoint Metadata] Best Val LSD: {_ckpt_lsd}")
+
         # Create and load models
         set_encoder, unet_3d, ode_3d, is_new_model = model_factory(config, model_states_cfg, device)
 
