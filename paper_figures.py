@@ -27,13 +27,12 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 SEED = 36 # 42
 
 # Data paths
-DATA_DIR = "ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200/"
+DATA_DIR = "/Volumes/T7 Shield/SFlow/ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200/"
 AUTOENCODER_PATH = "AUTOENCODER/src"
-MIC_SELECTION_PATH = "AUTOENCODER/ATF_interp/idx_mes_pos_s1024_m1331.npy"
-
+MIC_SELECTION_PATH = "idx_mes_pos_s8192_m1331.npy"
 # Reference model result paths
-# FSMPAE_RESULTS_PATH = "RESULTS/out_20250323_FSMPAE_10026/atf_mag/atf_mag_test_ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200.pt"
-FSMPAE_RESULTS_PATH = "RESULTS/out_20250916_EEAE_10001/atf_mag/atf_mag_test_ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200_freq20.pt"
+FSMPAE_RESULTS_PATH = "RESULTS/out_20250916_EEAE_10001/atf_mag/atf_mag_test_ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200_M5.pt"
+FSMPAE_RESULTS_PATH = "/Volumes/T7 Shield/SFlow/AE_OUTPUTS/outputs/out20260408_EEAE10003/atf_mag/atf_mag_test_ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200_M5.pt"
 KRR_RESULTS_PATH = "RESULTS/out_20250324_KRR_10004/atf_mag/atf_mag_test_ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200.pt"
 
 # ATF plotting constants
@@ -305,6 +304,7 @@ def generate_SFfigures_FM(model_path, freq_idx_to_plot,
         
         # Row 2: Generated field
         print(f"  Generating field for {freq_hz:.1f} Hz...")
+        print(f"source index: {src_idx}")
         
         # Set up simulator
         fm_vs_diff = config['model'].get('FM_vs_Diff', 'flow_matching')
@@ -430,20 +430,22 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
                           z_slice_idx=5, guidance_scale=1.0,
                           num_timesteps=10,
                           save_dir="paper_figures",
-                          idx_mes_pos_mat=None):
+                          idx_mes_pos_mat=None, plot_krr=False):
     import sys
 
     sys.path.append(AUTOENCODER_PATH)
     import AUTOENCODER.src.dataset as autoencoder_dataset
-    from AUTOENCODER.src.configs import config_FSMPAE_10026
+    from AUTOENCODER.src.configs import config_EEAE_10008
 
-    config = config_FSMPAE_10026.copy()
+    config = config_EEAE_10008.copy()
+    config['use_processed_pt'] = False
+    config['data_dir'] = "/Volumes/T7 Shield/SFlow"
     original_cwd = os.getcwd()
     os.chdir('AUTOENCODER')
     idataset = autoencoder_dataset.ATFdataset(config=config)
     data = idataset.Data
     # dataset_name = config['dataset'][0]
-    mic_position = data['test']['mic_position']['ir_fs2000_s1024_m1331_room4.0x6.0x3.0_rt200']
+    mic_position = data['test']['mic_position']['ir_fs2000_s8192_m1331_room4.0x6.0x3.0_rt200']
     os.chdir(original_cwd)
 
     """
@@ -526,28 +528,29 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
     grid_xyz_np = grid_xyz.cpu().numpy()
     unique_z = np.unique(grid_xyz_np[:, 2])  # Z coordinates are in column 2
     print(f"Available Z heights: {unique_z}")
-    print(f"Z-slice index {z_slice_idx} corresponds to Z height: {unique_z[z_slice_idx]:.3f} m")
+
+    # Normalise per-row parameters to lists of equal length
+    n_rows = len(freq_idx_to_plot)
+    z_slice_list = z_slice_idx if isinstance(z_slice_idx, list) else [z_slice_idx] * n_rows
+    srcind_list  = srcind       if isinstance(srcind,       list) else [srcind]       * n_rows
+    assert len(z_slice_list) == n_rows and len(srcind_list) == n_rows, \
+        "freq_idx_to_plot, z_slice_idx, and srcind must all have the same length"
+    for i, zs in enumerate(z_slice_list):
+        print(f"  Row {i}: freq_idx={freq_idx_to_plot[i]}, z_slice={zs} ({unique_z[zs]:.2f} m), src={srcind_list[i]}")
 
     # Set separate seed for M sampling if provided
     M = SPARSE_M
-    M_values = [M] * len(freq_idx_to_plot)
+    M_values = [M] * n_rows
     print(f"Using M={M} microphones for all frequencies")
 
-
-    # Pre-generate source indices for each frequency
+    # Pre-generate source indices — one per row
     source_indices = []
     z_trues = []
     src_xyzs = []
-    for _ in freq_idx_to_plot:
-        # z_true, src_xyz, srcind = test_sampler.sample(1)
-        # z_true, src_xyz = z_true.to(device), src_xyz.to(device)
-
-        z_true = test_sampler.cubes[srcind[0]].unsqueeze(0).to(device)
-        src_idx = srcind[0] if isinstance(srcind, (list, tuple, np.ndarray)) else int(srcind)
-
-
+    for i in range(n_rows):
+        src_idx = int(srcind_list[i])
+        z_true  = test_sampler.cubes[src_idx].unsqueeze(0).to(device)
         src_xyz = test_sampler.source_coords[src_idx].unsqueeze(0).to(device)
-
         source_indices.append(src_idx)
         z_trues.append(z_true)
         src_xyzs.append(src_xyz)
@@ -559,7 +562,7 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
     for i, freq_idx in enumerate(freq_idx_to_plot):
         M_current = M_values[i]
         # source_specific_mic_indices = idx_mes_pos_mat[:M_current, srcind]
-        source_specific_mic_indices = idx_mes_pos_mat[:M_current, src_idx].reshape(-1)
+        source_specific_mic_indices = idx_mes_pos_mat[:M_current, source_indices[i]].reshape(-1)
 
         print("source_specific_mic_indices ", source_specific_mic_indices)
         for i in source_specific_mic_indices:
@@ -575,7 +578,7 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
     # Original: 5 methods × 3 frequencies = 15 plots
     # New: 3 frequencies × 5 methods = 15 plots
     num_frequencies = len(freq_idx_to_plot)
-    num_methods = 5  # Input Mics, True Field, SF-Flow, AE Field, KRR Field
+    num_methods = 5 if plot_krr else 4  # Input Mics, True Field, SF-Flow, AE Field, KRR Field (optional)
     
     fig, axes = plt.subplots(num_frequencies, num_methods, figsize=(4.5 * num_methods, 4.5 * num_frequencies))
     plt.subplots_adjust(right=0.84)  # leave more room for colorbars
@@ -610,8 +613,13 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
     fsmpae_results = torch.load(FSMPAE_RESULTS_PATH)
     print(f"  FSMPAE loaded: {fsmpae_results.shape}")
 
-    krr_results = torch.load(KRR_RESULTS_PATH)
-    print(f"  KRR loaded: {krr_results.shape}")
+    if plot_krr:
+        krr_results = torch.load(KRR_RESULTS_PATH)
+        print(f"  KRR loaded: {krr_results.shape}")
+    else:
+        krr_results = None
+
+    row_lsd_values = []
 
     # Process each frequency
     for freq_row_idx, freq_idx in enumerate(freq_idx_to_plot):
@@ -632,44 +640,60 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
         obs_values = z_flat[:, obs_indices].transpose(0, 1)
 
         # Batchify for the set encoder
-        obs_coords_rel = obs_coords_rel.unsqueeze(0)
+        obs_coords_rel = obs_coords_rel.unsqueeze(0)  # [1, M, 3]
         obs_values = obs_values.unsqueeze(0)
         obs_mask = torch.ones(1, M_current, dtype=torch.bool, device=device)
+
+        # Geo-conditioning: append 6 source-to-wall distances if model was trained with --geo_conditioning
+        _geo = config.get('training', {}).get('geo_conditioning', False)
+        if _geo:
+            import re as _re
+            _rm = _re.search(r'room(\d+\.?\d*)x(\d+\.?\d*)x(\d+\.?\d*)', DATA_DIR)
+            if _rm is None:
+                raise ValueError("coord_dim=9 but room dims not found in DATA_DIR path")
+            Lx, Ly, Lz = float(_rm.group(1)), float(_rm.group(2)), float(_rm.group(3))
+            sp = src_xyz  # [1, 3]
+            d_walls = torch.stack([
+                sp[:, 0], Lx - sp[:, 0],
+                sp[:, 1], Ly - sp[:, 1],
+                sp[:, 2], Lz - sp[:, 2],
+            ], dim=-1)  # [1, 6]
+            d_walls_exp = d_walls.unsqueeze(1).expand(-1, M_current, -1)  # [1, M, 6]
+            obs_coords_rel = torch.cat([obs_coords_rel, d_walls_exp], dim=-1)  # [1, M, 9]
 
         # Get conditioning tokens for this frequency
         y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
 
-        # Method 0: Input microphone configuration (2D scatter plot) - only show in middle row
+        # Method 0: Input microphone configuration (2D scatter plot) - show for every row
         ax_scatter = axes[freq_row_idx, 0]
-        
-        if freq_row_idx == len(freq_idx_to_plot) // 2:  # Only show scatter plot in middle row
-            obs_xyz_plot = obs_xyz_abs.cpu().numpy()
-            sc = ax_scatter.scatter(obs_xyz_plot[:, 0], obs_xyz_plot[:, 1],
-                                    c=obs_xyz_plot[:, 2], cmap='coolwarm', s=20,
-                                    vmin=-0.5, vmax=0.5)
-            ax_scatter.set_aspect('equal', adjustable='box')
-            ax_scatter.set_xlim(-0.6, 0.6)
-            ax_scatter.set_ylim(-0.6, 0.6)
-            
-            # Add axis labels and ticks for scatter plot
-            ax_scatter.set_xlabel('x (m)', fontsize=10)
-            ax_scatter.set_ylabel('  y (m)', fontsize=10)
-            ax_scatter.set_xticks([-0.5, 0.0, 0.5])
-            ax_scatter.set_xticklabels(['-0.5', '0.0', '0.5'])
-            ax_scatter.set_yticks([-0.5, 0.0, 0.5])
-            ax_scatter.set_yticklabels(['-0.5', '0.0', '0.5'])
-            
-            # Store scatter plot for colorbar
-            last_scatter_plot = sc
-            last_scatter_ax = ax_scatter
-        else:
-            # Hide other scatter plot positions
-            ax_scatter.axis('off')
+        obs_xyz_plot = obs_xyz_abs.cpu().numpy()
+        sc = ax_scatter.scatter(obs_xyz_plot[:, 0], obs_xyz_plot[:, 1],
+                                c=obs_xyz_plot[:, 2], cmap='coolwarm', s=20,
+                                vmin=-0.5, vmax=0.5)
+        ax_scatter.set_aspect('equal', adjustable='box')
+        ax_scatter.set_xlim(-0.6, 0.6)
+        ax_scatter.set_ylim(-0.6, 0.6)
+        ax_scatter.set_xlabel('x (m)', fontsize=10)
+        ax_scatter.set_ylabel('  y (m)', fontsize=10)
+        ax_scatter.set_xticks([-0.5, 0.0, 0.5])
+        ax_scatter.set_xticklabels(['-0.5', '0.0', '0.5'])
+        ax_scatter.set_yticks([-0.5, 0.0, 0.5])
+        ax_scatter.set_yticklabels(['-0.5', '0.0', '0.5'])
+        # Per-row Z-height colorbar
+        cax_z = inset_axes(ax_scatter, width="5%", height="100%", loc='lower left',
+                           bbox_to_anchor=(1.02, 0., 1, 1),
+                           bbox_transform=ax_scatter.transAxes, borderpad=0)
+        cb_z = fig.colorbar(sc, cax=cax_z)
+        cb_z.set_label('Z-height (m)', size=7)
+        cb_z.ax.tick_params(labelsize=6)
+        last_scatter_plot = sc
+        last_scatter_ax = ax_scatter
 
         # Row 1: True field
+        z_slice_row = z_slice_list[freq_row_idx]
         z_true_denorm = (z_true * std + mean)
         gt_cube_raw = z_true_denorm[0, freq_idx].cpu().numpy()
-        gt_slice = gt_cube_raw[z_slice_idx, :, :]
+        gt_slice = gt_cube_raw[z_slice_row, :, :]
 
         axes[freq_row_idx, 1].imshow(gt_slice, origin='lower', cmap='viridis',
                                      vmin=gt_slice.min(), vmax=gt_slice.max())
@@ -694,8 +718,12 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
             simulator = EulerSimulator(ode=ode_3d)
             simulator.ode.guidance_scale = guidance_scale
 
-            # Start from pure noise
+            # Start from pure noise — seed is deterministic per (src, freq, z) so
+            # any row can be reproduced in isolation.
+            _row_seed = (src_idx * 10007 + freq_idx * 997 + z_slice_row) % (2**31)
+            torch.manual_seed(_row_seed)
             x0 = torch.randn_like(z_true)
+            torch.manual_seed(SEED)  # restore global seed
             xt = x0.clone()
 
             ts = torch.linspace(0, 1, num_timesteps + 1, device=device)
@@ -711,7 +739,7 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
         # Plot generated field
         x1_recon_denorm = (x1_recon * std + mean)
         recon_cube_to_plot = x1_recon_denorm[0, freq_idx].detach().cpu().numpy()
-        recon_slice = recon_cube_to_plot[z_slice_idx, :, :]
+        recon_slice = recon_cube_to_plot[z_slice_row, :, :]
 
         grid_xyz_np = grid_xyz.cpu().numpy()
         print("grid_xyz shape: ", grid_xyz_np.shape)
@@ -723,7 +751,7 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
         if fsmpae_results is not None:
             atf_mag_est = fsmpae_results[: , :freq_up_to, :]
             fsmpae_slice = atf_mag_est[idx_dist, freq_idx, srcind].reshape(11, 11)
-            print("shape fsmpae_cube_3d: ", fsmpae_slice)
+            # print("shape fsmpae_cube_3d: ", fsmpae_slice)
             # fsmpae_slice = fsmpae_cube_3d[freq_idx, z_slice_idx, :, :]  # [y, x]
 
         if krr_results is not None:
@@ -760,24 +788,25 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
         axes[freq_row_idx, 3].set_yticks([0, 5, 10])
         axes[freq_row_idx, 3].set_yticklabels(['-0.5', '0.0', '0.5'])
 
-        # Method 4: KRR Field
-        axes[freq_row_idx, 4].imshow(krr_slice, origin='lower', cmap='viridis',
-                                     vmin=gt_slice.min(), vmax=gt_slice.max())
-        # axes[freq_row_idx, 4].set_title("KRR Field")
-        
-        # Add axis labels and ticks for KRR Field
-        axes[freq_row_idx, 4].set_xlabel('x (m)', fontsize=10)
-        axes[freq_row_idx, 4].set_ylabel('y (m)', fontsize=10)
-        axes[freq_row_idx, 4].yaxis.set_label_position('right')
-        axes[freq_row_idx, 4].yaxis.tick_right()
-        axes[freq_row_idx, 4].set_xticks([0, 5, 10])
-        axes[freq_row_idx, 4].set_xticklabels(['-0.5', '0.0', '0.5'])
-        axes[freq_row_idx, 4].set_yticks([0, 5, 10])
-        axes[freq_row_idx, 4].set_yticklabels(['-0.5', '0.0', '0.5'])
+        if plot_krr:
+            # Method 4: KRR Field
+            axes[freq_row_idx, 4].imshow(krr_slice, origin='lower', cmap='viridis',
+                                         vmin=gt_slice.min(), vmax=gt_slice.max())
+            # axes[freq_row_idx, 4].set_title("KRR Field")
+            
+            # Add axis labels and ticks for KRR Field
+            axes[freq_row_idx, 4].set_xlabel('x (m)', fontsize=10)
+            axes[freq_row_idx, 4].set_ylabel('y (m)', fontsize=10)
+            axes[freq_row_idx, 4].yaxis.set_label_position('right')
+            axes[freq_row_idx, 4].yaxis.tick_right()
+            axes[freq_row_idx, 4].set_xticks([0, 5, 10])
+            axes[freq_row_idx, 4].set_xticklabels(['-0.5', '0.0', '0.5'])
+            axes[freq_row_idx, 4].set_yticks([0, 5, 10])
+            axes[freq_row_idx, 4].set_yticklabels(['-0.5', '0.0', '0.5'])
 
         # Calculate and display metrics
         slice_metrics = calculate_slice_metrics(x1_recon_denorm[0], z_true_denorm[0],
-                                                freq_idx, z_slice_idx)
+                                                freq_idx, z_slice_row)
 
         # Add metrics text under the generated field
         # metric_text = f"MSE: {slice_metrics['mse']:.3f}\nLSD: {slice_metrics['lsd']:.3f} dB"
@@ -787,6 +816,7 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
         #                       bbox=dict(facecolor='white', alpha=0.8,
         #                                 edgecolor='none', pad=2))
 
+        row_lsd_values.append(slice_metrics['lsd'])
         print(f"  Metrics - MSE: {slice_metrics['mse']:.4f}, LSD: {slice_metrics['lsd']:.4f} dB")
     
     # Make axis borders almost invisible by reducing line weight
@@ -805,17 +835,13 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
                         spine.set_alpha(0.3)
                     # Make tick marks smaller and lighter
                     ax.tick_params(axis='both', which='major', labelsize=8, width=0.2, length=2, color='gray', labelcolor='gray')
-    # Add Z-height colorbar for input microphones (attach to all scatter plots for consistent sizing)
-    middle_scatter_ax = axes[len(freq_idx_to_plot) // 2, 0]
-    cbar_z = fig.colorbar(last_scatter_plot, ax=middle_scatter_ax, fraction=0.046, pad=0.08, shrink=1.0)
-    cbar_z.set_label('Z-height (m)', size=8)
-    cbar_z.ax.tick_params(labelsize=6)
+    # (Z-height colorbars are added per-row inside the main loop via inset_axes)
 
     # ---- PER-ROW NORMALIZE (own scale per frequency row) ----
     for row, freq_idx in enumerate(freq_idx_to_plot):
         # Build a Normalize from the row's ground-truth slice
         z_true_denorm_row = (z_trues[row] * std + mean)
-        gt_slice_row = z_true_denorm_row[0, freq_idx].cpu().numpy()[z_slice_idx, :, :]
+        gt_slice_row = z_true_denorm_row[0, freq_idx].cpu().numpy()[z_slice_list[row], :, :]
 
         row_norm = matplotlib.colors.Normalize(vmin=gt_slice_row.min(),
                                                vmax=gt_slice_row.max())
@@ -849,7 +875,11 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
         cb.ax.tick_params(labelsize=6)
 
     # Column labels for methods (skip True Field since it shows frequency titles)
-    method_labels = ["Input Mics", "", "SF-Flow", "AE", "KRR"]
+    if plot_krr:
+        method_labels = ["Input Mics", "", "SF-Flow", "AE", "KRR"]
+    else:
+        method_labels = ["Input Mics", "", "SF-Flow", "AE"]
+
     for method_idx, label in enumerate(method_labels):
         if label:  # Only set title if label is not empty
             axes[0, method_idx].set_title(label, fontsize=12, fontweight='bold', pad=10)
@@ -858,14 +888,17 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
 
     # Adjust layout to provide space for colorbars on the right and prevent overflow
     plt.tight_layout()
-    plt.subplots_adjust(top=0.80, left=0.12, right=0.84, hspace=0.3, wspace=0.4)
+    plt.subplots_adjust(top=0.92, left=0.12, right=0.84, hspace=0.55, wspace=0.4)
 
     # Generate descriptive filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    freq_str = "_".join([f"{int(f)}Hz" for f in freq_hz_labels])
-    architecture_short = architecture if architecture else "unknown"
+    _uniq = lambda vals, fmt: fmt(vals[0]) if len(set(vals)) == 1 else "_".join(fmt(v) for v in vals)
+    freq_str = _uniq(freq_hz_labels,   lambda f: f"{int(f)}Hz")
+    fidx_str = _uniq(freq_idx_to_plot, lambda fi: f"f{fi}")
+    src_str  = "_".join([f"src{s}" for s in srcind_list])
+    z_str    = _uniq(z_slice_list,     lambda z: f"z{z}")
+    lsd_str  = "_".join([f"{v:.2f}" for v in row_lsd_values])
 
-    filename = f"paper_fig_{architecture_short}_freqs_{freq_str}_z{z_slice_idx}_w{guidance_scale}__{timestamp}.pdf"
+    filename = f"{src_str}_{fidx_str}_freqs_{freq_str}_{z_str}_w{guidance_scale}_lsd{lsd_str}.pdf"
     save_path = os.path.join(save_dir, filename)
 
     # Create save directory if it doesn't exist
@@ -884,16 +917,10 @@ def generate_SFfigures_FM_V2(model_path, srcind, freq_idx_to_plot=[5, 10, 15, 20
     # plt.close(fig)
     print(f"\nFigure saved to: {save_path}")
 
-    # fig.savefig(save_path, dpi=300, bbox_inches='tight', format='pdf')
-    
-    # print(f"\nFigure saved to: {save_path}")
-
-    plt.show()
-
     return save_path
 
 def generate_atf_plots(model_path, source_indices=[0], mic_indices=[665], 
-                      save_dir="paper_figures", guidance_scale=1.0, num_timesteps=10):
+                      save_dir="paper_figures", guidance_scale=1.0, num_timesteps=10, plot_krr=False):
     """
     Generate clean ATF comparison plots: Reference (FSMPAE), Reference (KRR), Your Model.
     Efficient version that only generates what's needed for specific source/mic combinations.
@@ -928,11 +955,14 @@ def generate_atf_plots(model_path, source_indices=[0], mic_indices=[665],
         assert "WRONG PATH"
 
         
-    if os.path.exists(KRR_RESULTS_PATH):
-        krr_results = torch.load(KRR_RESULTS_PATH, weights_only=False) 
-        print(f"  KRR loaded: {krr_results.shape}")
+    if plot_krr:
+        if os.path.exists(KRR_RESULTS_PATH):
+            krr_results = torch.load(KRR_RESULTS_PATH, weights_only=False) 
+            print(f"  KRR loaded: {krr_results.shape}")
+        else:
+            assert "WRONG PATH"
     else:
-        assert "WRONG PATH"
+        krr_results = None
 
     
     # 2. Load ground truth (lightweight - reuse existing approach)
@@ -940,9 +970,11 @@ def generate_atf_plots(model_path, source_indices=[0], mic_indices=[665],
     import sys
     sys.path.append(AUTOENCODER_PATH)
     import AUTOENCODER.src.dataset as autoencoder_dataset
-    from AUTOENCODER.src.configs import config_FSMPAE_10026
+    from AUTOENCODER.src.configs import config_EEAE_10008
     
-    ref_config = config_FSMPAE_10026.copy()
+    ref_config = config_EEAE_10008.copy()
+    ref_config['use_processed_pt'] = False
+    ref_config['data_dir'] = "/Volumes/T7 Shield/SFlow"
     original_cwd = os.getcwd()
     os.chdir('AUTOENCODER')
     idataset = autoencoder_dataset.ATFdataset(config=ref_config)
@@ -1008,6 +1040,22 @@ def generate_atf_plots(model_path, source_indices=[0], mic_indices=[665],
         
         obs_xyz_abs = grid_xyz[obs_indices]
         obs_coords_rel = (obs_xyz_abs - src_xyz).unsqueeze(0)
+        
+        # Geo-conditioning support
+        if config.get('training', {}).get('geo_conditioning', False):
+            import re as _re
+            _rm = _re.search(r'room(\d+\.?\d*)x(\d+\.?\d*)x(\d+\.?\d*)', DATA_DIR)
+            if _rm is None:
+                raise ValueError("geo_conditioning is enabled but room dims not found in DATA_DIR path")
+            Lx, Ly, Lz = float(_rm.group(1)), float(_rm.group(2)), float(_rm.group(3))
+            sp = src_xyz  # [1, 3]
+            d_walls = torch.stack([
+                sp[:, 0], Lx - sp[:, 0],
+                sp[:, 1], Ly - sp[:, 1],
+                sp[:, 2], Lz - sp[:, 2],
+            ], dim=-1)  # [1, 6]
+            d_walls_exp = d_walls.unsqueeze(1).expand(-1, ATF_M, -1)
+            obs_coords_rel = torch.cat([obs_coords_rel, d_walls_exp], dim=-1)
         
         z_flat = z_true.view(z_true.shape[1], -1)
         obs_values = z_flat[:, obs_indices].transpose(0, 1).unsqueeze(0)
@@ -1098,10 +1146,13 @@ if __name__ == '__main__':
 
 
     # SF FOR MULTI PLOTTING ONLY FM
-    model_path = MODEL_LOAD_PATH
+    
+    model_path = "/Volumes/T7 Shield/SFlow/FMRIR_experiments/KCL_10001_fctx_UnetV2res_freq20_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260415-030023_iter400000/model_363699_lsd1.7755.pt"
+    model_path = "/Volumes/T7 Shield/SFlow/FMRIR_experiments/KCL_ros10002val200_fctx_UnetV2res_freq20_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_400k_20260415-110458_iter400000/model_214999_lsd1.7980.pt"
+    model_path = "/Volumes/T7 Shield/SFlow/FMRIR_experiments/KCL_ros10008val200_fctx_UnetV2res_freq64_Val102_Mval5_r1_M5_10_20_50_layer3_d512_eta0_head8_sigma0_lrWARM5k_e4_toe5_decay100_setv3_unet3_256to1024v2_110k_20260421-091511_iter100000/model_89199_lsd5.5800.pt"
     GENERATE_SF_PLOTS = False
     GENERATE_SF_PLOTS_V2 = True
-    GENERATE_ATF_PLOTS = True  # Set to True to generate ATF comparison plots
+    GENERATE_ATF_PLOTS = False   # Set to True to generate ATF comparison plots
 
 
     print("Starting paper figures generation...")
@@ -1109,7 +1160,7 @@ if __name__ == '__main__':
     # 1. Generate sound field figures
     if GENERATE_SF_PLOTS:
 
-        freq_idx_to_plot = [15,20]  # Frequency bin indices
+        freq_idx_to_plot = [15,19]  # Frequency bin indices
         z_slice_idx = 5  # Z-slice index
         guidance_scale = 1  # Guidance scale
         # Range for number of microphones
@@ -1137,10 +1188,12 @@ if __name__ == '__main__':
     if GENERATE_SF_PLOTS_V2:
         # SF FOR ALL METHODS
         SPARSE_M = 5
-        srcind = [0] # 88, 66, 0, 12,
+        # srcind = [0,12,88] # 88, 66, 0, 12,
+        srcind = [58,98,77] # 88, 66, 0, 12,
         guidance_scale = 1  # Guidance scale
-        freq_idx_to_plot = [19]  # 4, 15
-        z_slice_idx = 10
+        # freq_idx_to_plot = [4,15,19]  # 4, 15, 19
+        freq_idx_to_plot = [4,19,58]  # 4, 15, 19
+        z_slice_idx = [4,3,2] # 2, 5,
         num_timesteps = 10
 
         MIC_SELECTION_PATH = "./idx_mes_pos_s1024_m1331.npy"
@@ -1152,7 +1205,8 @@ if __name__ == '__main__':
                 guidance_scale=guidance_scale,
                 num_timesteps=num_timesteps,
                 save_dir="paper_figures",
-                idx_mes_pos_mat=idx_mes_pos_mat)
+                idx_mes_pos_mat=idx_mes_pos_mat,
+                plot_krr=True)
 
 
     #
@@ -1167,8 +1221,10 @@ if __name__ == '__main__':
     if GENERATE_ATF_PLOTS:
         # ATF comparison configuration
         atf_model_path = model_path  # Can use different model for ATF plots
-        atf_source_indices = [0]  # Specific source indices to plot
-        atf_mic_indices = [665]  # Specific microphone indices to plot
+        atf_source_indices = list(range(10))  # First 10 sources (standard unified_evaluation setup)
+        atf_source_indices = [98] # -922
+        # atf_mic_indices = [0, 272, 665, 937, 1330]  # Front/Back, Top/Bottom, Left/Right + Center
+        atf_mic_indices = [0]  # Front/Back, Top/Bottom, Left/Right + Center
         atf_guidance_scale = 1.0  # Guidance scale for ATF plots
         atf_num_timesteps = 10  # Timesteps for ATF generation
 
@@ -1179,7 +1235,8 @@ if __name__ == '__main__':
             mic_indices=atf_mic_indices,
             save_dir="paper_figures",
             guidance_scale=atf_guidance_scale,
-            num_timesteps=atf_num_timesteps
+            num_timesteps=atf_num_timesteps,
+            plot_krr=False
         )
 
         print(f"📁 ATF comparisons saved to: {atf_output_dir}")

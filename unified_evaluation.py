@@ -4,14 +4,17 @@ import os
 import json
 import glob
 import hashlib
+import time
 from tqdm import tqdm
 import argparse as _ap
 _parser = _ap.ArgumentParser(add_help=False)
 _parser.add_argument('--model_path', type=str, default=None)
-_parser.add_argument('--no_fsmpae', action='store_true', default=False)
+_parser.add_argument('--no_fsmpae', action='store_true', default=True)
 _parser.add_argument('--eeae', type=int, nargs='*', default=None)
 _parser.add_argument('--data_dir', type=str, default=None)
 _parser.add_argument('--M', type=int, nargs='+', default=None)
+_parser.add_argument('--timing_warmup_sources', type=int, default=5)
+_parser.add_argument('--disable_timing', action='store_true', default=False)
 _cli_args, _ = _parser.parse_known_args()
 
 import os
@@ -158,7 +161,8 @@ def load_gt_from_sflow_sampler(model_config, num_sources_eval=None, data_dir=Non
 def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sources_eval=None,
                         guidance_scales=None, random_M_sampling=False, model_name=None,
                         normalize_coords=False, coord_mean=None, coord_std=None,
-                        eval_freq_up_to=None, model_path=None, data_dir=None):
+                        eval_freq_up_to=None, model_path=None, data_dir=None,
+                        timing_warmup_sources=5, enable_inference_timing=True):
     """
     Evaluate your 3D model.
 
@@ -218,6 +222,10 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
     
     simulator = EulerSimulator(ode=ode_3d)
     results = {}
+
+    def _sync_if_cuda():
+        if device.type == 'cuda':
+            torch.cuda.synchronize(device)
     
     # Load the SAME microphone selection strategy as reference model
     idx_mes_pos_path = "AUTOENCODER/ATF_interp/idx_mes_pos_s1024_m1331.npy"
@@ -272,6 +280,8 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
             results[M][w] = {}  # Initialize the dictionary for this guidance scale
             print(f"  Using guidance scale w={w}")
             lsd_scores = []
+            timing_ms_per_source = []
+            timed_loop_wall_start = None
             cache_meta = None
             cache_path = None
             if model_dir_for_cache is not None:
@@ -301,6 +311,9 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
             else:
                 pred_cache_tensor = torch.zeros((1331, eval_freq_up_to, eval_sources), dtype=torch.float32)
             # Evaluate each source with this guidance scale
+                if enable_inference_timing:
+                    _sync_if_cuda()
+                    timed_loop_wall_start = time.perf_counter()
                 for i in tqdm(range(eval_sources), desc=f"Your Model M={M}, w={w}"):
                     with torch.no_grad():
                         z_true = test_sampler.cubes[i].unsqueeze(0).to(device)
@@ -342,6 +355,9 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
 
                         # Inference
                         x0 = torch.randn_like(z_true)
+                        if enable_inference_timing:
+                            _sync_if_cuda()
+                            _tic = time.perf_counter()
                         y_tokens, pooled_context, freq_contexts = set_encoder(obs_coords_rel, obs_values, obs_mask)
 
                         ts = torch.linspace(0, 1, 11, device=device)
@@ -353,6 +369,9 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                                                  obs_mask=obs_mask, pooled_context=pooled_context,
                                                  freq_contexts=freq_contexts,
                                                  paste_observations=True, obs_indices=obs_indices)
+                        if enable_inference_timing:
+                            _sync_if_cuda()
+                            timing_ms_per_source.append((time.perf_counter() - _tic) * 1e3)
 
                         # Calculate MSE and LSD in denormalized (dB) domain
                         z_est_denorm = z_est * spec_std + train_sampler.mean.item()
@@ -431,6 +450,40 @@ def evaluate_your_model(set_encoder, ode_3d, config, M_values, device, num_sourc
                 'model_freq_up_to': model_freq_up_to,
                 'eval_freq_up_to': eval_freq_up_to
             })
+
+            if enable_inference_timing and len(timing_ms_per_source) > 0:
+                warmup = max(0, min(int(timing_warmup_sources), len(timing_ms_per_source)))
+                timed_samples = timing_ms_per_source[warmup:]
+                if len(timed_samples) == 0:
+                    timed_samples = timing_ms_per_source
+                    warmup = 0
+                wall_elapsed_s = (time.perf_counter() - timed_loop_wall_start) if timed_loop_wall_start is not None else None
+                timing_stats = {
+                    'enabled': True,
+                    'cache_hit': False,
+                    'warmup_sources_ignored': warmup,
+                    'num_timed_sources': len(timed_samples),
+                    'mean_ms': float(np.mean(timed_samples)),
+                    'std_ms': float(np.std(timed_samples)),
+                    'median_ms': float(np.median(timed_samples)),
+                    'p95_ms': float(np.percentile(timed_samples, 95)),
+                    'sum_ms': float(np.sum(timed_samples)),
+                    'wall_total_s': float(wall_elapsed_s) if wall_elapsed_s is not None else None,
+                }
+                results[M][w]['inference_timing'] = timing_stats
+                print(
+                    f"  Timing (M={M}, w={w}): mean={timing_stats['mean_ms']:.2f} ms/src, "
+                    f"p95={timing_stats['p95_ms']:.2f} ms/src, "
+                    f"sum={timing_stats['sum_ms'] / 1000.0:.2f} s for {timing_stats['num_timed_sources']} sources "
+                    f"(warmup={timing_stats['warmup_sources_ignored']})"
+                )
+            elif cache_meta is not None and 'per_source_errors' in results[M][w]:
+                # Cache-hit path has no fresh forward passes to time.
+                results[M][w]['inference_timing'] = {
+                    'enabled': bool(enable_inference_timing),
+                    'cache_hit': True,
+                    'note': 'Timing unavailable on cache hit. Delete cache to benchmark fresh inference.'
+                }
     
     return results, idx_mes_pos_mat, grid_xyz
 
@@ -919,7 +972,7 @@ REFERENCE_ONLY = False
 EVAL_FREQ_UP_TO = None
 
 # Add/remove EEAE runs to compare. Empty list disables EEAE evaluation.
-# Example: EEAE_COMPARISONS = [10001, 10002, 10003]
+# Example: EEAE_COMPARISONS = [10001, 10002, 10003, 10004]
 EEAE_COMPARISONS = []
 
 # CLI overrides (applied after constant defaults above)
@@ -930,6 +983,8 @@ if _cli_args.M is not None:
         raise ValueError(f"--M values must be positive integers, got: {_cli_args.M}")
     M_values = _cli_args.M
 RUN_FSMPAE = not _cli_args.no_fsmpae
+TIMING_WARMUP_SOURCES = max(0, int(_cli_args.timing_warmup_sources))
+ENABLE_INFERENCE_TIMING = not _cli_args.disable_timing
 
 def get_dataset_version_from_data_dir(data_dir: str) -> str:
     """Parse dataset version from the data_dir path stored in config.
@@ -1092,6 +1147,8 @@ mode_title = '=== REFERENCE-ONLY EVALUATION ===' if REFERENCE_ONLY else (
 print(mode_title)
 print(f"Device: {device}")
 print(f"M values: {M_values}")
+print(f"Inference timing: {'enabled' if ENABLE_INFERENCE_TIMING else 'disabled'} "
+      f"(warmup_sources={TIMING_WARMUP_SOURCES})")
 if not REFERENCE_ONLY:
     for i, (path, name) in enumerate(zip(MULTI_MODEL_PATHS, MODEL_NAMES)):
         print(f"  Model {i+1}: {name}")
@@ -1176,11 +1233,17 @@ if not REFERENCE_ONLY:
         all_model_paths[model_name] = model_path
 
 # Load reference methods and decide eval_freq_up_to
-if RUN_FSMPAE:
-    print("\n2. Loading reference AUTOENCODER model...")
+if RUN_FSMPAE or EEAE_COMPARISONS:
+    if not RUN_FSMPAE:
+        print("\n2. Loading reference structural definitions (FSMPAE predictions will be discarded since --no_fsmpae)...")
+    else:
+        print("\n2. Loading reference AUTOENCODER model...")
     atf_mag_est, atf_mag_gt, ref_config, ref_data, fsmpae_model_freq_up_to, ref_inv_perm_pt_to_ae = load_reference_model(device)
+    if not RUN_FSMPAE:
+        atf_mag_est = None  # Discard FSMPAE predictions
+        fsmpae_model_freq_up_to = None
 else:
-    print("\n2. Skipping FSMPAE reference model (--no_fsmpae).")
+    print("\n2. Skipping AUTOENCODER references.")
     atf_mag_est = atf_mag_gt = ref_config = ref_data = fsmpae_model_freq_up_to = ref_inv_perm_pt_to_ae = None
 
 eeae_atf_est_by_id = {}
@@ -1191,6 +1254,8 @@ if EEAE_COMPARISONS:
         eeae_pt_path = find_eeae_prediction_path(eeae_id)
         print(f"  Loading EEAE {eeae_id} from {eeae_pt_path}...")
         eeae_atf_est = torch.load(eeae_pt_path, weights_only=False)
+        if eeae_atf_est.dim() == 4 and eeae_atf_est.shape[0] == 1:
+            eeae_atf_est = eeae_atf_est.squeeze(0)
         # Align EEAE predictions to the same PT canonical mic order as reference GT.
         eeae_atf_est = eeae_atf_est[ref_inv_perm_pt_to_ae, :, :]
         eeae_atf_est_by_id[eeae_id] = eeae_atf_est
@@ -1236,6 +1301,8 @@ else:
             eval_freq_up_to=eval_freq_up_to,
             model_path=model_path,
             data_dir=_cli_args.data_dir,
+            timing_warmup_sources=TIMING_WARMUP_SOURCES,
+            enable_inference_timing=ENABLE_INFERENCE_TIMING,
         )
         all_your_results[model_name] = model_results
         all_model_grid_xyz = _grid_xyz  # fixed 11^3 room grid
@@ -1521,7 +1588,7 @@ if GENERATE_PLOTS and all_your_results:
             ]
             eeae_mean_lsd = np.mean(eeae_lsd)
             plt.plot(
-                source_indices, eeae_lsd, '-', color=eeae_colors[cidx],
+                _comb_src_indices, eeae_lsd, '-', color=eeae_colors[cidx],
                 label=f'EEAE {eeae_id} (mean: {eeae_mean_lsd:.4f} dB)',
                 alpha=0.8, linewidth=2
             )
